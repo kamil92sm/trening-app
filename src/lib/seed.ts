@@ -244,8 +244,7 @@ export function defaultState(): AppState {
  * Dokłada historię startową (treningi z tygodni 2–4 logowane poza apką) do
  * istniejących sesji. Pomija sesję, jeśli już jest (to samo id) ALBO jeśli
  * użytkownik ma własny wpis z tego samego dnia i dnia planu (ochrona przed
- * duplikatami). Wywoływana tylko przy migracji ze starej wersji — po niej
- * usunięcie sesji z historii jest trwałe.
+ * duplikatami).
  */
 export function mergeHistoricalSessions(existing: Session[]): Session[] {
   const merged = [...existing];
@@ -264,18 +263,18 @@ export function mergeHistoricalSessions(existing: Session[]): Session[] {
  */
 export function migrateState(raw: unknown): AppState {
   const fresh = defaultState();
-  if (!raw || typeof raw !== "object") return fresh;
+  if (!raw || typeof raw !== "object") return seedHistoryOnce(fresh);
   const old = raw as Partial<AppState>;
 
   if (old.version === SCHEMA_VERSION && Array.isArray(old.exercises) && Array.isArray(old.days)) {
     // Aktualny schemat — dołóż tylko ewentualne braki w settings.
-    return {
+    return seedHistoryOnce({
       ...fresh,
       ...old,
       version: SCHEMA_VERSION,
       settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
       targets: { ...fresh.targets, ...(old.targets ?? {}) },
-    } as AppState;
+    } as AppState);
   }
 
   // Stara wersja: nowy plan + zachowana historia. Cele (targets) użytkownika
@@ -289,13 +288,24 @@ export function migrateState(raw: unknown): AppState {
     if (typeof v === "number") targets[id] = v;
   }
 
-  return {
+  return seedHistoryOnce({
     ...fresh,
     targets,
-    // Przy migracji dokładamy też historię startową (tygodnie 2–4 spoza apki).
-    sessions: mergeHistoricalSessions(Array.isArray(old.sessions) ? old.sessions : []),
+    sessions: Array.isArray(old.sessions) ? old.sessions : [],
     body: Array.isArray(old.body) ? old.body : [],
     squash: Array.isArray(old.squash) ? old.squash : [],
     settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
-  };
+  });
+}
+
+/**
+ * Jednorazowe dołożenie historii startowej — działa dla KAŻDEGO stanu bez
+ * flagi `historySeeded`: migracji ze starej wersji, świeżego startu (np.
+ * apka przypięta do ekranu początkowego ma OSOBNY localStorage niż Safari
+ * i startuje od zera) i stanu bieżącej wersji. Po dołożeniu flaga blokuje
+ * ponowne wstrzykiwanie, więc ręczne usunięcie sesji z historii jest trwałe.
+ */
+function seedHistoryOnce(state: AppState): AppState {
+  if (state.historySeeded) return state;
+  return { ...state, historySeeded: true, sessions: mergeHistoricalSessions(state.sessions) };
 }

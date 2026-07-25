@@ -110,6 +110,8 @@ export interface Settings {
 
 export interface AppState {
   version: number;
+  /** Czy historia startowa (tygodnie 2–4 spoza apki) została już dołożona — jednorazowo. */
+  historySeeded?: boolean;
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;

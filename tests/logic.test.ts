@@ -102,7 +102,13 @@ cur.targets["bench_bb"] = 50;
 cur.sessions.push({ id: "x", dayId: "mon", date: "2026-07-20", entries: [], completed: true });
 const same = migrateState(JSON.parse(JSON.stringify(cur)));
 check("ta sama wersja: target uzytkownika zostaje", same.targets["bench_bb"] === 50);
-check("ta sama wersja: sesje zostaja", same.sessions.length === 1);
+// Brak flagi historySeeded -> dosiew historii; wpis "x" z 2026-07-20 (mon)
+// blokuje hist-w4-mon z tego samego dnia, wiec 1 wlasna + 8 wstrzyknietych.
+check(
+  "ta sama wersja: sesja zostaje + dosiew historii z dedupem",
+  same.sessions.some((s) => s.id === "x") && !same.sessions.some((s) => s.id === "hist-w4-mon") && same.sessions.length === 9,
+  same.sessions.length
+);
 
 // P0-1: Dzień bonusowy 2.0 — ćwiczenia uzupełniające
 const bonusDay = SEED_DAYS.find((d) => d.id === "bonus")!;
@@ -272,6 +278,25 @@ check(
   "historia startowa: dedup po dayId+dacie (1 wlasna + 8 wstrzyknietych)",
   migDup.sessions.length === 9 && migDup.sessions.some((s) => s.id === "moj") && !migDup.sessions.some((s) => s.id === "hist-w4-mon"),
   migDup.sessions.map((s) => s.id)
+);
+
+// Swiezy start v5 bez flagi (np. przypieta apka z osobnym localStorage) -> historia dolozona
+const freshV5 = JSON.parse(JSON.stringify(defaultState()));
+const migFresh = migrateState(freshV5);
+check(
+  "historia startowa: swiezy stan v5 bez flagi dostaje 9 sesji + flage",
+  migFresh.sessions.length === 9 && migFresh.historySeeded === true,
+  { sesje: migFresh.sessions.length, flaga: migFresh.historySeeded }
+);
+
+// Flaga ustawiona -> usuniecie sesji z historii jest trwale (brak ponownego dosiewu)
+const afterDelete = JSON.parse(JSON.stringify(migFresh));
+afterDelete.sessions = afterDelete.sessions.filter((s: { id: string }) => s.id !== "hist-w2-mon");
+const migAfterDelete = migrateState(afterDelete);
+check(
+  "historia startowa: z flaga usunieta sesja NIE wraca",
+  migAfterDelete.sessions.length === 8 && !migAfterDelete.sessions.some((s) => s.id === "hist-w2-mon"),
+  migAfterDelete.sessions.length
 );
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
