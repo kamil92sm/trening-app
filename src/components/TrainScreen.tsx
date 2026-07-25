@@ -133,7 +133,9 @@ export function TrainScreen() {
           targetWeight: target,
           sets: Array.from({ length: ex.targetSets }, () => ({
             weight: target,
-            reps: ex.isHold ? ex.repMax : ex.repMin,
+            // Prefill górnym limitem zakresu — dążymy do maksimum powtórzeń,
+            // więc częściej trafisz od razu (mniej ręcznej korekty).
+            reps: ex.repMax,
             done: false,
           })),
         };
@@ -191,7 +193,7 @@ export function TrainScreen() {
         targetWeight: target,
         sets: Array.from({ length: newEx.targetSets }, () => ({
           weight: target,
-          reps: newEx.isHold ? newEx.repMax : newEx.repMin,
+          reps: newEx.repMax, // górny limit zakresu, jak przy starcie dnia
           done: false,
         })),
       };
