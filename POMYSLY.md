@@ -186,7 +186,7 @@ z tym samym `primaryMuscle` (bez archiwalnych, bez już obecnych w treningu) →
 TYLKO w drafcie tej sesji (plan bez zmian): nowe `exerciseId`, `targetWeight` z targets,
 serie prefill wg `targetSets`. **Rozmiar:** M
 
-### [ ] P1-4. Wake Lock — ekran nie gaśnie podczas treningu
+### [x] P1-4. Wake Lock — ekran nie gaśnie podczas treningu (2026-07-25)
 **Mój pomysł.** iOS 16.4+ wspiera Screen Wake Lock API w PWA. **Spec:** w `TrainScreen`,
 gdy `draft !== null`: `navigator.wakeLock?.request("screen")`; zwolnij przy finish/cancel;
 ponów przy `visibilitychange` (wraca z tła). Cicho ignoruj brak API. **Rozmiar:** S
@@ -289,3 +289,7 @@ tylko dane sesji. **Rozmiar:** M
   (TrainScreen) pokazuje listę zamienników z tym samym `primaryMuscle` (bez
   archiwalnych, bez już obecnych w treningu); podmiana działa TYLKO w drafcie
   bieżącej sesji, plan (seed/dni) zostaje nietknięty.
+- [x] 2026-07-25: P1-4 Wake Lock — ekran nie gaśnie w trakcie treningu
+  (`navigator.wakeLock.request("screen")` gdy trwa draft, odnawiane po
+  powrocie karty z tła przez `visibilitychange`, zwalniane przy zakończeniu/
+  porzuceniu treningu; brak wsparcia albo odmowa cicho ignorowane).

@@ -47,6 +47,7 @@ export function TrainScreen() {
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const pendingBackup = useRef(false);
+  const hasDraft = draft !== null;
 
   useEffect(() => {
     try {
@@ -56,6 +57,35 @@ export function TrainScreen() {
       // ignore
     }
   }, [draft]);
+
+  // Ekran nie gaśnie podczas treningu (iOS 16.4+ wspiera Wake Lock w PWA).
+  // Blokada gubi się, gdy karta wraca z tła — trzeba ją wtedy odnowić.
+  useEffect(() => {
+    if (!hasDraft) return;
+    let lock: WakeLockSentinel | null = null;
+    let active = true;
+
+    async function acquire() {
+      try {
+        lock = (await navigator.wakeLock?.request("screen")) ?? null;
+      } catch {
+        // brak wsparcia albo odmowa (np. bateria) — cicho ignoruj
+      }
+    }
+
+    function onVisibility() {
+      if (active && document.visibilityState === "visible") acquire();
+    }
+
+    acquire();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVisibility);
+      lock?.release().catch(() => {});
+    };
+  }, [hasDraft]);
 
   // Auto-backup do Gista: state tutaj to zamknięcie z renderu, w którym finish()
   // zostało wywołane — jeszcze BEZ właśnie zakończonej sesji (setState jest
