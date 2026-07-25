@@ -73,7 +73,7 @@ dublowania regeneracji.
 bonus pokazuje nowe ćwiczenia.
 **Rozmiar:** M
 
-### [ ] P0-2. Auto-backup do chmury (GitHub Gist) — odporność na zgubiony telefon
+### [x] P0-2. Auto-backup do chmury (GitHub Gist) — odporność na zgubiony telefon (2026-07-25)
 **Weryfikacja pomysłu Gemini:** wykonalne i najlepsza opcja. `api.github.com` wspiera
 CORS, więc single-file PWA może pisać do prywatnego gista bez żadnego backendu.
 Odrzucone alternatywy: Google Drive (OAuth zbyt ciężki w single-file), Firebase/Supabase
@@ -114,7 +114,7 @@ nowy `src/lib/backup.ts`, `src/components/MoreScreen.tsx`, `src/components/Train
 Przywróć → pełny stan wraca. `npm run build` OK.
 **Rozmiar:** M
 
-### [ ] P0-3. Smart-Timer — przerwa zależna od ćwiczenia + autostart
+### [x] P0-3. Smart-Timer — przerwa zależna od ćwiczenia + autostart (2026-07-25)
 **Weryfikacja pomysłu Gemini:** trafiony. Autostart po odhaczeniu serii i pływający
 timer nad nawigacją JUŻ SĄ w nowej wersji (`TrainScreen` + `RestTimer` w `Gym.tsx`) —
 zostaje część „per ćwiczenie". Uwaga: **wibracje (navigator.vibrate) NIE działają na
@@ -268,3 +268,10 @@ tylko dane sesji. **Rozmiar:** M
 - [x] 2026-07-25: P0-1 dzień bonusowy 2.0 — 5 nowych ćwiczeń uzupełniających
   (face_pull, hammer_curl, pushdown, calf_seated, side_plank), SCHEMA_VERSION 3,
   migrateState zachowuje targets użytkownika dla znanych ID przy migracji ze starej wersji.
+- [x] 2026-07-25: P0-2 auto-backup do prywatnego GitHub Gista — nowy src/lib/backup.ts
+  (gistBackup/gistRestore), karta „Chmura" w Więcej (token, gist ID, switch, backup/
+  przywróć), fire-and-forget backup po finishSession gdy autoBackup włączony.
+- [x] 2026-07-25: P0-3 smart-timer — Exercise.restSeconds (per ćwiczenie: 180s ciężkie
+  wielostawowe, 150/120s średnie, 90s izolacje, 60s deski), pole w edytorze Planu,
+  RestTimer autostartuje z właściwym czasem po odhaczeniu serii, miga bursztynem
+  w ostatnich 5 s.

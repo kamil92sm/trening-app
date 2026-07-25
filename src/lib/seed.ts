@@ -45,79 +45,102 @@ export const SEED_EXERCISES: Exercise[] = [
   // PONIEDZIAŁEK — Góra + Pośladki
   ex("bench_bb", "Wyciskanie sztangi płasko", "Klatka", "barbell", 5, 8, 3, 2.5, "Klatka", ["Triceps", "Barki"], {
     note: "Trzymaj sztangę nisko na dłoni, nadgarstek prosto. Chwyt „buldoga”.",
+    restSeconds: 150,
   }),
   ex("hipthrust", "Hip Thrust ze sztangą", "Pośladki", "barbell", 8, 12, 3, 2.5, "Pośladki", ["Tył uda"], {
     note: "Stopy dalej od pośladków (90° w kolanie), pełne wypchnięcie bioder w górę.",
+    restSeconds: 150,
   }),
   ex("row_bb", "Wiosłowanie sztangą", "Plecy", "barbell", 6, 8, 3, 2.5, "Plecy", ["Biceps"], {
     note: "Ciągnij sztangę do pępka, łopatki ściągnięte.",
+    restSeconds: 150,
   }),
   ex("lateral", "Wznosy bokiem hantli", "Barki", "dumbbell", 12, 15, 3, 1, "Barki", [], {
     note: "Czyste powtórzenia bez zarzucania ciałem. Prowadź łokciem.",
+    restSeconds: 90,
   }),
   ex("curl_bb", "Uginanie bicepsa (sztanga)", "Biceps", "barbell", 10, 12, 2, 1.25, "Biceps", [], {
     note: "2 serie chronią łokcie. Bez bujania — pełna kontrola.",
+    restSeconds: 90,
   }),
   ex("crunch", "Allahy (brzuch)", "Brzuch", "cable", 10, 15, 3, 2.5, "Brzuch", [], {
     note: "Technika ponad ciężar — spinaj brzuch, nie ciągnij ramionami.",
+    restSeconds: 90,
   }),
   // ŚRODA — Ciężki Dół + Klatka Skos
   ex("squat", "Przysiad ze sztangą", "Nogi", "barbell", 5, 8, 3, 2.5, "Nogi", ["Pośladki"], {
     note: "Głębokość, kolana na zewnątrz. Zjedz węgle przed treningiem.",
+    restSeconds: 180,
   }),
   ex("deadlift", "Martwy ciąg klasyczny", "Plecy", "barbell", 5, 6, 2, 2.5, "Tył uda", ["Plecy", "Pośladki"], {
     note: "UWAGA NA PLECY. Nie walcz o 7. Perfekcyjna technika, spięty, twardy brzuch.",
+    restSeconds: 180,
   }),
   ex("incline_db", "Wyciskanie hantli skos", "Klatka", "dumbbell", 8, 12, 3, 2, "Klatka", ["Triceps", "Barki"], {
     note: "Rozciągaj klatkę na dole, pełny zakres.",
+    restSeconds: 120,
   }),
   ex("lunges", "Zakroki z hantlami", "Nogi", "dumbbell", 10, 12, 3, 2, "Nogi", ["Pośladki"], {
     note: "Popracuj nad balansem, dobij powtórzenia równo na każdą nogę.",
+    restSeconds: 120,
   }),
   ex("calf", "Wspięcia na palce", "Łydki", "machine", 10, 15, 3, 2.5, "Łydki", [], {
     note: "Pełny zakres, pauza w górze. Możesz wydłużyć przerwę do 1–1,5 min.",
+    restSeconds: 90,
   }),
   ex("plank", "Plank (deska)", "Brzuch", "bodyweight", 40, 40, 4, 5, "Brzuch", [], {
     isHold: true,
     rir: 0,
     note: "Spinaj pośladki, to betonuje całą sylwetkę. Krótsze serie zamiast wydłużania.",
+    restSeconds: 60,
   }),
   // PIĄTEK — Góra II + Tył Ud
   ex("ohp", "Wyciskanie żołnierskie (OHP)", "Barki", "barbell", 6, 8, 3, 2.5, "Barki", ["Triceps"], {
     note: "Pośladki w twardym spięciu — stabilizacja przy wyciskaniu nad głowę.",
+    restSeconds: 150,
   }),
   ex("pulldown", "Ściąganie drążka", "Plecy", "machine", 8, 10, 3, 2.5, "Plecy", ["Biceps"], {
     note: "Inicjuj ruch od ściągnięcia łopatek w dół.",
+    restSeconds: 120,
   }),
   ex("rdl", "RDL z hantlami", "Pośladki", "dumbbell", 8, 12, 3, 2, "Tył uda", ["Pośladki"], {
     note: "Chwyt limituje — kup paski treningowe, to „Game Changer”. Schodź nisko.",
+    restSeconds: 150,
   }),
   ex("bench_db", "Wyciskanie hantli płasko", "Klatka", "dumbbell", 8, 12, 3, 2, "Klatka", ["Triceps", "Barki"], {
     note: "Stabilizuj nadgarstki, schodź hantlami nisko. (LUB 18 kg jeśli brak 17,5)",
+    restSeconds: 120,
   }),
   ex("row_db", "Wiosłowanie hantlem", "Plecy", "dumbbell", 10, 12, 2, 2, "Plecy", ["Biceps"], {
     note: "Wyrównujesz siłę L/P. Prowadź łokieć do biodra. Ciężar = jeden hantel.",
+    restSeconds: 90,
   }),
   ex("french", "Francuz (triceps)", "Triceps", "barbell", 10, 12, 2, 2.5, "Triceps", [], {
     note: "Łokcie prosto w sufit, nie rozjeżdżają się. Pracują tylko przedramiona.",
+    restSeconds: 90,
   }),
   // BONUS 2.0 — ćwiczenia uzupełniające, nieobecne w planie 3-dniowym
   ex("face_pull", "Face pull (wyciąg)", "Barki", "cable", 12, 15, 3, 2.5, "Barki", [], {
     note: "Tylny aktyw barku i rotatory zewnętrzne — antidotum na wyciskania. Łokcie wysoko, ściągaj do twarzy.",
+    restSeconds: 90,
   }),
   ex("hammer_curl", "Uginanie młotkowe hantli", "Biceps", "dumbbell", 10, 12, 2, 1, "Biceps", [], {
     note: "Brachialis i przedramię — grubość ramienia, mocniejszy chwyt (pomoże w MC i RDL).",
+    restSeconds: 90,
   }),
   ex("pushdown", "Prostowanie ramion na wyciągu", "Triceps", "cable", 10, 12, 2, 2.5, "Triceps", [], {
     note: "Łokcie przyklejone do boków. Inny kąt niż francuz.",
+    restSeconds: 90,
   }),
   ex("calf_seated", "Wspięcia na palce siedząc", "Łydki", "machine", 12, 20, 3, 2.5, "Łydki", [], {
     note: "Płaszczkowaty (kolano zgięte) — inna głowa niż wspięcia stojąc. Pauza w górze.",
+    restSeconds: 90,
   }),
   ex("side_plank", "Plank bokiem", "Brzuch", "bodyweight", 30, 30, 3, 2.5, "Brzuch", [], {
     isHold: true,
     rir: 0,
     note: "Na stronę. Skosy + QL — core w płaszczyźnie, której deska nie łapie.",
+    restSeconds: 60,
   }),
 ];
 
@@ -186,6 +209,7 @@ export const DEFAULT_SETTINGS: Settings = {
   plates: [25, 20, 15, 10, 5, 2.5, 1.25],
   restSeconds: 120,
   sound: true,
+  autoBackup: false,
 };
 
 /** Partia domyślna dla ćwiczeń użytkownika bez primaryMuscle */

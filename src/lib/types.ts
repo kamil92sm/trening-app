@@ -42,6 +42,8 @@ export interface Exercise {
   secondaryMuscles?: Muscle[];
   note?: string;
   archived?: boolean;
+  /** Przerwa po serii tego ćwiczenia (s). Brak = użyj settings.restSeconds. */
+  restSeconds?: number;
 }
 
 export interface WorkoutDay {
@@ -94,6 +96,14 @@ export interface Settings {
   plates: number[];
   restSeconds: number;
   sound: boolean;
+  /** GitHub Personal Access Token (scope: gist) do auto-backupu. Żyje tylko w localStorage. */
+  gistToken?: string;
+  /** ID gista używanego jako backup (tworzony przy pierwszym backupie). */
+  gistId?: string;
+  /** Czy robić backup do gista automatycznie po każdym zakończonym treningu. */
+  autoBackup?: boolean;
+  /** ISO data ostatniego udanego backupu do chmury. */
+  lastBackup?: string;
 }
 
 export interface AppState {

@@ -118,14 +118,21 @@ export function RestTimer({
 
   const mm = Math.floor(left / 60);
   const ss = left % 60;
+  const almostDone = running && left > 0 && left <= 5;
 
   return (
     <div className="flex items-center gap-2">
-      <TimerReset size={16} className="text-muted-foreground" />
+      <TimerReset size={16} className={cn("text-muted-foreground", almostDone && "animate-pulse text-amber-400")} />
       <span
         className={cn(
           "min-w-[52px] font-mono text-lg tabular-nums",
-          left === 0 ? "text-green-400" : running ? "text-foreground" : "text-muted-foreground"
+          left === 0
+            ? "text-green-400"
+            : almostDone
+              ? "animate-pulse text-amber-400"
+              : running
+                ? "text-foreground"
+                : "text-muted-foreground"
         )}
       >
         {mm}:{ss.toString().padStart(2, "0")}

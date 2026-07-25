@@ -352,6 +352,21 @@ export function PlanScreen() {
                 />
               </div>
             </div>
+            <div>
+              <Label>Przerwa po serii (s)</Label>
+              <Input
+                type="number" inputMode="numeric" step="15"
+                placeholder={`domyślna (${state.settings.restSeconds} s)`}
+                value={editor.exercise.restSeconds ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEditor({
+                    ...editor,
+                    exercise: { ...editor.exercise, restSeconds: v === "" ? undefined : parseInt(v) || undefined },
+                  });
+                }}
+              />
+            </div>
             <div className="flex items-center justify-between rounded-md border border-border p-2.5">
               <div>
                 <p className="text-xs font-medium">Ćwiczenie na czas</p>

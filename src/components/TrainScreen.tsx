@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -12,11 +12,13 @@ import {
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog } from "@/lib/types";
 import { fmtKg, sessionVolume } from "@/lib/logic";
+import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RestTimer } from "@/components/Gym";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 const DRAFT_KEY = "trening-app-draft";
 
@@ -41,6 +43,8 @@ export function TrainScreen() {
   const [draft, setDraft] = useState<Draft | null>(loadDraft);
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
   const [timerKey, setTimerKey] = useState(0);
+  const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
+  const pendingBackup = useRef(false);
 
   useEffect(() => {
     try {
@@ -50,6 +54,24 @@ export function TrainScreen() {
       // ignore
     }
   }, [draft]);
+
+  // Auto-backup do Gista: state tutaj to zamknięcie z renderu, w którym finish()
+  // zostało wywołane — jeszcze BEZ właśnie zakończonej sesji (setState jest
+  // asynchroniczny). Backup odpalamy dopiero w efekcie po re-renderze, żeby
+  // wysłać już zaktualizowany stan (z nową sesją i nowymi celami).
+  useEffect(() => {
+    if (!pendingBackup.current) return;
+    pendingBackup.current = false;
+    const { gistToken, gistId } = state.settings;
+    if (!gistToken) return;
+    gistBackup(gistToken, state, gistId)
+      .then(({ gistId: newGistId }) => {
+        store.updateSettings({ gistId: newGistId, lastBackup: new Date().toISOString() });
+      })
+      .catch((err: unknown) => {
+        toast("Auto-backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
+      });
+  }, [state]);
 
   const activeDays = state.days.filter((d) => !d.optional || d.active);
 
@@ -83,7 +105,12 @@ export function TrainScreen() {
       Object.assign(set, patch);
       return next;
     });
-    if (patch.done === true) setTimerKey((k) => k + 1);
+    if (patch.done === true) {
+      const exId = draft?.entries[entryIdx]?.exerciseId;
+      const ex = exId ? state.exercises.find((e) => e.id === exId) : undefined;
+      setTimerSeconds(ex?.restSeconds ?? state.settings.restSeconds);
+      setTimerKey((k) => k + 1);
+    }
   }
 
   function addSet(entryIdx: number) {
@@ -117,6 +144,12 @@ export function TrainScreen() {
     });
     setSummary(results);
     setDraft(null);
+
+    if (state.settings.autoBackup && state.settings.gistToken) {
+      // Fire-and-forget: nie blokuje podsumowania treningu. Sam fetch odpala
+      // się w efekcie powyżej, po tym jak state odzwierciedli finishSession().
+      pendingBackup.current = true;
+    }
   }
 
   function cancel() {
@@ -307,7 +340,7 @@ export function TrainScreen() {
         className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
         style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }}
       >
-        <RestTimer seconds={state.settings.restSeconds} sound={state.settings.sound} autostartKey={timerKey} />
+        <RestTimer seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
       </div>
     </div>
   );

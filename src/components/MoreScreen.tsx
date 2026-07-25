@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { Download, Trash2, Upload } from "lucide-react";
+import { Download, Trash2, Upload, Cloud, CloudDownload } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtKg } from "@/lib/logic";
+import { gistBackup, gistRestore } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -28,7 +29,49 @@ export function MoreScreen() {
   // Talerze
   const [plateTarget, setPlateTarget] = useState(String(state.targets["squat"] ?? 60));
 
+  // Chmura (auto-backup)
+  const [cloudBusy, setCloudBusy] = useState<"backup" | "restore" | null>(null);
+
   const fileRef = useRef<HTMLInputElement>(null);
+
+  async function backupNow() {
+    const token = state.settings.gistToken;
+    if (!token) {
+      toast("Brak tokena", "Wklej token GitHub (uprawnienie Gists: Read & write) powyżej.");
+      return;
+    }
+    setCloudBusy("backup");
+    try {
+      const { gistId } = await gistBackup(token, state, state.settings.gistId);
+      store.updateSettings({ gistId, lastBackup: new Date().toISOString() });
+      toast("Backup wysłany do chmury");
+    } catch (err) {
+      toast("Backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
+    } finally {
+      setCloudBusy(null);
+    }
+  }
+
+  async function restoreFromCloud() {
+    const token = state.settings.gistToken;
+    const gistId = state.settings.gistId;
+    if (!token || !gistId) {
+      toast("Brak danych", "Wklej token oraz Gist ID (widoczne po pierwszym backupie).");
+      return;
+    }
+    if (!confirm("Nadpisać obecne dane danymi z chmury? Zmiany od ostatniego backupu przepadną.")) return;
+    setCloudBusy("restore");
+    try {
+      const json = await gistRestore(token, gistId);
+      const err = store.importJson(json);
+      if (err) toast("Przywracanie nieudane", err);
+      else toast("Przywrócono z chmury", "Dane zostały nadpisane backupem.");
+    } catch (err) {
+      toast("Przywracanie nieudane", err instanceof Error ? err.message : "Nieznany błąd");
+    } finally {
+      setCloudBusy(null);
+    }
+  }
 
   function exportBackup() {
     const blob = new Blob([store.exportJson()], { type: "application/json" });
@@ -229,6 +272,67 @@ export function MoreScreen() {
               checked={state.settings.sound}
               onCheckedChange={(v) => store.updateSettings({ sound: v })}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Chmura (auto-backup) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Chmura (auto-backup)</CardTitle>
+          <CardDescription>
+            Prywatny GitHub Gist jako zapasowa kopia — przetrwa zgubienie telefonu. Token:
+            GitHub → Settings → Developer settings → Fine-grained token → uprawnienie
+            wyłącznie „Gists: Read and write".
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div>
+            <Label>GitHub token</Label>
+            <Input
+              type="password"
+              placeholder="ghp_… lub github_pat_…"
+              value={state.settings.gistToken ?? ""}
+              onChange={(e) => store.updateSettings({ gistToken: e.target.value || undefined })}
+            />
+          </div>
+          <div>
+            <Label>Gist ID (wypełnia się samo po pierwszym backupie)</Label>
+            <Input
+              placeholder="np. 3a1b2c…"
+              value={state.settings.gistId ?? ""}
+              onChange={(e) => store.updateSettings({ gistId: e.target.value || undefined })}
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-md border border-border p-2.5">
+            <div>
+              <p className="text-xs font-medium">Auto-backup po każdym treningu</p>
+              <p className="text-[10px] text-muted-foreground">
+                Ostatni backup: {state.settings.lastBackup ? fmtDate(state.settings.lastBackup) : "nigdy"}
+              </p>
+            </div>
+            <Switch
+              checked={!!state.settings.autoBackup}
+              onCheckedChange={(v) => store.updateSettings({ autoBackup: v })}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              className="flex-1"
+              variant="secondary"
+              disabled={cloudBusy !== null}
+              onClick={backupNow}
+            >
+              <Cloud size={15} /> {cloudBusy === "backup" ? "Wysyłanie…" : "Backup teraz"}
+            </Button>
+            <Button
+              className="flex-1"
+              variant="secondary"
+              disabled={cloudBusy !== null}
+              onClick={restoreFromCloud}
+            >
+              <CloudDownload size={15} /> {cloudBusy === "restore" ? "Wczytywanie…" : "Przywróć z chmury"}
+            </Button>
           </div>
         </CardContent>
       </Card>
