@@ -9,11 +9,13 @@ import {
   AlertTriangle,
   X,
   Repeat,
+  Share2,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
-import type { ExerciseLog } from "@/lib/types";
-import { fmtKg, fmtDateShort, lastEntry, sessionVolume, detectPlateau } from "@/lib/logic";
+import type { ExerciseLog, Exercise } from "@/lib/types";
+import { fmtKg, fmtDateShort, lastEntry, sessionVolume, detectPlateau, e1rm } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
+import { drawReceipt, shareReceipt, type ReceiptData } from "@/lib/receipt";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,15 +40,26 @@ function loadDraft(): Draft | null {
   }
 }
 
+/** Najlepsza zaliczona seria wpisu (wg e1RM, albo najdłuższy hold) */
+function topOfEntry(ex: Exercise, entry: ExerciseLog) {
+  const done = entry.sets.filter((s) => s.done);
+  if (done.length === 0) return null;
+  return done.reduce((a, b) =>
+    ex.isHold ? (b.reps > a.reps ? b : a) : e1rm(b.weight, b.reps) > e1rm(a.weight, a.reps) ? b : a
+  );
+}
+
 export function TrainScreen() {
   const store = useStore();
   const { state } = store;
   const [draft, setDraft] = useState<Draft | null>(loadDraft);
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const pendingBackup = useRef(false);
+  const receiptCanvasRef = useRef<HTMLCanvasElement>(null);
   const hasDraft = draft !== null;
 
   useEffect(() => {
@@ -197,6 +210,26 @@ export function TrainScreen() {
       entries: draft.entries,
     });
     setSummary(results);
+
+    const dayName = state.days.find((d) => d.id === draft.dayId)?.name ?? "Trening";
+    const doneSets = draft.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
+    const totalSets = draft.entries.reduce((n, e) => n + e.sets.length, 0);
+    const volume = sessionVolume(state, {
+      id: "receipt",
+      dayId: draft.dayId,
+      date: draft.date,
+      entries: draft.entries,
+      completed: true,
+    });
+    const durationMin = Math.max(1, Math.round((Date.now() - new Date(draft.date).getTime()) / 60000));
+    const items = results.map(({ exercise, result }) => {
+      const entry = draft.entries.find((e) => e.exerciseId === exercise.id);
+      const top = entry ? topOfEntry(exercise, entry) : null;
+      const resultText = top ? (exercise.isHold ? `${top.reps}s` : `${fmtKg(top.weight)} × ${top.reps}`) : "—";
+      return { name: exercise.name, resultText, status: result.status };
+    });
+    setReceipt({ dayName, dateIso: draft.date, durationMin, doneSets, totalSets, volume, items });
+
     setDraft(null);
 
     if (state.settings.autoBackup && state.settings.gistToken) {
@@ -208,6 +241,12 @@ export function TrainScreen() {
 
   function cancel() {
     if (confirm("Porzucić ten trening? Wpisane serie przepadną.")) setDraft(null);
+  }
+
+  async function shareWorkout() {
+    if (!receipt || !receiptCanvasRef.current) return;
+    drawReceipt(receiptCanvasRef.current, receipt);
+    await shareReceipt(receiptCanvasRef.current, `trening-${receipt.dateIso.slice(0, 10)}.png`);
   }
 
   // ── Podsumowanie po treningu ─────────────────────────────────────────────
@@ -248,9 +287,20 @@ export function TrainScreen() {
             </CardContent>
           </Card>
         ))}
-        <Button className="w-full" size="lg" onClick={() => setSummary(null)}>
+        <Button variant="secondary" className="w-full" onClick={shareWorkout}>
+          <Share2 size={15} /> Udostępnij
+        </Button>
+        <Button
+          className="w-full"
+          size="lg"
+          onClick={() => {
+            setSummary(null);
+            setReceipt(null);
+          }}
+        >
           Zamknij
         </Button>
+        <canvas ref={receiptCanvasRef} width={1080} height={1350} className="hidden" />
       </div>
     );
   }

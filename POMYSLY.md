@@ -225,7 +225,7 @@ Umieść nad listą w karcie Objętość; lista zostaje (dostępność). **Rozmi
 w Progresie, dla wykresu ćwiczenia, pokaż kreski w dniach squasha ±1 dzień przed sesją.
 Wniosek zostaw człowiekowi (bez automatycznych "%"). **Rozmiar:** S/M
 
-### [ ] P2-3. Paragon treningowy (obrazek do rolki)
+### [x] P2-3. Paragon treningowy (obrazek do rolki) (2026-07-26)
 **Weryfikacja Gemini:** wykonalne BEZ html-to-image (nie dodawaj zależności!) —
 rysuj ręcznie na `<canvas>` (1080×1350, ciemne tło, tonaż, czas, serie, rekordy,
 progresje ↑). `canvas.toBlob` → `navigator.share({ files: [new File(...)] })`
@@ -297,3 +297,8 @@ tylko dane sesji. **Rozmiar:** M
   przód/tył (własne SVG, 10 regionów wg `Muscle`), fill wg `STATUS_COLORS`
   z `weeklyMuscleVolume`, `<title>` z tooltipem (serie + status) na każdym
   regionie. Nad listą partii w karcie Objętość (ProgressScreen), lista zostaje.
+- [x] 2026-07-26: P2-3 paragon treningowy — nowy `receipt.ts`: `drawReceipt()`
+  rysuje ręcznie na `<canvas>` 1080×1350 (bez html-to-image), `shareReceipt()`
+  robi `navigator.share` z plikiem PNG (iOS 15+) albo pobranie jako fallback.
+  Guzik „Udostępnij" w podsumowaniu treningu. Przy okazji naprawiony bug w
+  `store.finishSession` (nieczysty updater dublował summaries pod StrictMode).
