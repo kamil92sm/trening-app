@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog } from "@/lib/types";
-import { fmtKg, sessionVolume } from "@/lib/logic";
+import { fmtKg, fmtDateShort, lastEntry, sessionVolume } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -264,6 +264,7 @@ export function TrainScreen() {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) return null;
           const unitLabel = ex.isHold ? "s" : "powt.";
+          const last = lastEntry(state, ex.id);
           return (
             <Card key={entry.exerciseId}>
               <CardHeader>
@@ -273,6 +274,14 @@ export function TrainScreen() {
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
                   {ex.perHand && " (na rękę)"} · RIR {ex.rir}
                 </CardDescription>
+                {last && (
+                  <p className="text-xs text-muted-foreground">
+                    Ostatnio ({fmtDateShort(last.date)}):{" "}
+                    {last.sets
+                      .map((s) => (ex.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
+                      .join(" · ")}
+                  </p>
+                )}
                 {ex.note && <p className="text-[11px] leading-snug text-amber-200/70">{ex.note}</p>}
               </CardHeader>
               <CardContent className="space-y-1.5">

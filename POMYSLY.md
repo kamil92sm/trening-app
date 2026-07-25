@@ -140,7 +140,7 @@ mignięcie tła timera w ostatnich 5 s.
 **Akceptacja:** seria przysiadu startuje 180 s, seria bicepsa 90 s; pole w edytorze działa.
 **Rozmiar:** S
 
-### [ ] P0-4. „Ostatnio" w loggerze — poprzedni wynik pod ręką
+### [x] P0-4. „Ostatnio" w loggerze — poprzedni wynik pod ręką (2026-07-25)
 **Mój pomysł.** Na siłowni najczęstsze pytanie: „ile zrobiłem ostatnio?". Dziś trzeba
 iść do Historii.
 
@@ -275,3 +275,6 @@ tylko dane sesji. **Rozmiar:** M
   wielostawowe, 150/120s średnie, 90s izolacje, 60s deski), pole w edytorze Planu,
   RestTimer autostartuje z właściwym czasem po odhaczeniu serii, miga bursztynem
   w ostatnich 5 s.
+- [x] 2026-07-25: P0-4 „Ostatnio" w loggerze — `lastEntry()` w logic.ts (ostatnia
+  ukończona sesja z danym ćwiczeniem, pomija nieodhaczone serie), szary wiersz pod
+  nagłówkiem karty ćwiczenia w TrainScreen z datą i wynikiem poprzedniej sesji.

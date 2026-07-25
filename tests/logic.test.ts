@@ -1,6 +1,6 @@
 // Testy silnika — czysta logika, bez przeglądarki.
 // Uruchamianie: npm test  (esbuild -> node)
-import { computeProgression, setVolume, e1rm, platePlan, weeklyMuscleVolume } from "../src/lib/logic";
+import { computeProgression, setVolume, e1rm, platePlan, weeklyMuscleVolume, lastEntry } from "../src/lib/logic";
 import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
 
 let failures = 0;
@@ -130,6 +130,48 @@ check(
   migV3.targets["face_pull"]
 );
 check("migracja v2->v3: sesje zachowane", migV3.sessions.length === 1);
+
+// P0-4: "Ostatnio" w loggerze
+const stLast = defaultState();
+stLast.sessions.push(
+  {
+    id: "l1",
+    dayId: "mon",
+    date: "2026-07-14",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_bb",
+        targetWeight: 45,
+        sets: [
+          { weight: 45, reps: 8, done: true },
+          { weight: 45, reps: 7, done: true },
+          { weight: 45, reps: 6, done: false },
+        ],
+      },
+    ],
+  },
+  {
+    id: "l2",
+    dayId: "mon",
+    date: "2026-07-21",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_bb",
+        targetWeight: 47.5,
+        sets: [
+          { weight: 47.5, reps: 5, done: true },
+          { weight: 47.5, reps: 4, done: true },
+        ],
+      },
+    ],
+  }
+);
+const last = lastEntry(stLast, "bench_bb");
+check("lastEntry: najnowsza sesja wygrywa", last?.date === "2026-07-21", last);
+check("lastEntry: pomija nieukonczone serie", last?.sets.length === 2, last);
+check("lastEntry: brak historii -> null", lastEntry(defaultState(), "bench_bb") === null);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

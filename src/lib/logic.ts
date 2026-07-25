@@ -238,6 +238,26 @@ export function exerciseHistory(state: AppState, exId: string): HistoryPoint[] {
   return points;
 }
 
+export interface LastEntry {
+  date: string;
+  sets: SetLog[];
+}
+
+/** Ostatnia ukończona sesja zawierająca dane ćwiczenie (tylko zaliczone serie) */
+export function lastEntry(state: AppState, exId: string): LastEntry | null {
+  const sorted = [...state.sessions]
+    .filter((s) => s.completed)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  for (const session of sorted) {
+    const entry = session.entries.find((e) => e.exerciseId === exId);
+    if (!entry) continue;
+    const done = entry.sets.filter((s) => s.done);
+    if (done.length === 0) continue;
+    return { date: session.date, sets: done };
+  }
+  return null;
+}
+
 // ── Kalkulator talerzy ─────────────────────────────────────────────────────
 
 export interface PlatePlan {
