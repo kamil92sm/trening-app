@@ -42,7 +42,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("train");
 
   return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col">
+    // min-height = największy viewport + 1px: strona ZAWSZE ma minimalny scroll,
+    // więc Safari na iOS nie rozwija swojego paska przy wejściu na krótkie
+    // zakładki (Trening/Historia) — to rozwijanie zwężało viewport i „podnosiło"
+    // dolną nawigację. Przy zwiniętym pasku Safari pozycja jest stała wszędzie.
+    <div className="mx-auto flex min-h-full max-w-xl flex-col" style={{ minHeight: "calc(100lvh + 1px)" }}>
       <Toaster />
       <main className="flex-1 pb-20">
         {tab === "train" && <TrainScreen />}
@@ -51,10 +55,13 @@ export default function App() {
         {tab === "plan" && <PlanScreen />}
         {tab === "more" && <MoreScreen />}
       </main>
-      {/* Bez env(safe-area-inset-bottom): ikonki mają siedzieć przy samej
-          krawędzi ekranu, jak w pierwotnej wersji — padding pod home indicator
-          podnosił cały pasek o ~34px w trybie z ekranu początkowego. */}
-      <nav className="fixed bottom-0 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 border-t border-border bg-background/95 backdrop-blur">
+      {/* Bez env(safe-area-inset-bottom) (pełne ~34px podnosiło pasek za wysoko
+          w trybie standalone) — zamiast tego stałe 10px („2 mm"), żeby ikonki
+          nie kleiły się do samej krawędzi / home indicatora. */}
+      <nav
+        className="fixed bottom-0 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 border-t border-border bg-background/95 backdrop-blur"
+        style={{ paddingBottom: "10px" }}
+      >
         <div className="flex">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
