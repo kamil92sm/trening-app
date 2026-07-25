@@ -155,8 +155,11 @@ export async function shareReceipt(canvas: HTMLCanvasElement, filename: string):
     try {
       await navigator.share({ files: [file] });
       return;
-    } catch {
-      // użytkownik anulował albo brak wsparcia dla plików — spadamy do pobrania
+    } catch (err) {
+      // Anulowanie arkusza udostępniania (AbortError) = świadoma decyzja
+      // użytkownika — NIE pobieraj pliku na siłę. Dopiero realny błąd/brak
+      // wsparcia dla plików spada do fallbacku poniżej.
+      if (err instanceof Error && err.name === "AbortError") return;
     }
   }
 

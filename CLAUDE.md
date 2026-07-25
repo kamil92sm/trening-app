@@ -71,11 +71,12 @@ src/
 ## 4. Model danych (kluczowe typy — `src/lib/types.ts`)
 
 - **`Exercise`**: `id, name, category, unit, perHand, isHold, repMin, repMax, targetSets,
-  increment, rir, primaryMuscle?, secondaryMuscles?, note?, archived?`
+  increment, rir, primaryMuscle?, secondaryMuscles?, note?, archived?, restSeconds?`
   - `unit`: `barbell | dumbbell | machine | cable | bodyweight`
   - `perHand`: dla hantli — ciężar liczony **na jedną rękę**, tonaż ×2
   - `isHold`: ćwiczenie na czas (plank) — `reps` oznaczają **sekundy**
   - `primaryMuscle` / `secondaryMuscles`: partie do licznika objętości (patrz §5.3)
+  - `restSeconds?`: przerwa po serii tego ćwiczenia (brak = `settings.restSeconds`)
 - **`Category`**: `Klatka, Plecy, Barki, Nogi, Pośladki, Łydki, Biceps, Triceps, Brzuch, Inne`
 - **`Muscle`** (do objętości): `Klatka, Plecy, Barki, Nogi, Pośladki, Tył uda, Łydki, Biceps, Triceps, Brzuch`
 - **`WorkoutDay`**: `id, name, short, exerciseIds[], optional?, active?, accent?`
@@ -83,10 +84,17 @@ src/
 - **`SetLog`**: `weight, reps, done`
 - **`ExerciseLog`**: `exerciseId, targetWeight, sets[], note?`
 - **`Session`**: `id, dayId, date(ISO), entries[], completed`
-- **`AppState`**: `version, exercises[], days[], targets(exId→kg), sessions[], body[], squash[], settings`
-  - `settings`: `name, barWeight, plates[], restSeconds, sound`
+- **`BodyEntry`**: `date(YYYY-MM-DD), weight, waist?` — `waist` (cm) do wykresu rekompozycji
+- **`AppState`**: `version, exercises[], days[], targets(exId→kg), sessions[], body[], squash[], settings, historySeeded?`
+  - `settings`: `name, barWeight, plates[], restSeconds, sound, gistToken?, gistId?, autoBackup?, lastBackup?`
+  - `historySeeded?`: flaga jednorazowego dosiewu historii startowej (`history-seed.ts`)
 
-**localStorage key: `trening-app-v2`.** Schemat wersjonowany przez `SCHEMA_VERSION` (aktualnie **2**).
+**localStorage key: `trening-app-v2`.** Schemat wersjonowany przez `SCHEMA_VERSION` (aktualnie **5**).
+Wersje po 2: v3 = bonus 2.0 + zachowanie `targets` w migracji; v4 = `BodyEntry.waist`;
+v5 = historia startowa (`src/lib/history-seed.ts`, dosiew przez `historySeeded`).
+Nowsze mechanizmy nieopisane szczegółowo niżej: przerwa per ćwiczenie (`restSeconds`),
+auto-backup do Gista (`src/lib/backup.ts`), paragon treningowy (`src/lib/receipt.ts`),
+edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectPlateau`).
 
 ---
 

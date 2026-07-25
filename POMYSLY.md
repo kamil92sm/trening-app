@@ -22,7 +22,9 @@ Po skończeniu odhacz zadanie w POMYSLY.md i zrób commit.
    `sessions`, `body`, `squash`, `settings` **oraz `targets` użytkownika dla ćwiczeń,
    które istnieją w nowym seedzie** (patrz P0-1, tam jest to do poprawy).
    Nowe pole w `Settings` NIE wymaga bumpa — merge z `DEFAULT_SETTINGS` załatwia braki,
-   wystarczy dodać default.
+   wystarczy dodać default. Tak samo **opcjonalne, samonaprawiające się pole w
+   `AppState`**, którego BRAK daje poprawne zachowanie (np. `historySeeded?` — brak
+   flagi = dosiew historii startowej, co jest pożądanym efektem): nie wymaga bumpa.
 3. Przed commitem musi przejść: `npm test` (logika) i `npm run build` (tsc + Vite +
    sklejenie do `docs/index.html`). Deliverable to `docs/index.html` — commituj go razem
    ze źródłami.

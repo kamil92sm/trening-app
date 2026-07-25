@@ -233,6 +233,19 @@ const stFew = defaultState();
 stFew.sessions.push(sessionAt("2026-06-01", 45, 8), sessionAt("2026-06-08", 45, 8));
 check("detectPlateau: <3 treningi -> brak zastoju", detectPlateau(stFew, "bench_bb") === false);
 
+// detectPlateau: plank (isHold, repMin==repMax) NIE jest zastojem, choc wynik staly
+const stPlank = defaultState();
+for (const d of ["2026-06-01", "2026-06-08", "2026-06-15"]) {
+  stPlank.sessions.push({
+    id: `pk-${d}`,
+    dayId: "wed",
+    date: d,
+    completed: true,
+    entries: [{ exerciseId: "plank", targetWeight: 5, sets: [{ weight: 5, reps: 40, done: true }] }],
+  });
+}
+check("detectPlateau: plank (isHold) nie jest zastojem", detectPlateau(stPlank, "plank") === false);
+
 // P1-2: obwod pasa - migracja zachowuje waist w body
 const oldWithWaist = {
   version: 3,

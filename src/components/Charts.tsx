@@ -162,28 +162,3 @@ export function BarChart({
     </svg>
   );
 }
-
-export function Sparkline({
-  values,
-  width = 120,
-  height = 36,
-  color = "#38bdf8",
-}: {
-  values: number[];
-  width?: number;
-  height?: number;
-  color?: string;
-}) {
-  if (values.length < 2) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const px = (i: number) => (i / (values.length - 1)) * (width - 4) + 2;
-  const py = (v: number) =>
-    max === min ? height / 2 : 2 + (1 - (v - min) / (max - min)) * (height - 4);
-  const path = values.map((v, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
-  return (
-    <svg width={width} height={height}>
-      <path d={path} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" />
-    </svg>
-  );
-}

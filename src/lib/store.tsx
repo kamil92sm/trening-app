@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import {
   CATEGORY_TO_MUSCLE,
+  defaultState,
   migrateState,
   OLD_STORAGE_KEY,
   SCHEMA_VERSION,
@@ -146,8 +147,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       addBody(entry) {
         mutate((d) => {
+          const prev = d.body.find((b) => b.date === entry.date);
           d.body = d.body.filter((b) => b.date !== entry.date);
-          d.body.push(entry);
+          // Zachowaj wcześniej zapisany obwód pasa, gdy nowy wpis go nie podaje
+          // (naturalne "poprawiam tylko wagę" nie może kasować pomiaru pasa).
+          d.body.push(
+            entry.waist === undefined && prev?.waist !== undefined
+              ? { ...entry, waist: prev.waist }
+              : entry
+          );
           d.body.sort((a, b) => a.date.localeCompare(b.date));
           return d;
         });
@@ -238,7 +246,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       resetAll() {
-        setState(migrateState(null));
+        // "Wyzeruj wszystko" ma naprawdę czyścić historię — ustawiamy flagę
+        // historySeeded, żeby dosiew startowych sesji NIE wstrzyknął ich z powrotem.
+        setState({ ...defaultState(), historySeeded: true });
       },
     };
   }, [state]);

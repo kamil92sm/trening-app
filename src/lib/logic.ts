@@ -263,6 +263,10 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
  * i e1RM w widełkach ±1%. Sugestia, nie automat — decyzję podejmuje trenujący.
  */
 export function detectPlateau(state: AppState, exId: string): boolean {
+  const ex = state.exercises.find((e) => e.id === exId);
+  // Ćwiczenia na czas (plank) oraz o stałym celu (repMin==repMax) z definicji
+  // "stoją" na tym samym wyniku, gdy progresują poprawnie — to nie jest zastój.
+  if (!ex || ex.isHold || ex.repMin === ex.repMax) return false;
   const history = exerciseHistory(state, exId);
   if (history.length < 3) return false;
   const [a, b, c] = history.slice(-3);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog, Exercise } from "@/lib/types";
-import { fmtKg, fmtDateShort, lastEntry, sessionVolume, detectPlateau, e1rm } from "@/lib/logic";
+import { fmtKg, fmtDateShort, sessionVolume, detectPlateau, e1rm, type LastEntry } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
 import { drawReceipt, shareReceipt, type ReceiptData } from "@/lib/receipt";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,25 @@ export function TrainScreen() {
   const pendingBackup = useRef(false);
   const receiptCanvasRef = useRef<HTMLCanvasElement>(null);
   const hasDraft = draft !== null;
+
+  // Mapa exId -> ostatni wynik, liczona JEDNYM przejściem po sesjach i tylko
+  // gdy zmieni się historia — inaczej każde wciśnięcie klawisza w loggerze
+  // kopiowało i sortowało wszystkie sesje raz na kartę ćwiczenia.
+  const lastByExercise = useMemo(() => {
+    const map = new Map<string, LastEntry>();
+    const sorted = [...state.sessions]
+      .filter((s) => s.completed)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    for (const session of sorted) {
+      for (const entry of session.entries) {
+        if (map.has(entry.exerciseId)) continue;
+        const done = entry.sets.filter((s) => s.done);
+        if (done.length === 0) continue;
+        map.set(entry.exerciseId, { date: session.date, sets: done });
+      }
+    }
+    return map;
+  }, [state.sessions]);
 
   useEffect(() => {
     try {
@@ -223,7 +242,9 @@ export function TrainScreen() {
       entries: draft.entries,
       completed: true,
     });
-    const durationMin = Math.max(1, Math.round((Date.now() - new Date(draft.date).getTime()) / 60000));
+    // Ogranicz do 180 min — draft żyje w localStorage bez limitu, więc trening
+    // wznowiony po przerwie (np. następnego dnia) nie może pokazać absurdu na paragonie.
+    const durationMin = Math.min(180, Math.max(1, Math.round((Date.now() - new Date(draft.date).getTime()) / 60000)));
     const items = results.map(({ exercise, result }) => {
       const entry = draft.entries.find((e) => e.exerciseId === exercise.id);
       const top = entry ? topOfEntry(exercise, entry) : null;
@@ -377,7 +398,7 @@ export function TrainScreen() {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) return null;
           const unitLabel = ex.isHold ? "s" : "powt.";
-          const last = lastEntry(state, ex.id);
+          const last = lastByExercise.get(ex.id) ?? null;
           const swapCandidates = ex.primaryMuscle
             ? state.exercises.filter(
                 (e) =>
