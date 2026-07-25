@@ -8,6 +8,7 @@ import {
   MoveRight,
   AlertTriangle,
   X,
+  Repeat,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog } from "@/lib/types";
@@ -44,6 +45,7 @@ export function TrainScreen() {
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
+  const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const pendingBackup = useRef(false);
 
   useEffect(() => {
@@ -131,6 +133,28 @@ export function TrainScreen() {
       next.entries[entryIdx].sets.splice(setIdx, 1);
       return next;
     });
+  }
+
+  // Zamiana ćwiczenia (zajęty sprzęt) — tylko w drafcie tej sesji, plan bez zmian.
+  function swapExercise(entryIdx: number, newExId: string) {
+    const newEx = state.exercises.find((e) => e.id === newExId);
+    if (!newEx) return;
+    const target = state.targets[newExId] ?? 0;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      next.entries[entryIdx] = {
+        exerciseId: newExId,
+        targetWeight: target,
+        sets: Array.from({ length: newEx.targetSets }, () => ({
+          weight: target,
+          reps: newEx.isHold ? newEx.repMax : newEx.repMin,
+          done: false,
+        })),
+      };
+      return next;
+    });
+    setSwapIdx(null);
   }
 
   function finish() {
@@ -272,15 +296,53 @@ export function TrainScreen() {
           if (!ex) return null;
           const unitLabel = ex.isHold ? "s" : "powt.";
           const last = lastEntry(state, ex.id);
+          const swapCandidates = ex.primaryMuscle
+            ? state.exercises.filter(
+                (e) =>
+                  !e.archived &&
+                  e.primaryMuscle === ex.primaryMuscle &&
+                  e.id !== ex.id &&
+                  !draft.entries.some((en) => en.exerciseId === e.id)
+              )
+            : [];
           return (
             <Card key={entry.exerciseId}>
               <CardHeader>
-                <CardTitle className="text-sm">{ex.name}</CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">{ex.name}</CardTitle>
+                  {swapCandidates.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSwapIdx(swapIdx === ei ? null : ei)}
+                      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Zamień ćwiczenie"
+                    >
+                      <Repeat size={15} />
+                    </button>
+                  )}
+                </div>
                 <CardDescription>
                   {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`}{" "}
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
                   {ex.perHand && " (na rękę)"} · RIR {ex.rir}
                 </CardDescription>
+                {swapIdx === ei && (
+                  <div className="space-y-1 rounded-md border border-border p-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Zamień na (ta sama partia, tylko na ten trening):
+                    </p>
+                    {swapCandidates.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => swapExercise(ei, c.id)}
+                        className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {last && (
                   <p className="text-xs text-muted-foreground">
                     Ostatnio ({fmtDateShort(last.date)}):{" "}

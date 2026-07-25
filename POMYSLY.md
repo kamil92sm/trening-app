@@ -178,7 +178,7 @@ na 4–6 tyg." Test na detektor. **Rozmiar:** M
 skali procentowej zmiany od pierwszego pomiaru; prościej: dwie linie, tooltip zbędny).
 Zmiana typu persystowanego → bump wersji wg Zasad. **Rozmiar:** M
 
-### [ ] P1-3. Zamień ćwiczenie (zajęty sprzęt)
+### [x] P1-3. Zamień ćwiczenie (zajęty sprzęt) (2026-07-25)
 **Weryfikacja pomysłu Gemini:** trafiony, z jedną poprawką — NIE przeliczaj ciężaru
 z „ogólnego e1RM partii" (pseudonauka, różne dźwignie), tylko weź `targets[nowe]`
 albo 0 i każ wpisać. **Spec:** w karcie ćwiczenia w loggerze ikonka ⇄ → lista ćwiczeń
@@ -285,3 +285,7 @@ tylko dane sesji. **Rozmiar:** M
   4, drugi input w karcie Waga ciała, `LineChart` z opcjonalnym drugim szeregiem
   (`data2`/`color2`), obie serie znormalizowane do % zmiany od pierwszego pomiaru
   (wspólna skala mimo różnych jednostek kg/cm).
+- [x] 2026-07-25: P1-3 zamień ćwiczenie — ikonka ⇄ w karcie ćwiczenia w loggerze
+  (TrainScreen) pokazuje listę zamienników z tym samym `primaryMuscle` (bez
+  archiwalnych, bez już obecnych w treningu); podmiana działa TYLKO w drafcie
+  bieżącej sesji, plan (seed/dni) zostaje nietknięty.
