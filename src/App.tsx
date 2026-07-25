@@ -51,10 +51,10 @@ export default function App() {
         {tab === "plan" && <PlanScreen />}
         {tab === "more" && <MoreScreen />}
       </main>
-      <nav
-        className="fixed bottom-0 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 border-t border-border bg-background/95 backdrop-blur"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
+      {/* Bez env(safe-area-inset-bottom): ikonki mają siedzieć przy samej
+          krawędzi ekranu, jak w pierwotnej wersji — padding pod home indicator
+          podnosił cały pasek o ~34px w trybie z ekranu początkowego. */}
+      <nav className="fixed bottom-0 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 border-t border-border bg-background/95 backdrop-blur">
         <div className="flex">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button

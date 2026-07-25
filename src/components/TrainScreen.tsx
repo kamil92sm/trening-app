@@ -498,7 +498,7 @@ export function TrainScreen() {
 
       <div
         className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
-        style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }}
+        style={{ bottom: "68px" }} // tuż nad paskiem nawigacji (jak w pierwotnej wersji)
       >
         <RestTimer seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
       </div>
