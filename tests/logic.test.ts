@@ -130,7 +130,7 @@ const oldV2 = {
   settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
 };
 const migV3 = migrateState(oldV2);
-check("migracja v2->v3: version = 3", migV3.version === SCHEMA_VERSION, migV3.version);
+check("migracja v2->v3: version aktualna", migV3.version === SCHEMA_VERSION, migV3.version);
 check("migracja v2->v3: bench_bb target zachowany (50)", migV3.targets["bench_bb"] === 50, migV3.targets["bench_bb"]);
 check("migracja v2->v3: squat target zachowany (70)", migV3.targets["squat"] === 70, migV3.targets["squat"]);
 check(
@@ -218,6 +218,19 @@ check("detectPlateau: rosnace powtorzenia -> brak zastoju", detectPlateau(stProg
 const stFew = defaultState();
 stFew.sessions.push(sessionAt("2026-06-01", 45, 8), sessionAt("2026-06-08", 45, 8));
 check("detectPlateau: <3 treningi -> brak zastoju", detectPlateau(stFew, "bench_bb") === false);
+
+// P1-2: obwod pasa - migracja zachowuje waist w body
+const oldWithWaist = {
+  version: 3,
+  targets: {},
+  sessions: [],
+  body: [{ date: "2026-07-01", weight: 80, waist: 90 }],
+  squash: [],
+  settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+};
+const migWaist = migrateState(oldWithWaist);
+check("migracja v3->v4: version aktualna", migWaist.version === SCHEMA_VERSION, migWaist.version);
+check("migracja v3->v4: waist zachowany", migWaist.body[0]?.waist === 90, migWaist.body[0]);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

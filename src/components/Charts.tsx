@@ -13,14 +13,19 @@ function niceTicks(min: number, max: number, count = 4): number[] {
 
 export function LineChart({
   data,
+  data2,
   height = 170,
   color = "#38bdf8",
+  color2 = "#f59e0b",
   formatY = (y: number) => String(Math.round(y)),
   formatX,
 }: {
   data: Point[];
+  /** Opcjonalny drugi szereg — rysowany w tej samej skali osi Y co data */
+  data2?: Point[];
   height?: number;
   color?: string;
+  color2?: string;
   formatY?: (y: number) => string;
   formatX?: (x: number) => string;
 }) {
@@ -35,8 +40,9 @@ export function LineChart({
     );
   }
 
-  const xs = data.map((d) => d.x);
-  const ys = data.map((d) => d.y);
+  const all = data2 ? [...data, ...data2] : data;
+  const xs = all.map((d) => d.x);
+  const ys = all.map((d) => d.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
@@ -49,7 +55,10 @@ export function LineChart({
       : pad.l + ((x - minX) / (maxX - minX)) * (width - pad.l - pad.r);
   const py = (y: number) => pad.t + (1 - (y - minY) / (maxY - minY)) * (height - pad.t - pad.b);
 
-  const path = data.map((d, i) => `${i === 0 ? "M" : "L"}${px(d.x).toFixed(1)},${py(d.y).toFixed(1)}`).join(" ");
+  const toPath = (pts: Point[]) =>
+    pts.map((d, i) => `${i === 0 ? "M" : "L"}${px(d.x).toFixed(1)},${py(d.y).toFixed(1)}`).join(" ");
+  const path = toPath(data);
+  const path2 = data2 && data2.length > 0 ? toPath(data2) : null;
   const ticks = niceTicks(minY, maxY, 3);
 
   return (
@@ -82,6 +91,12 @@ export function LineChart({
       <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {data.map((d, i) => (
         <circle key={i} cx={px(d.x)} cy={py(d.y)} r={3} fill={color} />
+      ))}
+      {path2 && (
+        <path d={path2} fill="none" stroke={color2} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      )}
+      {data2?.map((d, i) => (
+        <circle key={i} cx={px(d.x)} cy={py(d.y)} r={3} fill={color2} />
       ))}
     </svg>
   );

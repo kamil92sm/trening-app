@@ -81,6 +81,8 @@ export interface Session {
 export interface BodyEntry {
   date: string; // YYYY-MM-DD
   weight: number;
+  /** Obwód pasa w cm (opcjonalny) */
+  waist?: number;
 }
 
 export interface SquashEntry {

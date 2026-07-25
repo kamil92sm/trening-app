@@ -1,14 +1,14 @@
 import { useRef, useState } from "react";
 import { Download, Trash2, Upload, Cloud, CloudDownload } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { fmtDate, fmtKg } from "@/lib/logic";
+import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
 import { gistBackup, gistRestore } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PlateBar } from "@/components/Gym";
-import { Sparkline } from "@/components/Charts";
+import { LineChart } from "@/components/Charts";
 import { toast } from "@/hooks/use-toast";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -19,6 +19,7 @@ export function MoreScreen() {
 
   // Waga ciała
   const [bodyWeight, setBodyWeight] = useState("");
+  const [bodyWaist, setBodyWaist] = useState("");
   const [bodyDate, setBodyDate] = useState(today());
 
   // Squash
@@ -97,19 +98,30 @@ export function MoreScreen() {
   const bodySorted = [...state.body].sort((a, b) => b.date.localeCompare(a.date));
   const squashSorted = [...state.squash].sort((a, b) => b.date.localeCompare(a.date));
 
+  // Rekompozycja: waga i pas jako % zmiany od pierwszego pomiaru (ta sama skala mimo różnych jednostek)
+  const bodyAsc = [...state.body].sort((a, b) => a.date.localeCompare(b.date));
+  const pctSeries = (points: { date: string; value: number }[]) => {
+    const base = points[0]?.value;
+    if (!base) return [];
+    return points.map((p) => ({ x: new Date(p.date).getTime(), y: ((p.value - base) / base) * 100 }));
+  };
+  const weightSeries = pctSeries(bodyAsc.map((b) => ({ date: b.date, value: b.weight })));
+  const waistPoints = bodyAsc.filter((b) => b.waist !== undefined).map((b) => ({ date: b.date, value: b.waist! }));
+  const waistSeries = pctSeries(waistPoints);
+  const bodyChartSeries =
+    bodyAsc.length >= 2
+      ? { weight: weightSeries, waist: waistSeries.length >= 2 ? waistSeries : undefined }
+      : null;
+
   return (
     <div className="space-y-3 p-4">
       <h1 className="text-lg font-bold">Więcej</h1>
 
-      {/* Waga ciała */}
+      {/* Waga ciała + rekompozycja */}
       <Card>
         <CardHeader>
           <CardTitle>Waga ciała</CardTitle>
-          {state.body.length >= 2 && (
-            <div className="text-muted-foreground">
-              <Sparkline values={state.body.map((b) => b.weight)} width={140} color="#22c55e" />
-            </div>
-          )}
+          <CardDescription>Obwód pasa (opcjonalnie) — sygnał rekompozycji obok samej wagi</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex gap-2">
@@ -118,24 +130,55 @@ export function MoreScreen() {
               value={bodyWeight}
               onChange={(e) => setBodyWeight(e.target.value)}
             />
+            <Input
+              type="number" inputMode="decimal" step="0.5" placeholder="pas cm"
+              value={bodyWaist}
+              onChange={(e) => setBodyWaist(e.target.value)}
+            />
             <Input type="date" value={bodyDate} onChange={(e) => setBodyDate(e.target.value)} />
             <Button
               onClick={() => {
                 const w = parseFloat(bodyWeight);
                 if (!w) return;
-                store.addBody({ date: bodyDate, weight: w });
+                const waist = parseFloat(bodyWaist);
+                store.addBody({ date: bodyDate, weight: w, waist: waist > 0 ? waist : undefined });
                 setBodyWeight("");
-                toast("Zapisano wagę", `${w} kg · ${bodyDate}`);
+                setBodyWaist("");
+                toast("Zapisano wagę", `${w} kg${waist > 0 ? ` · pas ${waist} cm` : ""} · ${bodyDate}`);
               }}
             >
               Zapisz
             </Button>
           </div>
+          {bodyChartSeries && (
+            <div>
+              <LineChart
+                data={bodyChartSeries.weight}
+                data2={bodyChartSeries.waist}
+                height={140}
+                color="#22c55e"
+                color2="#f59e0b"
+                formatY={(y) => `${y > 0 ? "+" : ""}${y.toFixed(1)}%`}
+                formatX={(x) => fmtDateShort(new Date(x).toISOString())}
+              />
+              {bodyChartSeries.waist && (
+                <div className="flex gap-3 pt-1 text-[10px] text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-green-500" /> Waga
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" /> Pas
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
           {bodySorted.slice(0, 5).map((b) => (
             <div key={b.date} className="group flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{fmtDate(b.date)}</span>
               <span className="flex items-center gap-2 tabular-nums">
                 {fmtKg(b.weight)}
+                {b.waist !== undefined && ` · ${b.waist} cm`}
                 <button
                   type="button"
                   className="text-muted-foreground/50 hover:text-destructive"

@@ -171,7 +171,7 @@ bursztynowy box: „Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 k
 braku kompletu powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana ćwiczenia
 na 4–6 tyg." Test na detektor. **Rozmiar:** M
 
-### [ ] P1-2. Obwód pasa + wykres rekompozycji
+### [x] P1-2. Obwód pasa + wykres rekompozycji (2026-07-25)
 **Weryfikacja pomysłu Gemini:** sensowny i tani. **Spec:** `BodyEntry` += `waist?: number`
 (cm). Drugi input w karcie Waga ciała. `LineChart` += opcjonalny drugi szereg
 (`data2`, `color2`, prawa oś nie jest potrzebna — normalizuj lub druga linia w tej samej
@@ -281,3 +281,7 @@ tylko dane sesji. **Rozmiar:** M
 - [x] 2026-07-25: P1-1 plateau breaker — `detectPlateau()` w logic.ts (3 ostatnie
   treningi ten sam topWeight i e1RM w widełkach ±1%), bursztynowy box-sugestia
   w podsumowaniu treningu (TrainScreen) i przy wykresie postępu (ProgressScreen).
+- [x] 2026-07-25: P1-2 obwód pasa + rekompozycja — `BodyEntry.waist?`, SCHEMA_VERSION
+  4, drugi input w karcie Waga ciała, `LineChart` z opcjonalnym drugim szeregiem
+  (`data2`/`color2`), obie serie znormalizowane do % zmiany od pierwszego pomiaru
+  (wspólna skala mimo różnych jednostek kg/cm).

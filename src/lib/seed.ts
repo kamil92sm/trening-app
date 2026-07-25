@@ -8,7 +8,7 @@ import type {
   WorkoutDay,
 } from "./types";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const STORAGE_KEY = "trening-app-v2";
 export const OLD_STORAGE_KEY = "trening-app-v1";
 
