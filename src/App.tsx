@@ -42,12 +42,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("train");
 
   return (
-    <div className="app-shell mx-auto flex max-w-xl flex-col">
+    <div className="mx-auto flex min-h-full max-w-xl flex-col">
       <Toaster />
-      <main
-        className="flex-1 overflow-y-auto"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-      >
+      <main className="flex-1 pb-20">
         {tab === "train" && <TrainScreen />}
         {tab === "progress" && <ProgressScreen />}
         {tab === "history" && <HistoryScreen />}
@@ -55,7 +52,7 @@ export default function App() {
         {tab === "more" && <MoreScreen />}
       </main>
       <nav
-        className="z-30 shrink-0 border-t border-border bg-background/95 backdrop-blur"
+        className="fixed bottom-0 left-1/2 z-30 w-full max-w-xl -translate-x-1/2 border-t border-border bg-background/95 backdrop-blur"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex">
