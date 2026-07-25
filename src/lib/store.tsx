@@ -108,16 +108,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       finishSession(sessionData) {
+        // Policzone PRZED mutate: updater przekazany do setState musi być czysty
+        // (StrictMode wywołuje go dwa razy w dev) — side-effect (push) w środku
+        // podwajał wpisy w summaries.
         const summaries: FinishSummary[] = [];
+        for (const entry of sessionData.entries) {
+          const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+          if (!ex) continue;
+          summaries.push({ exercise: ex, result: computeProgression(ex, entry.targetWeight, entry.sets) });
+        }
         mutate((d) => {
           const session: Session = { ...sessionData, id: uid(), completed: true };
           d.sessions.push(session);
-          for (const entry of session.entries) {
-            const ex = d.exercises.find((e) => e.id === entry.exerciseId);
-            if (!ex) continue;
-            const result = computeProgression(ex, entry.targetWeight, entry.sets);
-            d.targets[ex.id] = result.nextWeight;
-            summaries.push({ exercise: ex, result });
+          for (const s of summaries) {
+            d.targets[s.exercise.id] = s.result.nextWeight;
           }
           return d;
         });
