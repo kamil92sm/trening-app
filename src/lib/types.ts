@@ -1,0 +1,108 @@
+export type Unit = "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight";
+
+export type Category =
+  | "Klatka"
+  | "Plecy"
+  | "Barki"
+  | "Nogi"
+  | "Pośladki"
+  | "Łydki"
+  | "Biceps"
+  | "Triceps"
+  | "Brzuch"
+  | "Inne";
+
+export type Muscle =
+  | "Klatka"
+  | "Plecy"
+  | "Barki"
+  | "Nogi"
+  | "Pośladki"
+  | "Tył uda"
+  | "Łydki"
+  | "Biceps"
+  | "Triceps"
+  | "Brzuch";
+
+export interface Exercise {
+  id: string;
+  name: string;
+  category: Category;
+  unit: Unit;
+  /** Hantle: ciężar na jedną rękę, tonaż x2 */
+  perHand: boolean;
+  /** Ćwiczenie na czas (plank) — reps oznaczają sekundy */
+  isHold: boolean;
+  repMin: number;
+  repMax: number;
+  targetSets: number;
+  increment: number;
+  rir: number;
+  primaryMuscle?: Muscle;
+  secondaryMuscles?: Muscle[];
+  note?: string;
+  archived?: boolean;
+}
+
+export interface WorkoutDay {
+  id: string;
+  name: string;
+  short: string;
+  exerciseIds: string[];
+  /** Dzień bonusowy — liczy się tylko gdy active */
+  optional?: boolean;
+  active?: boolean;
+  accent?: string;
+}
+
+export interface SetLog {
+  weight: number;
+  reps: number;
+  done: boolean;
+}
+
+export interface ExerciseLog {
+  exerciseId: string;
+  targetWeight: number;
+  sets: SetLog[];
+  note?: string;
+}
+
+export interface Session {
+  id: string;
+  dayId: string;
+  date: string; // ISO
+  entries: ExerciseLog[];
+  completed: boolean;
+}
+
+export interface BodyEntry {
+  date: string; // YYYY-MM-DD
+  weight: number;
+}
+
+export interface SquashEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  minutes: number;
+  intensity: number; // 1-5
+}
+
+export interface Settings {
+  name: string;
+  barWeight: number;
+  plates: number[];
+  restSeconds: number;
+  sound: boolean;
+}
+
+export interface AppState {
+  version: number;
+  exercises: Exercise[];
+  days: WorkoutDay[];
+  targets: Record<string, number>;
+  sessions: Session[];
+  body: BodyEntry[];
+  squash: SquashEntry[];
+  settings: Settings;
+}
