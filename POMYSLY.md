@@ -213,7 +213,7 @@ temu" z guzikiem prowadzącym do Więcej. **Rozmiar:** S
 
 ## P2 — wisienki (gdy P0/P1 działają)
 
-### [ ] P2-1. Heatmapa mięśni (ludzik SVG)
+### [x] P2-1. Heatmapa mięśni (ludzik SVG) (2026-07-25)
 **Weryfikacja Gemini:** fajny wizual, czysty frontend. **Spec:** nowy komponent
 `MuscleMap.tsx`: uproszczona sylwetka przód/tył (własne SVG paths, ~10 regionów
 zmapowanych na `Muscle`), fill wg `STATUS_COLORS[status]` z `weeklyMuscleVolume`.
@@ -293,3 +293,7 @@ tylko dane sesji. **Rozmiar:** M
   (`navigator.wakeLock.request("screen")` gdy trwa draft, odnawiane po
   powrocie karty z tła przez `visibilitychange`, zwalniane przy zakończeniu/
   porzuceniu treningu; brak wsparcia albo odmowa cicho ignorowane).
+- [x] 2026-07-25: P2-1 heatmapa mięśni — nowy `MuscleMap.tsx`: sylwetka
+  przód/tył (własne SVG, 10 regionów wg `Muscle`), fill wg `STATUS_COLORS`
+  z `weeklyMuscleVolume`, `<title>` z tooltipem (serie + status) na każdym
+  regionie. Nad listą partii w karcie Objętość (ProgressScreen), lista zostaje.
