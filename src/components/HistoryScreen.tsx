@@ -1,13 +1,35 @@
 import { useState } from "react";
-import { Check, ChevronDown, Dumbbell, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Dumbbell, Pencil, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import type { Session } from "@/lib/types";
 import { fmtDate, fmtKg, sessionVolume } from "@/lib/logic";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 export function HistoryScreen() {
-  const { state, deleteSession } = useStore();
+  const { state, deleteSession, updateSession } = useStore();
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Session | null>(null);
+
+  function setEditSet(entryIdx: number, setIdx: number, patch: Partial<{ weight: number; reps: number; done: boolean }>) {
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      Object.assign(next.entries[entryIdx].sets[setIdx], patch);
+      return next;
+    });
+  }
+
+  function saveEdit() {
+    if (!editing) return;
+    updateSession(editing);
+    setEditing(null);
+    toast("Zapisano zmiany w treningu");
+  }
 
   const sessions = [...state.sessions].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -83,20 +105,85 @@ export function HistoryScreen() {
                     );
                   })}
                 </div>
-                <button
-                  type="button"
-                  className="mt-3 flex items-center gap-1.5 text-xs text-destructive/80 hover:text-destructive"
-                  onClick={() => {
-                    if (confirm("Usunąć ten trening z historii?")) deleteSession(session.id);
-                  }}
-                >
-                  <Trash2 size={13} /> Usuń trening
-                </button>
+                <div className="mt-3 flex items-center gap-4">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditing(structuredClone(session))}
+                  >
+                    <Pencil size={13} /> Edytuj
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 text-xs text-destructive/80 hover:text-destructive"
+                    onClick={() => {
+                      if (confirm("Usunąć ten trening z historii?")) deleteSession(session.id);
+                    }}
+                  >
+                    <Trash2 size={13} /> Usuń trening
+                  </button>
+                </div>
               </CardContent>
             )}
           </Card>
         );
       })}
+
+      <Dialog open={editing !== null} onClose={() => setEditing(null)} title="Edytuj trening">
+        {editing && (
+          <div className="space-y-3">
+            {editing.entries.map((entry, ei) => {
+              const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+              const unitLabel = ex?.isHold ? "s" : "powt.";
+              return (
+                <div key={entry.exerciseId}>
+                  <p className="text-xs font-medium">{ex?.name ?? entry.exerciseId}</p>
+                  <div className="mt-1 space-y-1.5">
+                    {entry.sets.map((s, si) => (
+                      <div key={si} className="flex items-center gap-2">
+                        <span className="w-4 text-xs text-muted-foreground">{si + 1}</span>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.25"
+                          className="h-8 w-20 text-center"
+                          value={s.weight}
+                          onChange={(e) => setEditSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
+                        />
+                        <span className="text-xs text-muted-foreground">kg ×</span>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          className="h-8 w-16 text-center"
+                          value={s.reps}
+                          onChange={(e) => setEditSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
+                        />
+                        <span className="w-8 text-xs text-muted-foreground">{unitLabel}</span>
+                        <button
+                          type="button"
+                          onClick={() => setEditSet(ei, si, { done: !s.done })}
+                          className={cn(
+                            "ml-auto flex h-8 w-8 items-center justify-center rounded-md border transition-colors",
+                            s.done
+                              ? "border-green-500 bg-green-500/20 text-green-400"
+                              : "border-border text-muted-foreground hover:bg-accent"
+                          )}
+                          aria-label={s.done ? "Odznacz serię" : "Zalicz serię"}
+                        >
+                          <Check size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <Button className="w-full" onClick={saveEdit}>
+              Zapisz zmiany
+            </Button>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

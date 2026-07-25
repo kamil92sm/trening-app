@@ -241,7 +241,7 @@ rozważ -1 serię w przysiadzie/MC, izolacje bez zmian". Zapisz odpowiedzi w
 `Session` (+= `readiness?: {sleep:number; doms:number}`) — dane pod przyszłe analizy.
 Bump wersji wg Zasad. **Rozmiar:** M
 
-### [ ] P2-5. Edycja sesji w historii
+### [x] P2-5. Edycja sesji w historii (2026-07-26)
 **Mój pomysł** — literówka w ciężarze psuje rekordy i e1RM na zawsze. **Spec:**
 w rozwiniętej sesji „Edytuj" → dialog z edycją serii (weight/reps/done) →
 `store.updateSession(session)` (nowa akcja). UWAGA: NIE przeliczaj wstecz targets —
@@ -302,3 +302,7 @@ tylko dane sesji. **Rozmiar:** M
   robi `navigator.share` z plikiem PNG (iOS 15+) albo pobranie jako fallback.
   Guzik „Udostępnij" w podsumowaniu treningu. Przy okazji naprawiony bug w
   `store.finishSession` (nieczysty updater dublował summaries pod StrictMode).
+- [x] 2026-07-26: P2-5 edycja sesji w historii — nowa akcja `store.updateSession()`,
+  guzik „Edytuj" w rozwiniętej sesji otwiera dialog z edycją każdej serii
+  (ciężar/powt./zaliczona), zapis nadpisuje tylko dane sesji — targets i
+  progresja NIE są przeliczane wstecz.

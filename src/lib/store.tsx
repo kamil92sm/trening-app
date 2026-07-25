@@ -36,6 +36,7 @@ interface Store {
   setTarget(exerciseId: string, weight: number): void;
   finishSession(session: Omit<Session, "id" | "completed">): FinishSummary[];
   deleteSession(sessionId: string): void;
+  updateSession(session: Session): void;
   addBody(entry: BodyEntry): void;
   removeBody(date: string): void;
   addSquash(entry: Omit<SquashEntry, "id">): void;
@@ -131,6 +132,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteSession(sessionId) {
         mutate((d) => {
           d.sessions = d.sessions.filter((s) => s.id !== sessionId);
+          return d;
+        });
+      },
+
+      updateSession(session) {
+        mutate((d) => {
+          const i = d.sessions.findIndex((s) => s.id === session.id);
+          if (i >= 0) d.sessions[i] = session;
           return d;
         });
       },
