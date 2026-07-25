@@ -1,7 +1,7 @@
 // Testy silnika — czysta logika, bez przeglądarki.
 // Uruchamianie: npm test  (esbuild -> node)
 import { computeProgression, setVolume, e1rm, platePlan, weeklyMuscleVolume } from "../src/lib/logic";
-import { defaultState, SEED_EXERCISES, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
+import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -90,6 +90,46 @@ cur.sessions.push({ id: "x", dayId: "mon", date: "2026-07-20", entries: [], comp
 const same = migrateState(JSON.parse(JSON.stringify(cur)));
 check("ta sama wersja: target uzytkownika zostaje", same.targets["bench_bb"] === 50);
 check("ta sama wersja: sesje zostaja", same.sessions.length === 1);
+
+// P0-1: Dzień bonusowy 2.0 — ćwiczenia uzupełniające
+const bonusDay = SEED_DAYS.find((d) => d.id === "bonus")!;
+const bonusIds = ["face_pull", "hammer_curl", "pushdown", "calf_seated", "side_plank"];
+check(
+  "bonus 2.0: 5 nowych cwiczen uzupelniajacych",
+  bonusDay.exerciseIds.length === 5 && bonusDay.exerciseIds.every((id) => bonusIds.includes(id)),
+  bonusDay.exerciseIds
+);
+check(
+  "bonus 2.0: stare cwiczenia usuniete z bonusu",
+  !bonusDay.exerciseIds.some((id) => ["lateral", "curl_bb", "french", "calf", "crunch", "row_db"].includes(id)),
+  bonusDay.exerciseIds
+);
+
+const st2 = defaultState();
+const barkiOff = weeklyMuscleVolume(st2).find((v) => v.muscle === "Barki")!.sets;
+st2.days.find((d) => d.id === "bonus")!.active = true;
+const barkiOn = weeklyMuscleVolume(st2).find((v) => v.muscle === "Barki")!.sets;
+check("bonus 2.0: objetosc Barki rosnie po wlaczeniu bonusu", barkiOn > barkiOff, { barkiOff, barkiOn });
+
+// P0-1: migracja v2 -> v3 zachowuje wypracowane targety dla znanych ID
+const oldV2 = {
+  version: 2,
+  targets: { bench_bb: 50, squat: 70 },
+  sessions: [{ id: "s1", dayId: "mon", date: "2026-07-01", entries: [], completed: true }],
+  body: [],
+  squash: [],
+  settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+};
+const migV3 = migrateState(oldV2);
+check("migracja v2->v3: version = 3", migV3.version === SCHEMA_VERSION, migV3.version);
+check("migracja v2->v3: bench_bb target zachowany (50)", migV3.targets["bench_bb"] === 50, migV3.targets["bench_bb"]);
+check("migracja v2->v3: squat target zachowany (70)", migV3.targets["squat"] === 70, migV3.targets["squat"]);
+check(
+  "migracja v2->v3: nowe cwiczenia bonusowe maja cel z seeda (brak w starych danych)",
+  migV3.targets["face_pull"] === 20,
+  migV3.targets["face_pull"]
+);
+check("migracja v2->v3: sesje zachowane", migV3.sessions.length === 1);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

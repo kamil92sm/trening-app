@@ -40,7 +40,7 @@ Po skończeniu odhacz zadanie w POMYSLY.md i zrób commit.
 
 ## P0 — najpierw (realna wartość od zaraz)
 
-### [ ] P0-1. Dzień bonusowy 2.0 — ćwiczenia UZUPEŁNIAJĄCE zamiast powtórek
+### [x] P0-1. Dzień bonusowy 2.0 — ćwiczenia UZUPEŁNIAJĄCE zamiast powtórek (2026-07-25)
 **Problem:** obecny bonus powtarza ćwiczenia z planu (wznosy, uginanie, francuz, łydki,
 allahy, wiosłowanie). To był świadomy design „pump na tych samych ruchach", ale użytkownik
 chce ruchów, których plan 3-dniowy NIE zawiera — dobijają partie zaniedbane bez
@@ -265,3 +265,6 @@ tylko dane sesji. **Rozmiar:** M
 - [x] 2026-07-25: pełne źródła w repo, build 1-plikowy do `docs/`, testy `npm test`.
 - [x] 2026-07-25: safe-area dla Dynamic Island (body padding-top, sticky header,
   timer i toasty z env()); timer autostart po odhaczeniu serii, pływa nad nawigacją.
+- [x] 2026-07-25: P0-1 dzień bonusowy 2.0 — 5 nowych ćwiczeń uzupełniających
+  (face_pull, hammer_curl, pushdown, calf_seated, side_plank), SCHEMA_VERSION 3,
+  migrateState zachowuje targets użytkownika dla znanych ID przy migracji ze starej wersji.

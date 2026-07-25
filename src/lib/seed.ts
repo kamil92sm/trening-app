@@ -8,7 +8,7 @@ import type {
   WorkoutDay,
 } from "./types";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const STORAGE_KEY = "trening-app-v2";
 export const OLD_STORAGE_KEY = "trening-app-v1";
 
@@ -101,6 +101,24 @@ export const SEED_EXERCISES: Exercise[] = [
   ex("french", "Francuz (triceps)", "Triceps", "barbell", 10, 12, 2, 2.5, "Triceps", [], {
     note: "Łokcie prosto w sufit, nie rozjeżdżają się. Pracują tylko przedramiona.",
   }),
+  // BONUS 2.0 — ćwiczenia uzupełniające, nieobecne w planie 3-dniowym
+  ex("face_pull", "Face pull (wyciąg)", "Barki", "cable", 12, 15, 3, 2.5, "Barki", [], {
+    note: "Tylny aktyw barku i rotatory zewnętrzne — antidotum na wyciskania. Łokcie wysoko, ściągaj do twarzy.",
+  }),
+  ex("hammer_curl", "Uginanie młotkowe hantli", "Biceps", "dumbbell", 10, 12, 2, 1, "Biceps", [], {
+    note: "Brachialis i przedramię — grubość ramienia, mocniejszy chwyt (pomoże w MC i RDL).",
+  }),
+  ex("pushdown", "Prostowanie ramion na wyciągu", "Triceps", "cable", 10, 12, 2, 2.5, "Triceps", [], {
+    note: "Łokcie przyklejone do boków. Inny kąt niż francuz.",
+  }),
+  ex("calf_seated", "Wspięcia na palce siedząc", "Łydki", "machine", 12, 20, 3, 2.5, "Łydki", [], {
+    note: "Płaszczkowaty (kolano zgięte) — inna głowa niż wspięcia stojąc. Pauza w górze.",
+  }),
+  ex("side_plank", "Plank bokiem", "Brzuch", "bodyweight", 30, 30, 3, 2.5, "Brzuch", [], {
+    isHold: true,
+    rir: 0,
+    note: "Na stronę. Skosy + QL — core w płaszczyźnie, której deska nie łapie.",
+  }),
 ];
 
 export const SEED_DAYS: WorkoutDay[] = [
@@ -128,11 +146,11 @@ export const SEED_DAYS: WorkoutDay[] = [
   {
     id: "bonus",
     name: "Bonus",
-    short: "Ramiona, Łydki i Core (Pump)",
+    short: "Uzupełnienie: tył barków, ramiona, łydki, core",
     accent: "#a855f7",
     optional: true,
     active: false,
-    exerciseIds: ["lateral", "curl_bb", "french", "calf", "crunch", "row_db"],
+    exerciseIds: ["face_pull", "hammer_curl", "pushdown", "calf_seated", "side_plank"],
   },
 ];
 
@@ -155,6 +173,11 @@ export const SEED_TARGETS: Record<string, number> = {
   bench_db: 17.5,
   row_db: 20,
   french: 22.5,
+  face_pull: 20,
+  hammer_curl: 10,
+  pushdown: 20,
+  calf_seated: 30,
+  side_plank: 0,
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -211,9 +234,20 @@ export function migrateState(raw: unknown): AppState {
     } as AppState;
   }
 
-  // Stara wersja: nowy plan + zachowana historia.
+  // Stara wersja: nowy plan + zachowana historia. Cele (targets) użytkownika
+  // zachowujemy dla ID ćwiczeń, które nadal istnieją w nowym seedzie — inaczej
+  // progresja wypracowana przez tygodnie treningów wróciłaby do wartości startowych.
+  const oldTargets =
+    old.targets && typeof old.targets === "object" ? (old.targets as Record<string, unknown>) : {};
+  const targets: Record<string, number> = { ...fresh.targets };
+  for (const id of Object.keys(targets)) {
+    const v = oldTargets[id];
+    if (typeof v === "number") targets[id] = v;
+  }
+
   return {
     ...fresh,
+    targets,
     sessions: Array.isArray(old.sessions) ? old.sessions : [],
     body: Array.isArray(old.body) ? old.body : [],
     squash: Array.isArray(old.squash) ? old.squash : [],
