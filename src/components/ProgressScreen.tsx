@@ -18,7 +18,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
-import { MuscleMap } from "@/components/MuscleMap";
 
 export function ProgressScreen() {
   const { state, setDayActive } = useStore();
@@ -81,7 +80,6 @@ export function ProgressScreen() {
           <CardDescription>Serie robocze na partię (główna = 1, wspomagająca = ½)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <MuscleMap volumes={volumes} />
           {volumes.map((v) => {
             const range = MUSCLE_RANGES[v.muscle];
             const pct = Math.min((v.sets / (range.max * 1.3)) * 100, 100);
