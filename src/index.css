@@ -35,6 +35,8 @@ body {
   @apply bg-background text-foreground antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  /* iPhone z Dynamic Island / notchem: nie wjeżdżaj pod pasek statusu */
+  padding-top: env(safe-area-inset-top);
 }
 
 input[type="number"]::-webkit-outer-spin-button,

@@ -205,7 +205,14 @@ export function TrainScreen() {
 
   return (
     <div className="pb-16">
-      <div className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur">
+      <div
+        className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
+        style={{
+          // przykryj pasek statusu tłem nagłówka (body ma padding-top pod island)
+          marginTop: "calc(env(safe-area-inset-top) * -1)",
+          paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+        }}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
@@ -296,7 +303,10 @@ export function TrainScreen() {
         </Button>
       </div>
 
-      <div className="fixed bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur">
+      <div
+        className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
+        style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }}
+      >
         <RestTimer seconds={state.settings.restSeconds} sound={state.settings.sound} autostartKey={timerKey} />
       </div>
     </div>

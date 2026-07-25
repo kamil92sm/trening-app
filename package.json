@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && node scripts/singlefile.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "esbuild tests/logic.test.ts --bundle --platform=node --outfile=node_modules/.cache/logic.test.cjs --log-level=error && node node_modules/.cache/logic.test.cjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

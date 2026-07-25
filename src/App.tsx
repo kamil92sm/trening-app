@@ -21,7 +21,10 @@ const TABS: { id: Tab; label: string; icon: typeof Dumbbell }[] = [
 function Toaster() {
   const toasts = useToasts();
   return (
-    <div className="pointer-events-none fixed left-1/2 top-3 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4">
+    <div
+      className="pointer-events-none fixed left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4"
+      style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
