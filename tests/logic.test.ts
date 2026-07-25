@@ -88,7 +88,11 @@ const old = {
 };
 const mig = migrateState(old);
 check("migracja: version aktualna", mig.version === SCHEMA_VERSION);
-check("migracja: sesje zachowane", mig.sessions.length === 1);
+check(
+  "migracja: sesja uzytkownika zachowana (+9 historycznych)",
+  mig.sessions.some((s) => s.id === "s1") && mig.sessions.length === 10,
+  mig.sessions.length
+);
 check("migracja: waga zachowana", mig.body.length === 1 && mig.body[0].weight === 80);
 check("migracja: squash zachowany", mig.squash.length === 1);
 check("migracja: settings zachowane", mig.settings.restSeconds === 90 && mig.settings.sound === false);
@@ -138,7 +142,11 @@ check(
   migV3.targets["face_pull"] === 20,
   migV3.targets["face_pull"]
 );
-check("migracja v2->v3: sesje zachowane", migV3.sessions.length === 1);
+check(
+  "migracja v2->v3: sesja uzytkownika zachowana",
+  migV3.sessions.some((s) => s.id === "s1"),
+  migV3.sessions.length
+);
 
 // P0-4: "Ostatnio" w loggerze
 const stLast = defaultState();
@@ -231,6 +239,40 @@ const oldWithWaist = {
 const migWaist = migrateState(oldWithWaist);
 check("migracja v3->v4: version aktualna", migWaist.version === SCHEMA_VERSION, migWaist.version);
 check("migracja v3->v4: waist zachowany", migWaist.body[0]?.waist === 90, migWaist.body[0]);
+
+// Historia startowa: migracja v4 -> v5 wstrzykuje 9 sesji z tygodni 2-4
+const oldV4 = {
+  version: 4,
+  targets: { bench_bb: 45 },
+  sessions: [],
+  body: [],
+  squash: [],
+  settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+};
+const migV5 = migrateState(oldV4);
+check("historia startowa: 9 sesji po migracji v4->v5", migV5.sessions.length === 9, migV5.sessions.length);
+check(
+  "historia startowa: sesje posortowane rosnaco po dacie",
+  migV5.sessions.every((s, i, arr) => i === 0 || arr[i - 1].date.localeCompare(s.date) <= 0)
+);
+const w4fri = migV5.sessions.find((s) => s.id === "hist-w4-fri");
+check(
+  "historia startowa: OHP tydz.4 = 30 kg 3x8",
+  w4fri?.entries.find((e) => e.exerciseId === "ohp")?.sets.every((x) => x.weight === 30 && x.reps === 8 && x.done) === true,
+  w4fri?.entries.find((e) => e.exerciseId === "ohp")
+);
+
+// Dedup: wlasny wpis uzytkownika z tego samego dnia blokuje wstrzykniecie duplikatu
+const oldV4dup = {
+  ...oldV4,
+  sessions: [{ id: "moj", dayId: "mon", date: "2026-07-20T10:00:00", entries: [], completed: true }],
+};
+const migDup = migrateState(oldV4dup);
+check(
+  "historia startowa: dedup po dayId+dacie (1 wlasna + 8 wstrzyknietych)",
+  migDup.sessions.length === 9 && migDup.sessions.some((s) => s.id === "moj") && !migDup.sessions.some((s) => s.id === "hist-w4-mon"),
+  migDup.sessions.map((s) => s.id)
+);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

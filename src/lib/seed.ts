@@ -3,12 +3,14 @@ import type {
   Category,
   Exercise,
   Muscle,
+  Session,
   Settings,
   Unit,
   WorkoutDay,
 } from "./types";
+import { HISTORICAL_SESSIONS } from "./history-seed";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const STORAGE_KEY = "trening-app-v2";
 export const OLD_STORAGE_KEY = "trening-app-v1";
 
@@ -239,6 +241,24 @@ export function defaultState(): AppState {
 }
 
 /**
+ * Dokłada historię startową (treningi z tygodni 2–4 logowane poza apką) do
+ * istniejących sesji. Pomija sesję, jeśli już jest (to samo id) ALBO jeśli
+ * użytkownik ma własny wpis z tego samego dnia i dnia planu (ochrona przed
+ * duplikatami). Wywoływana tylko przy migracji ze starej wersji — po niej
+ * usunięcie sesji z historii jest trwałe.
+ */
+export function mergeHistoricalSessions(existing: Session[]): Session[] {
+  const merged = [...existing];
+  for (const h of HISTORICAL_SESSIONS) {
+    const dup = existing.some(
+      (s) => s.id === h.id || (s.dayId === h.dayId && s.date.slice(0, 10) === h.date.slice(0, 10))
+    );
+    if (!dup) merged.push(structuredClone(h));
+  }
+  return merged.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
  * Migracja: przy zmianie wersji schematu podmienia plan (exercises/days/targets)
  * na aktualny seed, ale ZACHOWUJE sessions, body, squash i settings.
  */
@@ -272,7 +292,8 @@ export function migrateState(raw: unknown): AppState {
   return {
     ...fresh,
     targets,
-    sessions: Array.isArray(old.sessions) ? old.sessions : [],
+    // Przy migracji dokładamy też historię startową (tygodnie 2–4 spoza apki).
+    sessions: mergeHistoricalSessions(Array.isArray(old.sessions) ? old.sessions : []),
     body: Array.isArray(old.body) ? old.body : [],
     squash: Array.isArray(old.squash) ? old.squash : [],
     settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
