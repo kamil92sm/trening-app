@@ -35,8 +35,17 @@ body {
   @apply bg-background text-foreground antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
-  /* iPhone z Dynamic Island / notchem: nie wjeżdżaj pod pasek statusu */
-  padding-top: env(safe-area-inset-top);
+  /* Dokument nie scrolluje na poziomie strony — scrolluje tylko <main> w app-shellu.
+     Dzięki temu dolna nawigacja (w układzie, nie fixed) nie skacze między
+     zakładkami, które scrollują, a tymi, które mieszczą się na ekranie. */
+  overflow: hidden;
+}
+
+/* Wysokość dokładnie na ekran; 100dvh reaguje na pasek przeglądarki na iOS,
+   100vh jako fallback dla starszych silników. */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
 }
 
 input[type="number"]::-webkit-outer-spin-button,
