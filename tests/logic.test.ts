@@ -1,7 +1,16 @@
 // Testy silnika — czysta logika, bez przeglądarki.
 // Uruchamianie: npm test  (esbuild -> node)
-import { computeProgression, setVolume, e1rm, platePlan, weeklyMuscleVolume, lastEntry } from "../src/lib/logic";
+import {
+  computeProgression,
+  setVolume,
+  e1rm,
+  platePlan,
+  weeklyMuscleVolume,
+  lastEntry,
+  detectPlateau,
+} from "../src/lib/logic";
 import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
+import type { Session } from "../src/lib/types";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -172,6 +181,43 @@ const last = lastEntry(stLast, "bench_bb");
 check("lastEntry: najnowsza sesja wygrywa", last?.date === "2026-07-21", last);
 check("lastEntry: pomija nieukonczone serie", last?.sets.length === 2, last);
 check("lastEntry: brak historii -> null", lastEntry(defaultState(), "bench_bb") === null);
+
+// P1-1: Plateau breaker
+function sessionAt(date: string, weight: number, reps: number): Session {
+  return {
+    id: `p-${date}`,
+    dayId: "mon",
+    date,
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_bb",
+        targetWeight: weight,
+        sets: [{ weight, reps, done: true }],
+      },
+    ],
+  };
+}
+
+const stPlateau = defaultState();
+stPlateau.sessions.push(
+  sessionAt("2026-06-01", 45, 8),
+  sessionAt("2026-06-08", 45, 8),
+  sessionAt("2026-06-15", 45, 8)
+);
+check("detectPlateau: 3x ten sam wynik -> zastoj", detectPlateau(stPlateau, "bench_bb") === true);
+
+const stProgress = defaultState();
+stProgress.sessions.push(
+  sessionAt("2026-06-01", 45, 6),
+  sessionAt("2026-06-08", 45, 7),
+  sessionAt("2026-06-15", 45, 8)
+);
+check("detectPlateau: rosnace powtorzenia -> brak zastoju", detectPlateau(stProgress, "bench_bb") === false);
+
+const stFew = defaultState();
+stFew.sessions.push(sessionAt("2026-06-01", 45, 8), sessionAt("2026-06-08", 45, 8));
+check("detectPlateau: <3 treningi -> brak zastoju", detectPlateau(stFew, "bench_bb") === false);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog } from "@/lib/types";
-import { fmtKg, fmtDateShort, lastEntry, sessionVolume } from "@/lib/logic";
+import { fmtKg, fmtDateShort, lastEntry, sessionVolume, detectPlateau } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -183,6 +183,13 @@ export function TrainScreen() {
               <div className="min-w-0">
                 <p className="text-sm font-medium">{exercise.name}</p>
                 <p className="text-xs text-muted-foreground">{result.message}</p>
+                {detectPlateau(state, exercise.id) && (
+                  <p className="mt-1.5 rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
+                    Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku
+                    kompletu powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana
+                    ćwiczenia na 4–6 tyg.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>

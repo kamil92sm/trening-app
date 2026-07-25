@@ -258,6 +258,22 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
   return null;
 }
 
+/**
+ * Zastój: 3 ostatnie treningi tego ćwiczenia mają ten sam topWeight
+ * i e1RM w widełkach ±1%. Sugestia, nie automat — decyzję podejmuje trenujący.
+ */
+export function detectPlateau(state: AppState, exId: string): boolean {
+  const history = exerciseHistory(state, exId);
+  if (history.length < 3) return false;
+  const [a, b, c] = history.slice(-3);
+  if (a.topWeight !== b.topWeight || b.topWeight !== c.topWeight) return false;
+  const es = [a.e1rm, b.e1rm, c.e1rm];
+  const maxE = Math.max(...es);
+  const minE = Math.min(...es);
+  if (maxE === 0) return false;
+  return (maxE - minE) / maxE <= 0.01;
+}
+
 // ── Kalkulator talerzy ─────────────────────────────────────────────────────
 
 export interface PlatePlan {

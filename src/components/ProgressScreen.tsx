@@ -12,6 +12,7 @@ import {
   fmtKg,
   bestE1rm,
   e1rm,
+  detectPlateau,
 } from "@/lib/logic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/input";
@@ -152,6 +153,12 @@ export function ProgressScreen() {
               Ostatnio: {fmtKg(history[history.length - 1].topWeight)} ×{" "}
               {history[history.length - 1].topReps}
               {selected.isHold ? " s" : ""} · aktualny cel: {fmtKg(state.targets[selected.id] ?? 0)}
+            </p>
+          )}
+          {selected && detectPlateau(state, selected.id) && (
+            <p className="rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
+              Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku kompletu
+              powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana ćwiczenia na 4–6 tyg.
             </p>
           )}
         </CardContent>

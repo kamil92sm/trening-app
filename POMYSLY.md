@@ -161,7 +161,7 @@ iść do Historii.
 
 ## P1 — drugi rzut (analityka i wygoda)
 
-### [ ] P1-1. Plateau breaker (detektor zastoju)
+### [x] P1-1. Plateau breaker (detektor zastoju) (2026-07-25)
 **Weryfikacja pomysłu Gemini:** dobry, ale wdrażamy jako SUGESTIĘ, nie automat —
 apka nie powinna sama zmieniać planu.
 **Spec:** `logic.ts`: `detectPlateau(state, exId): boolean` — ostatnie **3** punkty
@@ -278,3 +278,6 @@ tylko dane sesji. **Rozmiar:** M
 - [x] 2026-07-25: P0-4 „Ostatnio" w loggerze — `lastEntry()` w logic.ts (ostatnia
   ukończona sesja z danym ćwiczeniem, pomija nieodhaczone serie), szary wiersz pod
   nagłówkiem karty ćwiczenia w TrainScreen z datą i wynikiem poprzedniej sesji.
+- [x] 2026-07-25: P1-1 plateau breaker — `detectPlateau()` w logic.ts (3 ostatnie
+  treningi ten sam topWeight i e1RM w widełkach ±1%), bursztynowy box-sugestia
+  w podsumowaniu treningu (TrainScreen) i przy wykresie postępu (ProgressScreen).
