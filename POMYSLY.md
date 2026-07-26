@@ -266,6 +266,91 @@ WIDOKIEM POCHODNYM liczonym w locie (żadnych zmian ID/zakresów w seedzie).
 `npm test` + `npm run build` OK.
 **Rozmiar:** L
 
+### [x] P0-6. Timer przerwy „rozjeżdża się" przy < 5 s (jank na iOS) (2026-07-26)
+**Zgłoszenie Kamila (2026-07-26 wieczór):** „Zegar jak jest mniej niż 5 sekund to coś się
+rozjeżdża chyba."
+
+**Diagnoza (do potwierdzenia reprodukcją, NIE zgaduj naprawy zanim zobaczysz problem):**
+Timer to pływająca pigułka `fixed left-1/2 -translate-x-1/2... bg-card/95 backdrop-blur`
+(`src/components/TrainScreen.tsx:616-621`). Przy `left <= 5` włącza się `almostDone`
+(`src/components/Gym.tsx:121`), które dokłada `animate-pulse text-amber-400` do JEDNOCZEŚNIE
+ikony (`Gym.tsx:125`) i liczby (`Gym.tsx:126-139`). Najbardziej prawdopodobne przyczyny,
+w kolejności:
+1. **`animate-pulse` wewnątrz elementu z `backdrop-blur` na iOS Safari** — pulsujący opacity
+   zmusza warstwę blur do repaintu co klatkę; przy `fixed`+`-translate-x-1/2` (centrowanie)
+   to daje migotanie/„rozjeżdżanie", nie realny layout shift. To najmocniejszy kandydat.
+2. **Dwie NIEZSYNCHRONIZOWANE animacje** (ikona i liczba mają osobny `animate-pulse`) —
+   pulsują w innej fazie, co wygląda na „rozjeżdżanie się" elementów względem siebie.
+3. Szerokość liczby: `min-w-[52px]` + `tabular-nums` powinny trzymać stałą szerokość, ale
+   `min-w` to tylko dolny limit — dla pewności zamień na sztywne `w-[56px] text-center`.
+
+**Spec naprawy:**
+1. **Najpierw zreprodukuj**: ustaw krótki `restSeconds` (np. 6 s) w ustawieniach/ćwiczeniu,
+   odhacz serię, obserwuj przejście 6→5→…→0 w podglądzie (najlepiej wąskim, mobile, dark).
+   Ustal DevToolsami, co realnie się dzieje (repaint blur vs. zmiana box-size).
+2. Ustabilizuj szerokość liczby: `w-[56px] text-center tabular-nums` zamiast `min-w-[52px]`.
+3. Utemperuj animację tak, by nie biła w warstwę blur: albo (a) usuń `animate-pulse` z dzieci
+   pigułki i zrób miganie na elemencie BEZ `backdrop-blur` (np. cień/obwódka pigułki, albo
+   osobny wewnętrzny wrapper bez blur), albo (b) zejdź z `animate-pulse` na sam stały amber +
+   istniejący `beep()` (Kamil i tak ma dźwięk), albo (c) jeśli zostaje pulsowanie — pulsuj
+   TYLKO jeden element (całą pigułkę albo samą liczbę), nie ikonę i liczbę osobno, żeby fazy
+   się nie rozjeżdżały.
+4. Pigułka ma zostać wyśrodkowana i tej samej szerokości przez całe 6→0 (żadnego dryfu w bok).
+
+**Akceptacja:** przy < 5 s timer nie miga/nie dryfuje; pigułka stoi w miejscu, ta sama
+szerokość do 0:00; `npm run build` OK. To fix UI — bez nowych zależności, bez zmian silnika.
+**Rozmiar:** S
+
+### [ ] P0-7. Przywróć standardowy plan dnia (po przypadkowym usunięciu ćwiczenia)
+**Zgłoszenie Kamila (2026-07-26 wieczór):** „usunęło mi się jedno ćwiczenie z planu i nie
+mogę przywrócić standardowego planu na dany dzień, chcę mieć tę opcję." — Fable potwierdza:
+dobry pomysł, `SEED_DAYS`/`SEED_EXERCISES`/`SEED_TARGETS` w `src/lib/seed.ts` są źródłem
+prawdy, więc przywrócenie jest deterministyczne i tanie.
+
+**Kontekst kodu:** plan dnia to `WorkoutDay.exerciseIds` (`src/lib/types.ts`), edytowalny
+w `PlanScreen.tsx`. Store ma już `updateDay(day)` (`store.tsx:237`), `addExercise`,
+`updateExercise` (`store.tsx:207,218`). Seed eksportuje `SEED_DAYS` (`seed.ts:150`),
+`SEED_EXERCISES` (`seed.ts:47`), `SEED_TARGETS` (`seed.ts:183`). ID ćwiczeń/dni są stabilne
+(§1 Zasad) — więc `SEED_DAYS.find(d => d.id === dayId)` daje oryginalną listę ID.
+
+**Spec:**
+1. **Store — nowa akcja `restoreDayPlan(dayId)`** (dopisz do interfejsu `Store`,
+   `store.tsx:35-58`):
+   - Znajdź `seedDay = SEED_DAYS.find(d => d.id === dayId)`. Jeśli brak (dzień usera, nie z
+     seeda) → nic nie rób / zwróć info (patrz p.4).
+   - Dla każdego `exId` z `seedDay.exerciseIds`, którego NIE MA w `state.exercises` (np. Kamil
+     go skasował): dołóż z powrotem z `SEED_EXERCISES.find(e => e.id === exId)` oraz cel z
+     `SEED_TARGETS[exId]` (fallback do celu z seeda/0). Jeśli ćwiczenie istnieje ale jest
+     `archived` → odarchiwizuj (`setArchived(exId,false)`), NIE nadpisuj jego celu/parametrów
+     (chroni progresję i ręczne kalibracje usera).
+   - Ustaw `day.exerciseIds = [...seedDay.exerciseIds]` przez `updateDay`. Zachowaj
+     user-owe pola dnia, które nie dotyczą listy (`active` dla bonusu, `accent` jeśli user
+     zmieniał — albo świadomie wróć do seeda; wybierz i opisz w commicie, domyślnie: przywróć
+     tylko `exerciseIds`, resztę zostaw).
+   - **NIE ruszaj** `targets` istniejących ćwiczeń (wypracowana progresja) — przywracamy tylko
+     SKŁAD dnia i brakujące ćwiczenia, nie zerujemy ciężarów.
+2. **UI w `PlanScreen.tsx`** — w edytorze każdego dnia przycisk „Przywróć standardowy plan"
+   (ikona `RotateCcw`), za `confirm()` („Przywrócić oryginalny zestaw ćwiczeń dla tego dnia?
+   Dołoży brakujące ćwiczenia i ustawi kolejność jak w planie. Twoje ciężary zostają."),
+   → `store.restoreDayPlan(day.id)` + toast potwierdzający.
+   - Pokaż przycisk tylko dla dni obecnych w `SEED_DAYS` (mon/wed/fri/bonus). Dla dni
+     stworzonych przez usera nie ma czego przywracać.
+3. Persystencja: to zwykła mutacja `state` przez istniejące akcje → localStorage sam się
+   zapisze (mechanizm w `store.tsx`). Bez bumpa `SCHEMA_VERSION` (kształt danych bez zmian).
+4. Rozważ (opcjonalnie, jeśli tanie): przy okazji „Przywróć CAŁY plan" w Ustawieniach/Więcej
+   — pętla `restoreDayPlan` po wszystkich `SEED_DAYS`. Nie wymagane w MVP tego zadania.
+5. **Test** (`tests/logic.test.ts`): jeśli wydzielisz czystą funkcję (np.
+   `restoredDayPlan(state, dayId): {exercises, days, targets}`) — przetestuj: po usunięciu
+   `crunch` z `state.exercises` i z `days.mon.exerciseIds`, `restoreDayPlan("mon")` przywraca
+   `crunch` do listy i do `exercises`, a cel istniejącego `bench_bb` (np. ręcznie 55) zostaje
+   55, nie wraca do seeda. Jeśli logika siedzi w store bez czystej funkcji — dołóż chociaż
+   asercję na kształt wyniku.
+
+**Akceptacja:** po skasowaniu ćwiczenia z dnia jeden klik przywraca oryginalny zestaw i
+brakujące ćwiczenie; ciężary/progresja pozostałych ćwiczeń nietknięte; `npm test` +
+`npm run build` OK.
+**Rozmiar:** M
+
 ---
 
 ## P1 — drugi rzut (analityka i wygoda)
@@ -334,12 +419,13 @@ Umieść nad listą w karcie Objętość; lista zostaje (dostępność). **Rozmi
 w Progresie, dla wykresu ćwiczenia, pokaż kreski w dniach squasha ±1 dzień przed sesją.
 Wniosek zostaw człowiekowi (bez automatycznych "%"). **Rozmiar:** S/M
 
-### [x] P2-3. Paragon treningowy (obrazek do rolki) (2026-07-26)
+### [x] P2-3. Paragon treningowy (obrazek do rolki) (2026-07-26; WYCOFANE 2026-07-26 wieczór na prośbę Kamila — patrz P2-6, nie wracać)
 **Weryfikacja Gemini:** wykonalne BEZ html-to-image (nie dodawaj zależności!) —
 rysuj ręcznie na `<canvas>` (1080×1350, ciemne tło, tonaż, czas, serie, rekordy,
 progresje ↑). `canvas.toBlob` → `navigator.share({ files: [new File(...)] })`
 (iOS 15+), fallback: link download. Guzik „Udostępnij" w podsumowaniu treningu.
 **Rozmiar:** M
+**WYCOFANE:** Kamil nie chce tej funkcji („nie jest mi potrzebna"). Usunięcie = zadanie P2-6.
 
 ### [ ] P2-4. Check-in gotowości (autoregulacja)
 **Weryfikacja Gemini:** uczciwie — „szokowanie CUN" to bro-science, ale sama
@@ -355,6 +441,68 @@ Bump wersji wg Zasad. **Rozmiar:** M
 w rozwiniętej sesji „Edytuj" → dialog z edycją serii (weight/reps/done) →
 `store.updateSession(session)` (nowa akcja). UWAGA: NIE przeliczaj wstecz targets —
 tylko dane sesji. **Rozmiar:** M
+
+### [ ] P2-6. Usuń funkcję paragonu / „Udostępnij" (cofnięcie P2-3)
+**Zgłoszenie Kamila (2026-07-26 wieczór):** „nie chcę w ogóle opcji paragonu. Wywal ją, nie
+jest mi potrzebna." Cofamy P2-3 w całości.
+
+**Do usunięcia (dokładna lista, chirurgicznie — nie tknij backupu do Gista!):**
+1. **`src/lib/receipt.ts`** — usuń cały plik (`drawReceipt`, `shareReceipt`, `ReceiptData`,
+   `ReceiptItem`).
+2. **`src/components/TrainScreen.tsx`:**
+   - Import `Share2` z lucide-react (`:12`).
+   - Import `drawReceipt, shareReceipt, type ReceiptData` (`:28`) — usuń całą linię.
+   - Stan `receipt`/`setReceipt` (`:74`) i `receiptCanvasRef` (`:79`).
+   - W `finish()` (`:260-301`) cały blok budujący paragon: `dayNameBase/dayName`,
+     `doneSets/totalSets/volume` (liczone TYLKO pod paragon), `durationMin`, `items`,
+     `setReceipt({...})` (`:272-292`). **UWAGA:** zostaw `store.finishSession(...)`,
+     `setSummary(results)`, `setDraft(null)` ORAZ blok auto-backupu do Gista
+     (`:296+` `if (state.settings.autoBackup ...)`) — to niezależne od paragonu, MUSI zostać.
+   - Funkcja `shareWorkout()` (`:307-311`) — usuń.
+   - W widoku podsumowania: przycisk „Udostępnij" (`:351-353`), `setReceipt(null)` w onClick
+     „Zamknij" (`:359` — zostaw `setSummary(null)`), ukryty `<canvas>` (`:364`).
+   - Sprawdź, czy po usunięciu `volume`/`sessionVolume`/`topOfEntry`/`fmtKg` nie zostają
+     nieużywane w tym pliku (TS `noEmit` je złapie) — usuń martwe importy, ale tylko te
+     faktycznie osierocone (część jest używana gdzie indziej w pliku).
+3. Nie ruszaj `src/lib/backup.ts` ani karty „Chmura" — to inna funkcja (backup ≠ paragon).
+
+**Akceptacja:** `tsc --noEmit` bez błędów o nieużywanych/brakujących symbolach, `npm run
+build` OK; po treningu podsumowanie pokazuje tylko listę + „Zamknij" (bez „Udostępnij");
+brak referencji do `receipt` w kodzie (`grep -ri receipt src/` czysto poza ewentualnym
+komentarzem historii). Auto-backup do Gista dalej działa.
+**Rozmiar:** S
+
+### [ ] P2-7. Losowanie dnia bonusowego pod niedotrenowaną partię/zestaw
+**Pomysł Kamila (2026-07-26 wieczór):** „może losowanie bonusowego dnia na dany
+zestaw/partię?" — zamiast jednego sztywnego składu bonusu, apka proponuje wariant pod partię,
+która najbardziej kuleje.
+
+**Status: POMYSŁ DO DOPRECYZOWANIA — NIE wdrażaj na ślepo.** Fable: kierunek sensowny, ale
+„losowanie" i „pod partię" to dwa różne pomysły; przed kodem ustal z Kamilem, o który chodzi.
+Dwie interpretacje:
+- **(A) Deterministyczny dobór pod deficyt (rekomendowane):** policz `weeklyMuscleVolume`
+  (`logic.ts`) z aktywnych dni, znajdź partie ze statusem `low`, i zaproponuj skład bonusu
+  z ćwiczeń celujących w te partie (pula np. `SEED_EXERCISES` + user-owe, filtr po
+  `primaryMuscle`). To NIE losowanie — to „bonus łata dziury", spójne z §11 (uczciwe
+  framowanie) i z ideą P0-1 (bonus uzupełnia, nie dubluje).
+- **(B) Losowy wariant dla urozmaicenia:** kilka gotowych „szablonów bonusu" (Ramiona / Nogi
+  akcent / Core+tył) i przycisk „Wylosuj bonus na dziś" — mniej analityczne, bardziej dla
+  odmiany. Ryzyko: kłóci się z podwójną progresją (progresja lubi powtarzalność ćwiczeń).
+
+**Otwarte pytania do Kamila (zadać PRZED implementacją):**
+1. Ma być pod deficyt (A) czy losowe dla odmiany (B)?
+2. Ma nadpisywać stały skład dnia `bonus`, czy być jednorazową podpowiedzią „na dziś" w
+   drafcie (jak „Użyj" w FEAT-1), bez ruszania planu i progresji?
+3. Czy progresja ma podążać za wylosowanymi ćwiczeniami, czy bonus jest „poza progresją"
+   (pump, cele nie rosną)?
+
+**Szkic (dla wariantu A, gdy potwierdzony):** `logic.ts`: `suggestBonusExercises(state,
+count=5): Exercise[]` — sortuj partie po `(actual - min)` rosnąco, wybierz ćwiczenia
+pokrywające najsłabsze partie, unikaj dublowania ruchów z aktywnych dni. UI: w Treningu przy
+dniu bonus przycisk „Dobierz pod słabe partie" → podmienia skład TYLKO w drafcie sesji
+(nie w `state.days`), analogicznie do FEAT-1 „Użyj". Test w `tests/logic.test.ts`: przy
+Łydki=`low` sugerowany skład zawiera ćwiczenie na łydki.
+**Rozmiar:** M (po doprecyzowaniu)
 
 ---
 

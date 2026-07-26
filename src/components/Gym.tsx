@@ -122,14 +122,17 @@ export function RestTimer({
 
   return (
     <div className="flex items-center gap-2">
-      <TimerReset size={16} className={cn("text-muted-foreground", almostDone && "animate-pulse text-amber-400")} />
+      {/* Bez animate-pulse: pulsujące opacity wewnątrz pigułki z backdrop-blur
+          zmusza iOS Safari do repaintu całej rozmytej warstwy co klatkę —
+          wygląda jak "rozjeżdżanie się". Sam kolor + istniejący beep() wystarczą. */}
+      <TimerReset size={16} className={cn("text-muted-foreground", almostDone && "text-amber-400")} />
       <span
         className={cn(
-          "min-w-[52px] font-mono text-lg tabular-nums",
+          "w-[56px] text-center font-mono text-lg tabular-nums",
           left === 0
             ? "text-green-400"
             : almostDone
-              ? "animate-pulse text-amber-400"
+              ? "text-amber-400"
               : running
                 ? "text-foreground"
                 : "text-muted-foreground"
