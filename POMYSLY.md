@@ -1187,7 +1187,7 @@ nowy `src/components/ui/stepper.tsx`.
 
 ---
 
-### [ ] P3-3. „Plan" i „Wykonane (7 dni)" pokazują identyczne wartości — to NIE jest bug w kodzie
+### [x] P3-3. „Plan" i „Wykonane (7 dni)" pokazują identyczne wartości — to NIE jest bug w kodzie (2026-07-26)
 
 **Zgłoszenie:** w Progresie oba przełączniki dają to samo, więc wygląda na zepsute.
 

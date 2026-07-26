@@ -7,6 +7,7 @@ import {
   platePlan,
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
+  actualVolumeWindow,
   muscleRangesFor,
   lastEntry,
   personalBests,
@@ -663,6 +664,67 @@ check(
 check(
   "actualWeeklyMuscleVolume: brak logow w oknie -> 0 (Nogi)",
   actual.find((v) => v.muscle === "Nogi")!.sets === 0
+);
+
+// P3-3: sesja z niepelna liczba zaliczonych serii -> wykonane < plan dla tej partii
+const stPartial = defaultState();
+stPartial.sessions.push({
+  id: "p1",
+  dayId: "mon",
+  date: "2026-07-24",
+  completed: true,
+  entries: [
+    {
+      exerciseId: "bench_bb",
+      targetWeight: 45,
+      sets: [
+        { weight: 45, reps: 8, done: true },
+        { weight: 45, reps: 8, done: true },
+        { weight: 45, reps: 8, done: false }, // niezaliczona - nie liczy sie
+      ],
+    },
+  ],
+});
+const partialActual = actualWeeklyMuscleVolume(stPartial, "hypertrophy", "2026-07-26");
+const partialPlanned = weeklyMuscleVolume(stPartial, "hypertrophy");
+check(
+  "P3-3: wykonane (2 serie) < plan (3 serie) dla Klatki",
+  partialActual.find((v) => v.muscle === "Klatka")!.sets < partialPlanned.find((v) => v.muscle === "Klatka")!.sets,
+  partialActual.find((v) => v.muscle === "Klatka")
+);
+
+// P3-3: sesja spoza okna (8 dni wstecz od nowIso) - juz pokryte przez "poza-oknem
+// pominieta" wyzej (a2, 2026-07-10 vs nowIso 2026-07-26), dodatkowy test na granicy:
+const stEdge = defaultState();
+stEdge.sessions.push({
+  id: "edge1",
+  dayId: "mon",
+  date: "2026-07-18", // 8 dni przed 2026-07-26 -> poza oknem (okno: 20-26 lipca)
+  completed: true,
+  entries: [
+    { exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] },
+  ],
+});
+const edgeActual = actualWeeklyMuscleVolume(stEdge, "hypertrophy", "2026-07-26");
+check(
+  "P3-3: sesja 8 dni wstecz jest POZA oknem 7 dni",
+  edgeActual.find((v) => v.muscle === "Klatka")!.sets === 0,
+  edgeActual.find((v) => v.muscle === "Klatka")
+);
+
+// P3-3: actualVolumeWindow na historii startowej (migrateState dosiewa 3 tyg. historii)
+const stHistory = migrateState(defaultState());
+const window = actualVolumeWindow(stHistory, "2026-07-26");
+check(
+  "actualVolumeWindow: historia startowa, nowIso=2026-07-26 -> 3 sesje, okno 20-26 lipca",
+  window.sessions === 3 && window.fromIso === "2026-07-20" && window.toIso === "2026-07-26",
+  window
+);
+const windowEmpty = actualVolumeWindow(defaultState(), "2026-07-26");
+check(
+  "actualVolumeWindow: brak sesji -> 0",
+  windowEmpty.sessions === 0 && windowEmpty.fromIso === "2026-07-20" && windowEmpty.toIso === "2026-07-26",
+  windowEmpty
 );
 
 // INFO-1b: cel objetosci (sila/hipertrofia) zmienia progi statusu

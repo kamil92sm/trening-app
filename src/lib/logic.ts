@@ -162,6 +162,24 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
 }
 
 /**
+ * Granice okna "ostatnie 7 dni" (dziś + 6 wstecz) jako klucze YYYY-MM-DD z
+ * KOMPONENTÓW LOKALNYCH (nie `toISOString()` = UTC) — inaczej po północy
+ * czasu lokalnego w strefie o ujemnym przesunięciu okno mogłoby zjechać
+ * o dobę względem `session.date` (który bywa zapisany bez strefy, patrz
+ * historia startowa vs. `new Date().toISOString()` w drafcie). Wspólne dla
+ * `actualWeeklyMuscleVolume` i `actualVolumeWindow`, żeby nie rozjechały się
+ * w przyszłości.
+ */
+function volumeWindowBounds(nowIso?: string): { cutoffStr: string; nowStr: string } {
+  const now = nowIso ? new Date(nowIso) : new Date();
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 6);
+  const key = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { cutoffStr: key(cutoff), nowStr: key(now) };
+}
+
+/**
  * Serie robocze W OSTATNICH 7 DNIACH — z faktycznie zalogowanych (ukończonych)
  * sesji, nie z planu. Ta sama waga partia główna/wspomagająca jak wyżej.
  * `nowIso` opcjonalny (testowalność) — domyślnie bieżąca data urządzenia.
@@ -174,11 +192,7 @@ export function actualWeeklyMuscleVolume(
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
 
-  const now = nowIso ? new Date(nowIso) : new Date();
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 6); // okno 7 dni: dzis + 6 wstecz
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const nowStr = now.toISOString().slice(0, 10);
+  const { cutoffStr, nowStr } = volumeWindowBounds(nowIso);
 
   for (const session of state.sessions) {
     if (!session.completed) continue;
@@ -213,6 +227,25 @@ export function actualWeeklyMuscleVolume(
       status: volumeStatus(a.sets, muscle, goal, state.settings.muscleRanges),
     };
   });
+}
+
+/**
+ * Kontekst okna "Wykonane (7 dni)" — do wyjaśnienia w UI (P3-3) dlaczego
+ * "Plan" i "Wykonane" czasem pokazują identyczne liczby: to zbieżność
+ * danych (okno akurat trafiło po jednym kompletnym treningu na dzień
+ * planu), nie błąd. Liczba ukończonych sesji w oknie + zakres dat.
+ */
+export function actualVolumeWindow(
+  state: AppState,
+  nowIso?: string
+): { sessions: number; fromIso: string; toIso: string } {
+  const { cutoffStr, nowStr } = volumeWindowBounds(nowIso);
+  const count = state.sessions.filter((s) => {
+    if (!s.completed) return false;
+    const d = s.date.slice(0, 10);
+    return d >= cutoffStr && d <= nowStr;
+  }).length;
+  return { sessions: count, fromIso: cutoffStr, toIso: nowStr };
 }
 
 /**
