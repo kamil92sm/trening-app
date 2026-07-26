@@ -357,6 +357,14 @@ export function TrainScreen() {
     setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
     setReadiness(null);
     setFocusIdx(0);
+    // Bug: RestTimer nie istnieje na ekranie wyboru dnia, wiec kazdy start dnia
+    // montuje go od nowa. Jesli timerKey zostal niezerowy z POPRZEDNIEGO treningu
+    // w tej samej sesji (karta nie byla przeladowana), swiezy RestTimer dostaje
+    // od razu niezerowy autostartKey na pierwszym renderze i odpala odliczanie
+    // ZANIM cokolwiek zaznaczono w nowym treningu. Widoczne najbardziej w trybie
+    // skupienia (duzy panel), ale dotyczylo tez pigulki w trybie listy.
+    setTimerKey(0);
+    setTimerSeconds(state.settings.restSeconds);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
