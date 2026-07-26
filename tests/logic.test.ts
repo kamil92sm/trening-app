@@ -7,6 +7,7 @@ import {
   platePlan,
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
+  muscleRangesFor,
   lastEntry,
   detectPlateau,
   achievableWeights,
@@ -432,6 +433,24 @@ const volHiper = weeklyMuscleVolume(defaultState(), "hypertrophy").find((v) => v
 check("weeklyMuscleVolume: Klatka 9 serii + cel hipertrofia -> low", volHiper.status === "low", volHiper);
 const volSila = weeklyMuscleVolume(defaultState(), "strength").find((v) => v.muscle === "Klatka")!;
 check("weeklyMuscleVolume: Klatka 9 serii + cel sila -> ok", volSila.status === "ok", volSila);
+
+// P1-5: reczne nadpisanie zakresow (muscleRangesFor + weeklyMuscleVolume)
+const rangesDefault = muscleRangesFor("hypertrophy");
+check("muscleRangesFor: bez overrides -> zakres domyslny", rangesDefault.Klatka.min === 10, rangesDefault.Klatka);
+const rangesOverride = muscleRangesFor("hypertrophy", { Klatka: { min: 5, max: 9 } });
+check(
+  "muscleRangesFor: override zmienia tylko wskazana partie",
+  rangesOverride.Klatka.min === 5 && rangesOverride.Klatka.max === 9 && rangesOverride.Plecy.min === 10,
+  rangesOverride
+);
+const stRangeOverride = defaultState();
+stRangeOverride.settings.muscleRanges = { Klatka: { min: 5, max: 9 } };
+const volOverride = weeklyMuscleVolume(stRangeOverride, "hypertrophy").find((v) => v.muscle === "Klatka")!;
+check(
+  "weeklyMuscleVolume: override obniza prog -> Klatka 9 serii -> ok (zamiast low)",
+  volOverride.status === "ok",
+  volOverride
+);
 
 // P2-7: sugestia bonusu pod deficyt objetosci (actualWeeklyMuscleVolume, nie plan)
 const stBonus = defaultState();

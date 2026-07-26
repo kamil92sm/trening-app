@@ -63,8 +63,21 @@ export const MUSCLE_RANGES_STRENGTH: Record<Muscle, { min: number; max: number }
 /** Zachowane dla wstecznej zgodności — zakresy hipertroficzne (domyślny cel). */
 export const MUSCLE_RANGES = MUSCLE_RANGES_HYPERTROPHY;
 
-export function muscleRangesFor(goal: VolumeGoal): Record<Muscle, { min: number; max: number }> {
-  return goal === "strength" ? MUSCLE_RANGES_STRENGTH : MUSCLE_RANGES_HYPERTROPHY;
+/**
+ * Zakresy dla celu, z opcjonalnym ręcznym nadpisaniem per partia (P1-5,
+ * `settings.muscleRanges`). Brak partii w `overrides` = zakres domyślny celu.
+ */
+export function muscleRangesFor(
+  goal: VolumeGoal,
+  overrides?: Partial<Record<Muscle, { min: number; max: number }>>
+): Record<Muscle, { min: number; max: number }> {
+  const base = goal === "strength" ? MUSCLE_RANGES_STRENGTH : MUSCLE_RANGES_HYPERTROPHY;
+  if (!overrides) return base;
+  const merged = { ...base };
+  for (const m of MUSCLES) {
+    if (overrides[m]) merged[m] = overrides[m]!;
+  }
+  return merged;
 }
 
 export type VolumeStatus = "low" | "ok" | "high" | "veryhigh";
@@ -91,8 +104,13 @@ export interface MuscleVolume {
   status: VolumeStatus;
 }
 
-function volumeStatus(sets: number, muscle: Muscle, goal: VolumeGoal = "hypertrophy"): VolumeStatus {
-  const r = muscleRangesFor(goal)[muscle];
+function volumeStatus(
+  sets: number,
+  muscle: Muscle,
+  goal: VolumeGoal = "hypertrophy",
+  overrides?: Partial<Record<Muscle, { min: number; max: number }>>
+): VolumeStatus {
+  const r = muscleRangesFor(goal, overrides)[muscle];
   if (sets < r.min) return "low";
   if (sets <= r.max) return "ok";
   if (sets <= 1.3 * r.max) return "high";
@@ -138,7 +156,7 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
       sets: +a.sets.toFixed(1),
       direct: a.direct,
       tonnage: Math.round(a.tonnage),
-      status: volumeStatus(a.sets, muscle, goal),
+      status: volumeStatus(a.sets, muscle, goal, state.settings.muscleRanges),
     };
   });
 }
@@ -192,7 +210,7 @@ export function actualWeeklyMuscleVolume(
       sets: +a.sets.toFixed(1),
       direct: a.direct,
       tonnage: Math.round(a.tonnage),
-      status: volumeStatus(a.sets, muscle, goal),
+      status: volumeStatus(a.sets, muscle, goal, state.settings.muscleRanges),
     };
   });
 }
@@ -209,7 +227,7 @@ export function actualWeeklyMuscleVolume(
  */
 export function suggestBonusExercises(state: AppState, count: number, nowIso?: string): Exercise[] {
   const goal = state.settings.volumeGoal ?? "hypertrophy";
-  const ranges = muscleRangesFor(goal);
+  const ranges = muscleRangesFor(goal, state.settings.muscleRanges);
   const deficits = actualWeeklyMuscleVolume(state, goal, nowIso)
     .filter((v) => v.status === "low")
     .sort((a, b) => a.sets - ranges[a.muscle].min - (b.sets - ranges[b.muscle].min));

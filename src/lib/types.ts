@@ -128,6 +128,8 @@ export interface Settings {
   volumeGoal?: "strength" | "hypertrophy";
   /** Cel bieżącego tygodnia (Trening → ekran wyboru dnia). Brak = "strength" (plan trenera 1:1). */
   trainingMode?: TrainingMode;
+  /** Ręczne nadpisania zakresów serii/tydzień per partia (Progres → Objętość). Brak partii = domyślny zakres celu. */
+  muscleRanges?: Partial<Record<Muscle, { min: number; max: number }>>;
 }
 
 export interface AppState {

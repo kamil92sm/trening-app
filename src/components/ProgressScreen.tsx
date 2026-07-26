@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { Pencil, RotateCcw } from "lucide-react";
 import { useStore } from "@/lib/store";
+import type { Muscle } from "@/lib/types";
 import {
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/logic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
 import { cn } from "@/lib/utils";
@@ -28,11 +31,21 @@ export function ProgressScreen() {
 
   const volumeGoal: VolumeGoal = state.settings.volumeGoal ?? "hypertrophy";
   const [volumeView, setVolumeView] = useState<"planned" | "actual">("planned");
-  const ranges = muscleRangesFor(volumeGoal);
+  const [editingRanges, setEditingRanges] = useState(false);
+  const ranges = muscleRangesFor(volumeGoal, state.settings.muscleRanges);
   const plannedVolumes = useMemo(() => weeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
   const actualVolumes = useMemo(() => actualWeeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
   const volumes = volumeView === "planned" ? plannedVolumes : actualVolumes;
   const bonusDay = state.days.find((d) => d.optional) ?? null;
+
+  // P1-5: reczne nadpisanie zakresu min-max dla partii (Progres -> Objetosc).
+  // Brak zakresu (null) = usun override, wraca domyslny zakres celu.
+  function setMuscleRange(muscle: Muscle, range: { min: number; max: number } | null) {
+    const next = { ...(state.settings.muscleRanges ?? {}) };
+    if (range) next[muscle] = range;
+    else delete next[muscle];
+    updateSettings({ muscleRanges: next });
+  }
 
   const exercisesWithHistory = state.exercises.filter(
     (ex) => !ex.archived && state.sessions.some((s) => s.entries.some((e) => e.exerciseId === ex.id))
@@ -87,7 +100,20 @@ export function ProgressScreen() {
       {/* Objętość tygodniowa per partia */}
       <Card>
         <CardHeader>
-          <CardTitle>Objętość tygodniowa</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Objętość tygodniowa</CardTitle>
+            <button
+              type="button"
+              onClick={() => setEditingRanges((v) => !v)}
+              className={cn(
+                "shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+                editingRanges && "bg-accent text-foreground"
+              )}
+              aria-label="Edytuj zakresy serii"
+            >
+              <Pencil size={14} />
+            </button>
+          </div>
           <CardDescription>
             Serie robocze na partię (główna = 1, wspomagająca = ½) ·{" "}
             {volumeView === "planned" ? "z planu" : "wykonane w ostatnich 7 dniach"}
@@ -128,17 +154,46 @@ export function ProgressScreen() {
           </div>
           {volumes.map((v) => {
             const range = ranges[v.muscle];
+            const hasOverride = !!state.settings.muscleRanges?.[v.muscle];
             const pct = Math.min((v.sets / (range.max * 1.3)) * 100, 100);
             return (
               <div key={v.muscle}>
-                <div className="flex items-baseline justify-between text-xs">
-                  <span>{v.muscle}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    <span className="font-semibold" style={{ color: STATUS_COLORS[v.status] }}>
-                      {v.sets}
-                    </span>{" "}
-                    / {range.min}–{range.max}
-                  </span>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="shrink-0">{v.muscle}</span>
+                  {editingRanges ? (
+                    <div className="flex items-center gap-1">
+                      <NumberField
+                        value={range.min}
+                        fallback={range.min}
+                        onChange={(min) => setMuscleRange(v.muscle, { min, max: range.max })}
+                        className="h-6 w-12 px-1 text-center text-[11px]"
+                      />
+                      <span className="text-muted-foreground">–</span>
+                      <NumberField
+                        value={range.max}
+                        fallback={range.max}
+                        onChange={(max) => setMuscleRange(v.muscle, { min: range.min, max })}
+                        className="h-6 w-12 px-1 text-center text-[11px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMuscleRange(v.muscle, null)}
+                        disabled={!hasOverride}
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        aria-label={`Resetuj zakres: ${v.muscle}`}
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="tabular-nums text-muted-foreground">
+                      <span className="font-semibold" style={{ color: STATUS_COLORS[v.status] }}>
+                        {v.sets}
+                      </span>{" "}
+                      / {range.min}–{range.max}
+                      {hasOverride && <span className="ml-1 text-[9px] text-purple-300">wł.</span>}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
