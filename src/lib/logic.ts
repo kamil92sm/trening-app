@@ -197,6 +197,49 @@ export function actualWeeklyMuscleVolume(
   });
 }
 
+/**
+ * Dobiera ćwiczenia na dzień bonusowy pod partie z największym deficytem
+ * objętości W TYM TYGODNIU — na podstawie faktycznie ukończonych sesji
+ * (`actualWeeklyMuscleVolume`), nie z planu. Bonus robi się na końcu tygodnia
+ * (po Pon/Śr/Pt), więc liczy się realny wynik tygodnia, nie teoretyczny plan
+ * (który jest statyczny i zawsze wskaże te same partie). Pomija ćwiczenia już
+ * obecne w aktywnych dniach GŁÓWNYCH (nie dubluje ruchów, które i tak są w
+ * tygodniu) i zarchiwizowane. Wynik ma znaczenie tylko jako propozycja do
+ * drafta sesji (patrz TrainScreen) — nie rusza planu ani progresji.
+ */
+export function suggestBonusExercises(state: AppState, count: number, nowIso?: string): Exercise[] {
+  const goal = state.settings.volumeGoal ?? "hypertrophy";
+  const ranges = muscleRangesFor(goal);
+  const deficits = actualWeeklyMuscleVolume(state, goal, nowIso)
+    .filter((v) => v.status === "low")
+    .sort((a, b) => a.sets - ranges[a.muscle].min - (b.sets - ranges[b.muscle].min));
+
+  const mainExerciseIds = new Set(state.days.filter((d) => !d.optional).flatMap((d) => d.exerciseIds));
+  const pool = state.exercises.filter((e) => !e.archived && !mainExerciseIds.has(e.id));
+
+  const picked: Exercise[] = [];
+  const usedIds = new Set<string>();
+
+  for (const { muscle } of deficits) {
+    if (picked.length >= count) break;
+    const candidate = pool.find((e) => e.primaryMuscle === muscle && !usedIds.has(e.id));
+    if (candidate) {
+      picked.push(candidate);
+      usedIds.add(candidate.id);
+    }
+  }
+
+  // Dobij do count, gdy deficytowych partii jest mniej niż miejsc w bonusie.
+  for (const e of pool) {
+    if (picked.length >= count) break;
+    if (usedIds.has(e.id) || !e.primaryMuscle) continue;
+    picked.push(e);
+    usedIds.add(e.id);
+  }
+
+  return picked;
+}
+
 // ── Podwójna progresja ─────────────────────────────────────────────────────
 
 export type ProgressionStatus = "up" | "hold" | "deload";

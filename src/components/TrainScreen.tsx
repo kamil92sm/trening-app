@@ -11,13 +11,14 @@ import {
   Repeat,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
-import type { ExerciseLog, TrainingMode } from "@/lib/types";
+import type { ExerciseLog, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
   fmtDateShort,
   sessionVolume,
   detectPlateau,
   suggestedWeightForProfile,
+  suggestBonusExercises,
   exerciseForMode,
   targetForMode,
   type LastEntry,
@@ -31,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 const DRAFT_KEY = "trening-app-draft";
+const BONUS_SUGGESTION_KEY = "trening-app-bonus-suggestion";
 
 interface Draft {
   dayId: string;
@@ -50,6 +52,24 @@ function loadDraft(): Draft | null {
   }
 }
 
+// P2-7: propozycja składu dnia bonusowego pod deficyt objętości — cache'owana
+// (nie liczona przy każdym wejściu na ekran), odświeżana ręcznie przyciskiem
+// „Odśwież", gdy w tygodniu coś się zmieniło (nowe sesje itd.).
+interface BonusSuggestion {
+  dayId: string;
+  exerciseIds: string[];
+  generatedAt: string;
+}
+
+function loadBonusSuggestion(): BonusSuggestion | null {
+  try {
+    const raw = localStorage.getItem(BONUS_SUGGESTION_KEY);
+    return raw ? (JSON.parse(raw) as BonusSuggestion) : null;
+  } catch {
+    return null;
+  }
+}
+
 interface LastEntryInfo extends LastEntry {
   mode: TrainingMode;
 }
@@ -58,6 +78,7 @@ export function TrainScreen() {
   const store = useStore();
   const { state } = store;
   const [draft, setDraft] = useState<Draft | null>(loadDraft);
+  const [bonusSuggestion, setBonusSuggestion] = useState<BonusSuggestion | null>(loadBonusSuggestion);
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
@@ -92,6 +113,15 @@ export function TrainScreen() {
       // ignore
     }
   }, [draft]);
+
+  useEffect(() => {
+    try {
+      if (bonusSuggestion) localStorage.setItem(BONUS_SUGGESTION_KEY, JSON.stringify(bonusSuggestion));
+      else localStorage.removeItem(BONUS_SUGGESTION_KEY);
+    } catch {
+      // ignore
+    }
+  }, [bonusSuggestion]);
 
   // Ekran nie gaśnie podczas treningu (iOS 16.4+ wspiera Wake Lock w PWA).
   // Blokada gubi się, gdy karta wraca z tła — trzeba ją wtedy odnowić.
@@ -146,10 +176,13 @@ export function TrainScreen() {
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
 
-  function startDay(dayId: string) {
+  // `overrideExerciseIds` — propozycja bonusu (P2-7): podmienia skład TYLKO
+  // w tym drafcie, plan (state.days) zostaje nietknięty.
+  function startDay(dayId: string, overrideExerciseIds?: string[]) {
     const day = state.days.find((d) => d.id === dayId);
     if (!day) return;
-    const entries: ExerciseLog[] = day.exerciseIds
+    const exerciseIds = overrideExerciseIds ?? day.exerciseIds;
+    const entries: ExerciseLog[] = exerciseIds
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
@@ -169,6 +202,15 @@ export function TrainScreen() {
       })
       .filter((e): e is ExerciseLog => e !== null);
     setDraft({ dayId, date: new Date().toISOString(), entries, mode });
+  }
+
+  function generateBonusSuggestion(day: WorkoutDay) {
+    const picks = suggestBonusExercises(state, day.exerciseIds.length);
+    setBonusSuggestion({
+      dayId: day.id,
+      exerciseIds: picks.map((e) => e.id),
+      generatedAt: new Date().toISOString(),
+    });
   }
 
   function updateSet(entryIdx: number, setIdx: number, patch: Partial<{ weight: number; reps: number; done: boolean }>) {
@@ -348,24 +390,51 @@ export function TrainScreen() {
         </div>
         <p className="text-sm text-muted-foreground">Wybierz dzień treningowy:</p>
         {activeDays.map((day) => (
-          <button
-            key={day.id}
-            type="button"
-            onClick={() => startDay(day.id)}
-            className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
-          >
-            <span
-              className="h-10 w-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: day.accent ?? "#38bdf8" }}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold">{day.name}</span>
-              <span className="block text-xs text-muted-foreground">
-                {day.short} · {day.exerciseIds.length} ćwiczeń
+          <div key={day.id} className="space-y-2">
+            <button
+              type="button"
+              onClick={() => startDay(day.id)}
+              className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
+            >
+              <span
+                className="h-10 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: day.accent ?? "#38bdf8" }}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">{day.name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {day.short} · {day.exerciseIds.length} ćwiczeń
+                </span>
               </span>
-            </span>
-            <ChevronRight size={18} className="text-muted-foreground" />
-          </button>
+              <ChevronRight size={18} className="text-muted-foreground" />
+            </button>
+            {day.optional && (
+              <div className="ml-4 rounded-lg border border-dashed border-purple-500/40 bg-purple-500/5 p-3">
+                {bonusSuggestion?.dayId === day.id ? (
+                  <>
+                    <p className="text-xs font-medium text-purple-300">Propozycja pod słabe partie tygodnia:</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {bonusSuggestion.exerciseIds
+                        .map((id) => state.exercises.find((e) => e.id === id)?.name ?? id)
+                        .join(" · ")}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" onClick={() => startDay(day.id, bonusSuggestion.exerciseIds)}>
+                        Rozpocznij z propozycją
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => generateBonusSuggestion(day)}>
+                        Odśwież
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => generateBonusSuggestion(day)}>
+                    Dobierz pod słabe partie
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         ))}
       </div>
     );

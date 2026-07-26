@@ -13,6 +13,7 @@ import {
   nearestAchievable,
   snapToStep,
   suggestedWeightForProfile,
+  suggestBonusExercises,
   projectHistory,
   exerciseForMode,
   weightForReps,
@@ -431,6 +432,50 @@ const volHiper = weeklyMuscleVolume(defaultState(), "hypertrophy").find((v) => v
 check("weeklyMuscleVolume: Klatka 9 serii + cel hipertrofia -> low", volHiper.status === "low", volHiper);
 const volSila = weeklyMuscleVolume(defaultState(), "strength").find((v) => v.muscle === "Klatka")!;
 check("weeklyMuscleVolume: Klatka 9 serii + cel sila -> ok", volSila.status === "ok", volSila);
+
+// P2-7: sugestia bonusu pod deficyt objetosci (actualWeeklyMuscleVolume, nie plan)
+const stBonus = defaultState();
+stBonus.sessions.push({
+  id: "bonus-week",
+  dayId: "mon",
+  date: "2026-07-24",
+  completed: true,
+  entries: [
+    { exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }, { weight: 45, reps: 8, done: true }, { weight: 45, reps: 8, done: true }] },
+    { exerciseId: "row_bb", targetWeight: 60, sets: [{ weight: 60, reps: 8, done: true }, { weight: 60, reps: 8, done: true }, { weight: 60, reps: 8, done: true }] },
+    { exerciseId: "lateral", targetWeight: 9, sets: [{ weight: 9, reps: 12, done: true }, { weight: 9, reps: 12, done: true }, { weight: 9, reps: 12, done: true }] },
+    { exerciseId: "squat", targetWeight: 65, sets: [{ weight: 65, reps: 8, done: true }, { weight: 65, reps: 8, done: true }, { weight: 65, reps: 8, done: true }] },
+    { exerciseId: "hipthrust", targetWeight: 57.5, sets: [{ weight: 57.5, reps: 12, done: true }, { weight: 57.5, reps: 12, done: true }, { weight: 57.5, reps: 12, done: true }] },
+    { exerciseId: "deadlift", targetWeight: 77.5, sets: [{ weight: 77.5, reps: 6, done: true }, { weight: 77.5, reps: 6, done: true }, { weight: 77.5, reps: 6, done: true }] },
+    { exerciseId: "curl_bb", targetWeight: 17.5, sets: [{ weight: 17.5, reps: 12, done: true }, { weight: 17.5, reps: 12, done: true }, { weight: 17.5, reps: 12, done: true }] },
+    { exerciseId: "french", targetWeight: 22.5, sets: [{ weight: 22.5, reps: 12, done: true }, { weight: 22.5, reps: 12, done: true }, { weight: 22.5, reps: 12, done: true }] },
+    { exerciseId: "crunch", targetWeight: 37.5, sets: [{ weight: 37.5, reps: 15, done: true }, { weight: 37.5, reps: 15, done: true }, { weight: 37.5, reps: 15, done: true }] },
+  ],
+  // Łydki celowo pominięte -> najwiekszy deficyt w tygodniu (0 serii)
+});
+const bonusPick = suggestBonusExercises(stBonus, 1, "2026-07-26");
+check(
+  "suggestBonusExercises: Łydki najwiekszy deficyt -> sugeruje cwiczenie na łydki",
+  bonusPick.length === 1 && bonusPick[0].primaryMuscle === "Łydki",
+  bonusPick
+);
+check(
+  "suggestBonusExercises: nie dubluje cwiczenia juz obecnego w dniu głownym (calf, nie calf_seated)",
+  bonusPick[0]?.id === "calf_seated",
+  bonusPick
+);
+const bonusPool = suggestBonusExercises(stBonus, 10, "2026-07-26");
+const mainIds = new Set(SEED_DAYS.filter((d) => !d.optional).flatMap((d) => d.exerciseIds));
+check(
+  "suggestBonusExercises: dobija do puli poza dniami głownymi, bez duplikatow (5 cwiczen bonus 2.0)",
+  bonusPool.length === 5 && new Set(bonusPool.map((e) => e.id)).size === 5,
+  bonusPool.map((e) => e.id)
+);
+check(
+  "suggestBonusExercises: zaden pick nie pochodzi z dnia głownego",
+  bonusPool.every((e) => !mainIds.has(e.id)),
+  bonusPool.map((e) => e.id)
+);
 
 // FEAT-2: projekcja trendu na wykresie postepu
 const trendHistory: HistoryPoint[] = [

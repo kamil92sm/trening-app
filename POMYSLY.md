@@ -570,37 +570,50 @@ brak referencji do `receipt` w kodzie (`grep -ri receipt src/` czysto poza ewent
 komentarzem historii). Auto-backup do Gista dalej działa.
 **Rozmiar:** S
 
-### [ ] P2-7. Losowanie dnia bonusowego pod niedotrenowaną partię/zestaw
+### [x] P2-7. Dobór dnia bonusowego pod niedotrenowaną partię — WDROŻONE (26.07.2026)
 **Pomysł Kamila (2026-07-26 wieczór):** „może losowanie bonusowego dnia na dany
 zestaw/partię?" — zamiast jednego sztywnego składu bonusu, apka proponuje wariant pod partię,
 która najbardziej kuleje.
 
-**Status: POMYSŁ DO DOPRECYZOWANIA — NIE wdrażaj na ślepo.** Fable: kierunek sensowny, ale
-„losowanie" i „pod partię" to dwa różne pomysły; przed kodem ustal z Kamilem, o który chodzi.
-Dwie interpretacje:
-- **(A) Deterministyczny dobór pod deficyt (rekomendowane):** policz `weeklyMuscleVolume`
-  (`logic.ts`) z aktywnych dni, znajdź partie ze statusem `low`, i zaproponuj skład bonusu
-  z ćwiczeń celujących w te partie (pula np. `SEED_EXERCISES` + user-owe, filtr po
-  `primaryMuscle`). To NIE losowanie — to „bonus łata dziury", spójne z §11 (uczciwe
-  framowanie) i z ideą P0-1 (bonus uzupełnia, nie dubluje).
-- **(B) Losowy wariant dla urozmaicenia:** kilka gotowych „szablonów bonusu" (Ramiona / Nogi
-  akcent / Core+tył) i przycisk „Wylosuj bonus na dziś" — mniej analityczne, bardziej dla
-  odmiany. Ryzyko: kłóci się z podwójną progresją (progresja lubi powtarzalność ćwiczeń).
+**Decyzje Kamila (doprecyzowanie przed kodem):**
+1. **Wariant (A) — deterministyczny dobór pod deficyt**, nie losowanie. Kamil zauważył sam
+   kluczowy niuans: skoro bonus robi na końcu tygodnia (po Pon/Śr/Pt), lepiej liczyć deficyt
+   z FAKTYCZNIE wykonanych serii w tym tygodniu (`actualWeeklyMuscleVolume`, z INFO-1a), nie
+   z planu (`weeklyMuscleVolume`, który jest statyczny i zawsze wskazałby te same partie).
+2. **Jednorazowa podpowiedź „na dziś"** w drafcie sesji (jak „Użyj" w FEAT-1) — NIE nadpisuje
+   stałego składu dnia `bonus` w `state.days`. Cache'owana (nie liczona na nowo przy każdym
+   wejściu na ekran), z ręcznym przyciskiem „Odśwież" gdy w tygodniu coś się zmieniło.
+3. **Progresja działa normalnie** — dobrane ćwiczenia bonusu wchodzą do drafta jak każde inne,
+   `finishSession`/`computeProgression` traktuje je bez wyjątków.
 
-**Otwarte pytania do Kamila (zadać PRZED implementacją):**
-1. Ma być pod deficyt (A) czy losowe dla odmiany (B)?
-2. Ma nadpisywać stały skład dnia `bonus`, czy być jednorazową podpowiedzią „na dziś" w
-   drafcie (jak „Użyj" w FEAT-1), bez ruszania planu i progresji?
-3. Czy progresja ma podążać za wylosowanymi ćwiczeniami, czy bonus jest „poza progresją"
-   (pump, cele nie rosną)?
-
-**Szkic (dla wariantu A, gdy potwierdzony):** `logic.ts`: `suggestBonusExercises(state,
-count=5): Exercise[]` — sortuj partie po `(actual - min)` rosnąco, wybierz ćwiczenia
-pokrywające najsłabsze partie, unikaj dublowania ruchów z aktywnych dni. UI: w Treningu przy
-dniu bonus przycisk „Dobierz pod słabe partie" → podmienia skład TYLKO w drafcie sesji
-(nie w `state.days`), analogicznie do FEAT-1 „Użyj". Test w `tests/logic.test.ts`: przy
-Łydki=`low` sugerowany skład zawiera ćwiczenie na łydki.
-**Rozmiar:** M (po doprecyzowaniu)
+**Implementacja:**
+- `logic.ts`: `suggestBonusExercises(state, count, nowIso?): Exercise[]` — liczy
+  `actualWeeklyMuscleVolume(state, goal)` (goal z `settings.volumeGoal`, domyślnie
+  hipertrofia), filtruje partie ze statusem `low`, sortuje po deficycie `(sets - min)` rosnąco
+  (największa dziura pierwsza). Pula kandydatów = wszystkie nie-zarchiwizowane ćwiczenia BEZ
+  tych już obecnych w aktywnych dniach GŁÓWNYCH (`!day.optional`) — nie dubluje ruchów, które
+  i tak są w tygodniu. Dla każdej deficytowej partii dobiera jedno pasujące `primaryMuscle`
+  ćwiczenie z puli; jeśli deficytowych partii mniej niż `count`, dobija resztę dowolnymi
+  ćwiczeniami z puli (żeby bonus nie był pusty).
+- `TrainScreen.tsx`: nowy cache w localStorage (`trening-app-bonus-suggestion`,
+  `{dayId, exerciseIds, generatedAt}`), analogiczny do drafta sesji. Na ekranie wyboru dnia,
+  pod dniem bonusowym (gdy aktywny), panel: przycisk „Dobierz pod słabe partie" → liczy
+  sugestię i cache'uje; gdy sugestia istnieje — lista nazw ćwiczeń + „Rozpocznij z propozycją"
+  (startuje draft z `overrideExerciseIds` zamiast `day.exerciseIds`, plan bez zmian) +
+  „Odśwież" (przelicza na nowo, np. po zalogowaniu kolejnego treningu w tygodniu).
+  `startDay(dayId, overrideExerciseIds?)` — jedyna zmiana w istniejącej funkcji, w pełni
+  zgodna z wzorcem FEAT-1/P1-3 (modyfikacja TYLKO drafta).
+- 4 nowe testy w `tests/logic.test.ts`: Łydki=`low` (0 serii w tygodniu, reszta partii
+  częściowo pokryta) → sugestia zawiera `calf_seated` (nie `calf`, bo ten jest w dniu Środa);
+  dobicie do pełnej puli 5 ćwiczeń bonus 2.0 bez duplikatów; żaden pick spoza dni głównych.
+- **Zweryfikowane w przeglądarce (Playwright):** włączenie dnia Bonus w Planie → wejście do
+  Treningu → „Dobierz pod słabe partie" pokazuje `Wspięcia na palce siedząc · Face pull ·
+  Uginanie młotkowe hantli · Prostowanie ramion na wyciągu · Plank bokiem` (łydki jako
+  najbardziej deficytowa partia trafiły na pierwsze miejsce) → „Rozpocznij z propozycją"
+  startuje logger z tym składem → `state.days` (plan) bez zmian, cache w
+  `trening-app-bonus-suggestion` zapisany → po zaliczeniu serii i „Zakończ trening" progresja
+  policzona normalnie (`calf_seated` 30→32,5 kg, jak każde inne ćwiczenie).
+**Rozmiar:** M
 
 ---
 
