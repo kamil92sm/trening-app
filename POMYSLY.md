@@ -788,7 +788,7 @@ która najbardziej kuleje.
 Propozycje „level up" po wdrożeniu P2-7. Kolejność w sekcji = moja rekomendacja wartości do
 kosztu. **P2-8 (Deload) wymaga decyzji Kamila przed kodowaniem** — reszta jest zamknięta.
 
-### [ ] P2-8. Tryb tygodnia: DELOAD (trzeci przełącznik + nudge po zastoju)
+### [x] P2-8. Tryb tygodnia: DELOAD (trzeci przełącznik + nudge po zastoju) (2026-07-26)
 **Dlaczego to jest największy „level up" z tej listy:** apka umie już periodyzację falującą
 (P0-5: Siła ↔ Hipertrofia tydzień w tydzień) i umie WYKRYĆ zastój (P1-1 `detectPlateau`), ale
 nie ma jedynego narzędzia, które zastój faktycznie odkręca — lżejszego tygodnia. Dziś jedyną
@@ -824,13 +824,14 @@ nagłówku loggera (jak dziś „Siła"/„Hipertrofia"), etykieta `(deload)` w 
 lżejszego tygodnia i zastój w 3 ćwiczeniach — rozważ tydzień deloadu." Sugestia, nie automat
 (§11) — nie przełączaj trybu za użytkownika.
 
-**⚠️ DO USTALENIA Z KAMILEM PRZED KODEM:**
-1. **65% ciężaru** — czy tyle (klasyczny zakres to 50–70% roboczego)? Zbyt lekko = tydzień
-   zmarnowany, zbyt ciężko = nie ma rozładowania.
-2. **Minus jedna seria** — czy schodzimy też z objętością, czy tylko z ciężarem?
-3. Czy deload ma się liczyć do objętości tygodniowej w Progresie jak normalny tydzień (moja
-   rekomendacja: TAK, bo serie realnie wykonane — ale wtedy tydzień deloadu wygląda na „słaby",
-   co jest prawdą i tak ma być).
+**Decyzje z pkt „DO USTALENIA" — podjęte BEZ Kamila** (pytanie zablokowane w tej sesji przez
+przerwania narzędzia; przyjęte moje własne rekomendacje z tej sekcji, jawnie udokumentowane
+tutaj i w commicie — do zrewidowania, jeśli Kamil zechce inaczej):
+1. **65% ciężaru** — przyjęte wprost (środek klasycznego zakresu 50–70%).
+2. **Minus jedna seria** — przyjęte: schodzimy też z objętością, nie tylko z ciężarem.
+3. **Deload liczy się do objętości tygodniowej jak normalny tydzień** — przyjęte (i tak nie
+   wymagało zmian w silniku: `weeklyMuscleVolume`/`actualWeeklyMuscleVolume` liczą serie
+   niezależnie od trybu, w którym zostały wykonane).
 
 **Testy:** `exerciseForMode(ex, "deload")` nie rusza zakresu, podnosi RIR o 2; `deloadTargetFor`
 liczy 65% i zaokrągla do `increment`; `finishSession` w deloadzie NIE zmienia `targets` ani
@@ -839,6 +840,16 @@ liczy 65% i zaokrągla do `increment`; `finishSession` w deloadzie NIE zmienia `
 **Akceptacja:** tydzień deloadu da się przeklikać bez tykania planu, cele po nim są dokładnie
 takie, jak przed nim, nudge pojawia się po 6 tygodniach; CLAUDE.md §5.7 dopisane o trzecim trybie.
 **Rozmiar:** M/L
+**Wdrożone:** wszystko z sekcji „Spec — silnik/UI" powyżej, 1:1. 12 nowych testów. Dodatkowo:
+`store.finishSession` wraca po `d.sessions.push(session)` gdy `mode==="deload"` (progresja
+pominięta w całości, nie tylko „nie nadpisana"); podsumowanie treningu w deloadzie renderuje
+JEDEN komunikat „Deload — cele bez zmian" zamiast per-ćwiczeniowych kart progresji (te liczyłyby
+się na 65% ciężaru i myliłyby — patrz `computeProgression`, który nie wie nic o trybie). Przy
+okazji poprawiony drobny bug: opis „N×M powt." w karcie ćwiczenia w loggerze pokazywał stałą
+liczbę serii z planu zamiast faktycznej liczby wierszy w drafcie — przy deloadzie (i przy ręcznym
+dodaniu serii) tekst nie zgadzał się z tym, co widać poniżej. Zweryfikowane w przeglądarce
+end-to-end: cel 45 kg → deload 30 kg (65%, zaokrąglone do 2,5) × 2 serie (zamiast 3) → po
+zakończeniu cel WCIĄŻ 45 kg, sesja zapisana z `mode: "deload"`, podsumowanie pokazuje banner.
 
 ### [x] P2-9. Cofnij zakończenie treningu (undo progresji) (2026-07-26)
 **Realne ryzyko:** `finishSession` (`store.tsx:119`) natychmiast nadpisuje `targets` /
