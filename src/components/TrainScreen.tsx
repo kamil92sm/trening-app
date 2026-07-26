@@ -30,6 +30,7 @@ import {
   warmupPlan,
   platePlan,
   nextDaySuggestion,
+  weeksSinceDeload,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -93,6 +94,19 @@ interface RecordHit {
   value: number;
 }
 
+// P2-8: wspolna etykieta/kolor trybu tygodnia - plakietka w loggerze, przelacznik, "Ostatnio".
+const MODE_BADGE: Record<TrainingMode, { label: string; short: string; color: string }> = {
+  strength: { label: "Siła", short: "siła", color: "#38bdf8" },
+  hypertrophy: { label: "Hipertrofia", short: "hip.", color: "#a855f7" },
+  deload: { label: "Deload", short: "deload", color: "#f59e0b" },
+};
+
+// P2-8: deload dobija o jedna serie robocza mniej (min. 2), zeby objetosc
+// spadala tez przez serie, nie tylko przez ciezar. Inne tryby bez zmian.
+function setsForMode(ex: Exercise, mode: TrainingMode): number {
+  return mode === "deload" ? Math.max(2, ex.targetSets - 1) : ex.targetSets;
+}
+
 function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
   if (kind === "hold") return `${value} s`;
   return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
@@ -146,6 +160,12 @@ export function TrainScreen() {
     }
     return map;
   }, [state.sessions, state.exercises]);
+
+  // P2-8: liczba cwiczen w zastoju - wejscie do nudge'a deloadu (>=3 -> sugestia).
+  const plateauCount = useMemo(
+    () => state.exercises.filter((ex) => !ex.archived && detectPlateau(state, ex.id)).length,
+    [state]
+  );
 
   useEffect(() => {
     try {
@@ -274,7 +294,7 @@ export function TrainScreen() {
         return {
           exerciseId: exId,
           targetWeight: target,
-          sets: Array.from({ length: ex.targetSets }, () => ({
+          sets: Array.from({ length: setsForMode(ex, mode) }, () => ({
             weight: target,
             // Prefill górnym limitem zakresu (dla trybu tygodnia) — dążymy do
             // maksimum powtórzeń, więc częściej trafisz od razu.
@@ -373,7 +393,7 @@ export function TrainScreen() {
       next.entries[entryIdx] = {
         exerciseId: newExId,
         targetWeight: target,
-        sets: Array.from({ length: newEx.targetSets }, () => ({
+        sets: Array.from({ length: setsForMode(newEx, mode) }, () => ({
           weight: target,
           reps: hEx.repMax, // górny limit zakresu (dla trybu tygodnia), jak przy starcie dnia
           done: false,
@@ -496,39 +516,53 @@ export function TrainScreen() {
             </CardContent>
           </Card>
         )}
-        {summary.map(({ exercise, result }) => (
-          <Card key={exercise.id}>
-            <CardContent className="flex items-start gap-3 p-3">
-              <span
-                className={cn(
-                  "mt-0.5 rounded-full p-1.5",
-                  result.status === "up" && "bg-green-500/15 text-green-400",
-                  result.status === "hold" && "bg-sky-500/15 text-sky-400",
-                  result.status === "deload" && "bg-amber-500/15 text-amber-400"
-                )}
-              >
-                {result.status === "up" ? (
-                  <TrendingUp size={16} />
-                ) : result.status === "deload" ? (
-                  <AlertTriangle size={16} />
-                ) : (
-                  <MoveRight size={16} />
-                )}
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{exercise.name}</p>
-                <p className="text-xs text-muted-foreground">{result.message}</p>
-                {detectPlateau(state, exercise.id) && (
-                  <p className="mt-1.5 rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
-                    Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku
-                    kompletu powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana
-                    ćwiczenia na 4–6 tyg.
-                  </p>
-                )}
-              </div>
+        {summarySession?.mode === "deload" ? (
+          // P2-8: deload nie zmienia celow - per-cwiczeniowe karty progresji
+          // (ktore i tak liczylyby sie na lekkim ciezarze) byłyby mylace.
+          // Jeden, jasny komunikat zamiast tego.
+          <Card className="border-amber-500/40 bg-amber-500/5">
+            <CardContent className="p-3">
+              <p className="text-sm font-medium text-amber-300">Deload — cele bez zmian</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wracasz do swoich ciężarów w przyszłym tygodniu — ten trening nie liczy się do progresji.
+              </p>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          summary.map(({ exercise, result }) => (
+            <Card key={exercise.id}>
+              <CardContent className="flex items-start gap-3 p-3">
+                <span
+                  className={cn(
+                    "mt-0.5 rounded-full p-1.5",
+                    result.status === "up" && "bg-green-500/15 text-green-400",
+                    result.status === "hold" && "bg-sky-500/15 text-sky-400",
+                    result.status === "deload" && "bg-amber-500/15 text-amber-400"
+                  )}
+                >
+                  {result.status === "up" ? (
+                    <TrendingUp size={16} />
+                  ) : result.status === "deload" ? (
+                    <AlertTriangle size={16} />
+                  ) : (
+                    <MoveRight size={16} />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{exercise.name}</p>
+                  <p className="text-xs text-muted-foreground">{result.message}</p>
+                  {detectPlateau(state, exercise.id) && (
+                    <p className="mt-1.5 rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
+                      Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku
+                      kompletu powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana
+                      ćwiczenia na 4–6 tyg.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
         <div className="flex gap-2">
           <Button className="flex-1" size="lg" onClick={() => setSummary(null)}>
             Zamknij
@@ -551,25 +585,30 @@ export function TrainScreen() {
         <div className="rounded-lg border border-border bg-card p-3">
           <p className="text-xs font-medium">Cel tygodnia</p>
           <div className="mt-1.5 flex overflow-hidden rounded-md border border-border text-xs">
-            {(["strength", "hypertrophy"] as const).map((m) => (
+            {(["strength", "hypertrophy", "deload"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => {
                   if (m !== mode) {
                     toast(
-                      "Zmieniono cel tygodnia",
-                      "Pamiętaj też o przełączniku Cel: Siła/Hipertrofia w zakładce Progres."
+                      m === "deload"
+                        ? "Tydzień deloadu"
+                        : "Zmieniono cel tygodnia",
+                      m === "deload"
+                        ? "65% ciężaru, o jedną serię mniej — cele zostają zamrożone, progresja wraca w przyszłym tygodniu."
+                        : "Pamiętaj też o przełączniku Cel: Siła/Hipertrofia w zakładce Progres."
                     );
                   }
                   store.updateSettings({ trainingMode: m });
                 }}
                 className={cn(
                   "flex-1 px-3 py-1.5 transition-colors",
-                  mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  mode === m ? "text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                 )}
+                style={mode === m ? { backgroundColor: MODE_BADGE[m].color } : undefined}
               >
-                {m === "strength" ? "Siła" : "Hipertrofia"}
+                {MODE_BADGE[m].label}
               </button>
             ))}
           </div>
@@ -577,6 +616,15 @@ export function TrainScreen() {
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
         </div>
+        {mode !== "deload" && (weeksSinceDeload(state) >= 6 || plateauCount >= 3) && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+            {weeksSinceDeload(state) >= 6 && plateauCount >= 3
+              ? `${weeksSinceDeload(state)} tygodni bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
+              : weeksSinceDeload(state) >= 6
+                ? `${weeksSinceDeload(state)} tygodni bez lżejszego tygodnia — rozważ tydzień deloadu.`
+                : `Zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`}
+          </div>
+        )}
         <div className="rounded-lg border border-border bg-card p-3">
           <p className="text-xs font-medium">Jak się dziś czujesz? (opcjonalnie)</p>
           <div className="mt-2 space-y-2">
@@ -729,11 +777,11 @@ export function TrainScreen() {
               <span
                 className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
                 style={{
-                  backgroundColor: draft.mode === "hypertrophy" ? "#a855f733" : "#38bdf833",
-                  color: draft.mode === "hypertrophy" ? "#a855f7" : "#38bdf8",
+                  backgroundColor: `${MODE_BADGE[draft.mode].color}33`,
+                  color: MODE_BADGE[draft.mode].color,
                 }}
               >
-                {draft.mode === "hypertrophy" ? "Hipertrofia" : "Siła"}
+                {MODE_BADGE[draft.mode].label}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -781,7 +829,7 @@ export function TrainScreen() {
                   )}
                 </div>
                 <CardDescription>
-                  {hEx.targetSets}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
+                  {entry.sets.length}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
                   {hEx.perHand && " (na rękę)"} · RIR {hEx.rir}
                 </CardDescription>
@@ -820,7 +868,7 @@ export function TrainScreen() {
                 {last && (
                   <p className="text-xs text-muted-foreground">
                     Ostatnio ({fmtDateShort(last.date)}
-                    {last.mode !== draft.mode ? (last.mode === "strength" ? " (siła)" : " (hip.)") : ""}):{" "}
+                    {last.mode !== draft.mode ? ` (${MODE_BADGE[last.mode].short})` : ""}):{" "}
                     {last.sets
                       .map((s) => (hEx.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
                       .join(" · ")}

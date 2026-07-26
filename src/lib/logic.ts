@@ -501,17 +501,23 @@ export function strengthRatios(state: AppState): StrengthRatio[] {
   return out;
 }
 
-// ── Tryb treningu (Siła / Hipertrofia) ─────────────────────────────────────
-// Podstawa naukowa i uzasadnienie każdej decyzji: POMYSLY.md P0-5.
+// ── Tryb treningu (Siła / Hipertrofia / Deload) ────────────────────────────
+// Podstawa naukowa i uzasadnienie każdej decyzji: POMYSLY.md P0-5 (Siła/Hipertrofia), P2-8 (Deload).
 
 /**
- * Widok ćwiczenia pod cel tygodnia — hipertrofia jest POCHODNA z planu
- * (seed.ts pozostaje źródłem prawdy trybu siłowego), liczona w locie.
+ * Widok ćwiczenia pod cel tygodnia — hipertrofia i deload są POCHODNE z planu
+ * (seed.ts pozostaje źródłem prawdy trybu siłowego), liczone w locie.
  * `targetSets`/`increment`/`restSeconds` NIGDY nie są zmieniane (objętość i
  * przerwy zostają — patrz uzasadnienie naukowe pkt 3–4 w POMYSLY.md).
  */
 export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
   if (mode === "strength") return ex;
+  if (mode === "deload") {
+    // Zakres powtórzeń zostaje bazowy (siłowy) — schodzisz z CIĘŻAREM, nie
+    // z powtórzeniami: objętość spada przez ciężar (65%) i serię mniej,
+    // nie przez bicie rekordów w powtórzeniach na lekkim ciężarze.
+    return { ...ex, rir: ex.rir + 2 };
+  }
   if (ex.isHold) return ex;
   if (ex.id === "deadlift") {
     // Wyjątek bezpieczeństwa: klasyczny MC nie schodzi na wysokie powtórzenia
@@ -551,9 +557,39 @@ export function hyperTargetFor(state: AppState, ex: Exercise): number {
   return Math.round(w / inc) * inc;
 }
 
-/** Cel dla trybu bieżącego tygodnia — `targets` (siła) albo `hyperTargetFor` (hipertrofia). */
+/**
+ * Cel deloadu — 65% celu SIŁOWEGO (zawsze `targets`, nawet gdy poprzedni
+ * tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów, nie
+ * kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
+ */
+export function deloadTargetFor(state: AppState, ex: Exercise): number {
+  const strengthTarget = state.targets[ex.id] ?? 0;
+  const inc = ex.increment > 0 ? ex.increment : 0.5;
+  return Math.round((strengthTarget * 0.65) / inc) * inc;
+}
+
+/** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */
 export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode): number {
-  return mode === "strength" ? (state.targets[ex.id] ?? 0) : hyperTargetFor(state, ex);
+  if (mode === "strength") return state.targets[ex.id] ?? 0;
+  if (mode === "deload") return deloadTargetFor(state, ex);
+  return hyperTargetFor(state, ex);
+}
+
+/**
+ * Liczba PEŁNYCH tygodni (wg poniedziałków) od ostatniej ukończonej sesji
+ * w trybie deload; brak takiej sesji w historii → liczy od pierwszej
+ * ukończonej sesji w ogóle (żeby świeży użytkownik bez historii deloadu nie
+ * dostał fałszywie wysokiej liczby). Brak jakiejkolwiek historii → 0 (za mało
+ * danych na sugestię — `detectPlateau` i tak wymaga min. 3 sesji na ćwiczenie).
+ */
+export function weeksSinceDeload(state: AppState, nowIso?: string): number {
+  const completed = [...state.sessions].filter((s) => s.completed).sort((a, b) => a.date.localeCompare(b.date));
+  if (completed.length === 0) return 0;
+  const lastDeload = [...completed].reverse().find((s) => s.mode === "deload");
+  const referenceDate = lastDeload?.date ?? completed[0].date;
+  const refMonday = new Date(mondayOf(referenceDate) + "T12:00:00").getTime();
+  const nowMonday = new Date(mondayOf(nowIso ?? new Date().toISOString()) + "T12:00:00").getTime();
+  return Math.max(0, Math.floor((nowMonday - refMonday) / (7 * 86400000)));
 }
 
 /**

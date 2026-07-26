@@ -27,6 +27,8 @@ import {
   weightForReps,
   hyperTargetFor,
   targetForMode,
+  deloadTargetFor,
+  weeksSinceDeload,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -828,6 +830,52 @@ check(
 check(
   "targetForMode: hipertrofia -> hyperTargetFor",
   Math.abs(targetForMode(stHyperB, bench, "hypertrophy") - 42.5) < 1e-9
+);
+
+// P2-8: tryb DELOAD
+const benchDeload = exerciseForMode(bench, "deload");
+check(
+  "exerciseForMode: deload nie rusza zakresu, RIR +2",
+  benchDeload.repMin === bench.repMin && benchDeload.repMax === bench.repMax && benchDeload.rir === bench.rir + 2,
+  benchDeload
+);
+const plankDeload = exerciseForMode(plank, "deload");
+check(
+  "exerciseForMode: deload dziala tez dla isHold (zakres/sekundy bez zmian, RIR +2)",
+  plankDeload.repMin === plank.repMin && plankDeload.repMax === plank.repMax && plankDeload.rir === plank.rir + 2,
+  plankDeload
+);
+check(
+  "deloadTargetFor: 65% celu silowego zaokraglone do increment (45 -> 30)",
+  deloadTargetFor(defaultState(), bench) === 30,
+  deloadTargetFor(defaultState(), bench)
+);
+const stDeloadHyper = defaultState();
+stDeloadHyper.hyperTargets = { bench_bb: 99 };
+check(
+  "deloadTargetFor: baza ZAWSZE targets (sila), nawet gdy jest hyperTargets",
+  deloadTargetFor(stDeloadHyper, bench) === 30,
+  deloadTargetFor(stDeloadHyper, bench)
+);
+check("targetForMode: deload -> deloadTargetFor", targetForMode(defaultState(), bench, "deload") === 30);
+
+check("weeksSinceDeload: brak historii -> 0", weeksSinceDeload(defaultState()) === 0);
+const stWeeksA = defaultState();
+stWeeksA.sessions.push({ id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] });
+check(
+  "weeksSinceDeload: brak sesji deload -> liczy od pierwszej sesji w historii (6 tygodni)",
+  weeksSinceDeload(stWeeksA, "2026-07-27") === 6,
+  weeksSinceDeload(stWeeksA, "2026-07-27")
+);
+const stWeeksB = defaultState();
+stWeeksB.sessions.push(
+  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] },
+  { id: "w2", dayId: "wed", date: "2026-07-13", completed: true, entries: [], mode: "deload" }
+);
+check(
+  "weeksSinceDeload: liczy od OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (2 tygodnie)",
+  weeksSinceDeload(stWeeksB, "2026-07-27") === 2,
+  weeksSinceDeload(stWeeksB, "2026-07-27")
 );
 
 // P0-7: przywroc standardowy plan dnia

@@ -186,6 +186,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         mutate((d) => {
           const session: Session = { ...sessionData, id: sessionId, completed: true, finishedAt };
           d.sessions.push(session);
+          // P2-8: deload NIE zapisuje progresji — cele zamrożone, wracasz do
+          // swoich ciężarów w przyszłym tygodniu. `summaries` i tak wracają do
+          // TrainScreen (dla ewentualnego info), po prostu nigdy nie są tu stosowane.
+          if (mode === "deload") return d;
           for (const s of summaries) {
             if (mode === "hypertrophy") {
               d.hyperTargets = d.hyperTargets ?? {};

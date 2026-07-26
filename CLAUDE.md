@@ -137,9 +137,9 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
 ### 5.6 Kalkulator talerzy — `platePlan(target, bar, plates)`
 - Zwraca układ talerzy **na jedną stronę** + `ok`/leftover. Wizualizacja w `Gym.tsx` (`PlateBar`).
 
-### 5.7 Tryb treningu: Siła / Hipertrofia (logic.ts, POMYSLY.md P0-5)
+### 5.7 Tryb treningu: Siła / Hipertrofia / Deload (logic.ts, POMYSLY.md P0-5, P2-8)
 - Przełącznik na ekranie wyboru dnia (Trening) — cel tygodnia, `settings.trainingMode`
-  (`"strength" | "hypertrophy"`, brak = `"strength"`), przełączalny w dowolnym momencie.
+  (`"strength" | "hypertrophy" | "deload"`, brak = `"strength"`), przełączalny w dowolnym momencie.
 - **Plan (seed.ts) to źródło prawdy trybu siłowego — nietykalne.** Hipertrofia jest widokiem
   POCHODNYM liczonym w locie: `exerciseForMode(ex, mode)` — w hipertrofii podnosi zakres
   ciężkich ćwiczeń (bazowy `repMax ≤ 8`) do 8–12 powt. i RIR 2→1; ćwiczenia już w zakresie
@@ -155,6 +155,14 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
   progresji nawzajem**, można przełączać się tydzień w tydzień.
 - Podstawa naukowa (meta-analizy Robinson/Pelland/Schoenfeld/Currier/Grgic) i pełne
   uzasadnienie każdej decyzji: `POMYSLY.md` sekcja P0-5.
+- **Deload** (trzeci tryb, P2-8) — też POCHODNY z planu siłowego, odpoczynek od obu pozostałych
+  trybów: `exerciseForMode(ex, "deload")` zostawia zakres powtórzeń bez zmian, `rir: ex.rir + 2`
+  (schodzisz ciężarem, nie powtórzeniami). Cel liczy `deloadTargetFor()` — 65% ZAWSZE celu
+  siłowego (`targets`, nigdy hipertrofii), zaokrąglone do `increment`. Logger dobija o jedną
+  serię mniej (min. 2). **Progresja WYŁĄCZONA:** `finishSession` przy `mode==="deload"` nie
+  zapisuje ani `targets`, ani `hyperTargets` — cele zamrożone, podsumowanie pokazuje jeden
+  komunikat zamiast per-ćwiczeniowych kart progresji. `weeksSinceDeload()` + `detectPlateau`
+  (≥3 ćwiczenia) napędzają bursztynowy nudge na ekranie wyboru dnia — sugestia, nie automat.
 
 ---
 

@@ -1,7 +1,7 @@
 export type Unit = "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight";
 
 /** Cel tygodnia — decyduje o zakresie powtórzeń/RIR/ciężarze w loggerze (patrz logic.ts: exerciseForMode). */
-export type TrainingMode = "strength" | "hypertrophy";
+export type TrainingMode = "strength" | "hypertrophy" | "deload";
 
 export type Category =
   | "Klatka"
