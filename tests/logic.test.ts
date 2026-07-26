@@ -14,6 +14,10 @@ import {
   snapToStep,
   suggestedWeightForProfile,
   projectHistory,
+  exerciseForMode,
+  weightForReps,
+  hyperTargetFor,
+  targetForMode,
   type HistoryPoint,
 } from "../src/lib/logic";
 import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
@@ -439,6 +443,85 @@ check(
   proj[0].date
 );
 check("projectHistory: <2 punkty historii -> brak projekcji", projectHistory([trendHistory[0]], 3).length === 0);
+
+// P0-5: tryb treningu Sila/Hipertrofia
+const deadliftEx = SEED_EXERCISES.find((e) => e.id === "deadlift")!;
+const hipthrust = SEED_EXERCISES.find((e) => e.id === "hipthrust")!;
+
+const benchHyper = exerciseForMode(bench, "hypertrophy");
+check(
+  "exerciseForMode: bench 5-8 RIR2 -> 8-12 RIR1 (hipertrofia)",
+  benchHyper.repMin === 8 && benchHyper.repMax === 12 && benchHyper.rir === 1,
+  benchHyper
+);
+const deadliftHyper = exerciseForMode(deadliftEx, "hypertrophy");
+check(
+  "exerciseForMode: deadlift -> wyjatek 6-8 RIR2 (bezpieczenstwo pleców)",
+  deadliftHyper.repMin === 6 && deadliftHyper.repMax === 8 && deadliftHyper.rir === 2,
+  deadliftHyper
+);
+const lateralHyper = exerciseForMode(lateral, "hypertrophy");
+check(
+  "exerciseForMode: lateral 12-15 -> zakres bez zmian + RIR1",
+  lateralHyper.repMin === 12 && lateralHyper.repMax === 15 && lateralHyper.rir === 1,
+  lateralHyper
+);
+const plankHyper = exerciseForMode(plank, "hypertrophy");
+check(
+  "exerciseForMode: plank (isHold) -> identyczny w hipertrofii",
+  plankHyper.repMin === plank.repMin && plankHyper.repMax === plank.repMax && plankHyper.rir === plank.rir,
+  plankHyper
+);
+check("exerciseForMode: mode sila -> identyczny (ta sama referencja)", exerciseForMode(bench, "strength") === bench);
+
+check(
+  "weightForReps: e1=130, 8 powt., RIR1 -> 100 kg",
+  Math.abs(weightForReps(130, 8, 1) - 100) < 1e-9,
+  weightForReps(130, 8, 1)
+);
+
+const stHyperA = defaultState();
+stHyperA.sessions.push({
+  id: "h1",
+  dayId: "mon",
+  date: "2026-07-20",
+  completed: true,
+  entries: [{ exerciseId: "bench_bb", targetWeight: 100, sets: [{ weight: 100, reps: 8, done: true }] }],
+});
+const hyperA = hyperTargetFor(stHyperA, bench);
+check(
+  "hyperTargetFor: z historii (100x8 -> e1 126,7 -> ~97,5 przy inc 2,5)",
+  Math.abs(hyperA - 97.5) < 1e-9,
+  hyperA
+);
+
+const stHyperB = defaultState();
+const hyperB = hyperTargetFor(stHyperB, bench);
+check(
+  "hyperTargetFor: fallback bez historii (target 45 -> ~42,5)",
+  Math.abs(hyperB - 42.5) < 1e-9,
+  hyperB
+);
+
+const stHyperC = defaultState();
+stHyperC.hyperTargets = { bench_bb: 99 };
+check("hyperTargetFor: hyperTargets ma pierwszenstwo", hyperTargetFor(stHyperC, bench) === 99);
+
+const stHyperD = defaultState();
+check(
+  "hyperTargetFor: cwiczenie juz 8-12 -> cel == targets (bez konwersji)",
+  hyperTargetFor(stHyperD, hipthrust) === stHyperD.targets["hipthrust"],
+  hyperTargetFor(stHyperD, hipthrust)
+);
+
+check(
+  "targetForMode: sila -> targets[id]",
+  targetForMode(defaultState(), bench, "strength") === defaultState().targets["bench_bb"]
+);
+check(
+  "targetForMode: hipertrofia -> hyperTargetFor",
+  Math.abs(targetForMode(stHyperB, bench, "hypertrophy") - 42.5) < 1e-9
+);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

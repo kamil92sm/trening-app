@@ -1,5 +1,8 @@
 export type Unit = "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight";
 
+/** Cel tygodnia — decyduje o zakresie powtórzeń/RIR/ciężarze w loggerze (patrz logic.ts: exerciseForMode). */
+export type TrainingMode = "strength" | "hypertrophy";
+
 export type Category =
   | "Klatka"
   | "Plecy"
@@ -76,6 +79,8 @@ export interface Session {
   date: string; // ISO
   entries: ExerciseLog[];
   completed: boolean;
+  /** Cel tygodnia, w którym zalogowano trening. Brak = "strength" (stare sesje sprzed tej funkcji). */
+  mode?: TrainingMode;
 }
 
 export interface BodyEntry {
@@ -121,6 +126,8 @@ export interface Settings {
   activeGymProfileId?: string;
   /** Cel objętości — decyduje o zakresach serii/partię w Progresie. Brak = hipertrofia (domyślnie). */
   volumeGoal?: "strength" | "hypertrophy";
+  /** Cel bieżącego tygodnia (Trening → ekran wyboru dnia). Brak = "strength" (plan trenera 1:1). */
+  trainingMode?: TrainingMode;
 }
 
 export interface AppState {
@@ -132,6 +139,8 @@ export interface AppState {
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;
+  /** Cele trybu hipertrofii — OSOBNE od `targets` (siła), żeby tryby nie psuły sobie progresji. */
+  hyperTargets?: Record<string, number>;
   sessions: Session[];
   body: BodyEntry[];
   squash: SquashEntry[];

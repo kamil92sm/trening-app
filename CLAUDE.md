@@ -83,13 +83,15 @@ src/
   - `optional: true` = dzień bonusowy; `active` = czy włączony
 - **`SetLog`**: `weight, reps, done`
 - **`ExerciseLog`**: `exerciseId, targetWeight, sets[], note?`
-- **`Session`**: `id, dayId, date(ISO), entries[], completed`
+- **`Session`**: `id, dayId, date(ISO), entries[], completed, mode?` — `mode?`: cel tygodnia
+  (`"strength" | "hypertrophy"`), w którym zalogowano trening; brak = `"strength"` (patrz §5.7)
 - **`BodyEntry`**: `date(YYYY-MM-DD), weight, waist?` — `waist` (cm) do wykresu rekompozycji
-- **`AppState`**: `version, exercises[], days[], targets(exId→kg), sessions[], body[], squash[], settings, historySeeded?, historyTargetsSeeded?`
-  - `settings`: `name, barWeight, plates[], restSeconds, sound, gistToken?, gistId?, autoBackup?, lastBackup?`
+- **`AppState`**: `version, exercises[], days[], targets(exId→kg), hyperTargets?(exId→kg), sessions[], body[], squash[], settings, historySeeded?, historyTargetsSeeded?`
+  - `settings`: `name, barWeight, plates[], restSeconds, sound, gistToken?, gistId?, autoBackup?, lastBackup?, gymProfiles?, activeGymProfileId?, volumeGoal?, trainingMode?`
   - `historySeeded?`: flaga jednorazowego dosiewu historii startowej (`history-seed.ts`)
   - `historyTargetsSeeded?`: flaga jednorazowego doganiania `targets` do progresji z historii
     sesji (`seed.ts: catchUpTargetsFromHistory`) — patrz §12 BUG-1
+  - `hyperTargets?`: cele trybu hipertrofii, OSOBNE od `targets` (siła) — patrz §5.7
 
 **localStorage key: `trening-app-v2`.** Schemat wersjonowany przez `SCHEMA_VERSION` (aktualnie **5**).
 Wersje po 2: v3 = bonus 2.0 + zachowanie `targets` w migracji; v4 = `BodyEntry.waist`;
@@ -134,6 +136,25 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
 
 ### 5.6 Kalkulator talerzy — `platePlan(target, bar, plates)`
 - Zwraca układ talerzy **na jedną stronę** + `ok`/leftover. Wizualizacja w `Gym.tsx` (`PlateBar`).
+
+### 5.7 Tryb treningu: Siła / Hipertrofia (logic.ts, POMYSLY.md P0-5)
+- Przełącznik na ekranie wyboru dnia (Trening) — cel tygodnia, `settings.trainingMode`
+  (`"strength" | "hypertrophy"`, brak = `"strength"`), przełączalny w dowolnym momencie.
+- **Plan (seed.ts) to źródło prawdy trybu siłowego — nietykalne.** Hipertrofia jest widokiem
+  POCHODNYM liczonym w locie: `exerciseForMode(ex, mode)` — w hipertrofii podnosi zakres
+  ciężkich ćwiczeń (bazowy `repMax ≤ 8`) do 8–12 powt. i RIR 2→1; ćwiczenia już w zakresie
+  8+ dostają tylko RIR 1 (zakres bez zmian); `isHold` (plank) bez zmian; **wyjątek
+  bezpieczeństwa: martwy ciąg klasyczny** zostaje na 6–8 powt./RIR 2 (nie schodzi na wysokie
+  powtórzenia blisko upadku). `targetSets`/`increment`/`restSeconds` NIGDY nie zmieniane.
+- Cel hipertrofii liczy `hyperTargetFor()`: jeśli zakres się nie zmienia → ten sam cel co
+  siła; inaczej konwersja przez odwrócony Epley (`weightForReps()`) z e1RM ostatniej sesji
+  (fallback: z bieżącego celu siłowego, gdy brak historii), zaokrąglona do `increment`.
+  Wypracowana progresja hipertrofii cache'owana w `state.hyperTargets` (ma pierwszeństwo).
+- `store.finishSession` liczy `computeProgression` na `exerciseForMode(ex, mode)` i zapisuje
+  wynik do `targets` (siła) albo `hyperTargets` (hipertrofia) — **tryby nie psują sobie
+  progresji nawzajem**, można przełączać się tydzień w tydzień.
+- Podstawa naukowa (meta-analizy Robinson/Pelland/Schoenfeld/Currier/Grgic) i pełne
+  uzasadnienie każdej decyzji: `POMYSLY.md` sekcja P0-5.
 
 ---
 

@@ -6,6 +6,7 @@ import type {
   Muscle,
   Session,
   SetLog,
+  TrainingMode,
 } from "./types";
 
 // ── Objętość per partia ────────────────────────────────────────────────────
@@ -323,6 +324,61 @@ export function exerciseHistory(state: AppState, exId: string): HistoryPoint[] {
     });
   }
   return points;
+}
+
+// ── Tryb treningu (Siła / Hipertrofia) ─────────────────────────────────────
+// Podstawa naukowa i uzasadnienie każdej decyzji: POMYSLY.md P0-5.
+
+/**
+ * Widok ćwiczenia pod cel tygodnia — hipertrofia jest POCHODNA z planu
+ * (seed.ts pozostaje źródłem prawdy trybu siłowego), liczona w locie.
+ * `targetSets`/`increment`/`restSeconds` NIGDY nie są zmieniane (objętość i
+ * przerwy zostają — patrz uzasadnienie naukowe pkt 3–4 w POMYSLY.md).
+ */
+export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
+  if (mode === "strength") return ex;
+  if (ex.isHold) return ex;
+  if (ex.id === "deadlift") {
+    // Wyjątek bezpieczeństwa: klasyczny MC nie schodzi na wysokie powtórzenia
+    // blisko upadku — nota "UWAGA NA PLECY" w seedzie zostaje aktualna.
+    return { ...ex, repMin: 6, repMax: 8, rir: 2 };
+  }
+  if (ex.repMax <= 8) {
+    return { ...ex, repMin: 8, repMax: 12, rir: 1 };
+  }
+  return { ...ex, rir: 1 };
+}
+
+/** Odwrócony wzór Epleya — ciężar, przy którym `reps` powtórzeń zostawia ~`rir` w zapasie. */
+export function weightForReps(e1: number, reps: number, rir: number): number {
+  return e1 / (1 + (reps + rir) / 30);
+}
+
+/**
+ * Cel hipertrofii dla ćwiczenia. Kolejność: (1) już wypracowana progresja w
+ * `hyperTargets`; (2) jeśli tryb hipertrofii NIE zmienia zakresu (bazowy
+ * `repMax > 8`) → ten sam cel co siła (różnica tylko w RIR); (3) konwersja
+ * z ciężkiego zakresu przez e1RM (z historii albo, przy jej braku, z
+ * bieżącego celu siłowego) — patrz POMYSLY.md P0-5 pkt 2, sanity-check na
+ * realnych danych.
+ */
+export function hyperTargetFor(state: AppState, ex: Exercise): number {
+  if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
+  const target = state.targets[ex.id] ?? 0;
+  if (ex.repMax > 8) return target;
+  const history = exerciseHistory(state, ex.id);
+  const e1 = history.length > 0
+    ? history[history.length - 1].e1rm
+    : target * (1 + (ex.repMin + ex.rir) / 30);
+  const hEx = exerciseForMode(ex, "hypertrophy");
+  const w = weightForReps(e1, hEx.repMin, hEx.rir);
+  const inc = ex.increment > 0 ? ex.increment : 0.5;
+  return Math.round(w / inc) * inc;
+}
+
+/** Cel dla trybu bieżącego tygodnia — `targets` (siła) albo `hyperTargetFor` (hipertrofia). */
+export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode): number {
+  return mode === "strength" ? (state.targets[ex.id] ?? 0) : hyperTargetFor(state, ex);
 }
 
 /**

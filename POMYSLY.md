@@ -159,7 +159,7 @@ iść do Historii.
 **Akceptacja:** wiersz widoczny od drugiego treningu danego ćwiczenia.
 **Rozmiar:** S
 
-### [ ] P0-5. Tryb treningu: Siła / Hipertrofia (przełącznik na ekranie wyboru dnia)
+### [x] P0-5. Tryb treningu: Siła / Hipertrofia (przełącznik na ekranie wyboru dnia) (2026-07-26)
 **Pomysł Kamila (26.07.2026), architektura: Fable.** Użytkownik chce w danym tygodniu
 świadomie wybrać cel: siła (jak dotychczas — plan trenera 1:1) albo hipertrofia
 (wzrost mięśni), a apka ma przeliczyć powtórzenia / ciężar / RIR. Wybór tygodniowy,
@@ -414,3 +414,16 @@ tylko dane sesji. **Rozmiar:** M
   guzik „Edytuj" w rozwiniętej sesji otwiera dialog z edycją każdej serii
   (ciężar/powt./zaliczona), zapis nadpisuje tylko dane sesji — targets i
   progresja NIE są przeliczane wstecz.
+- [x] 2026-07-26: P0-5 tryb treningu Siła/Hipertrofia — przełącznik na ekranie
+  wyboru dnia (`TrainScreen.tsx`), persystowany w `settings.trainingMode`.
+  `logic.ts`: `exerciseForMode()` (hipertrofia = 8–12 RIR1, wyjątek deadlift
+  6–8 RIR2, zakresy już ≥8 zostają + RIR1, isHold bez zmian), `weightForReps()`
+  (odwrócony Epley), `hyperTargetFor()` (konwersja z e1RM historii, fallback
+  bez historii, cache w `hyperTargets`), `targetForMode()`. `store.finishSession`
+  liczy progresję na `exerciseForMode` i zapisuje do `targets` (siła) albo
+  `hyperTargets` (hipertrofia) — tryby nie psują sobie progresji. Badge trybu
+  w loggerze, „Ostatnio" dopisuje etykietę trybu gdy różny od bieżącego,
+  paragon z dopiskiem „· Hipertrofia". `targetSets`/`increment`/`restSeconds`
+  nietknięte (nauka: objętość i przerwy niezależne od trybu). 12 nowych testów,
+  sanity-check na realnych danych Kamila (bench e1RM 54→42,5 kg, squat 82,3→62,5,
+  deadlift 95,6→75) zweryfikowany manualnie w przeglądarce z identycznym wynikiem.

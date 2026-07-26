@@ -12,7 +12,7 @@ import {
   Share2,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
-import type { ExerciseLog, Exercise } from "@/lib/types";
+import type { ExerciseLog, Exercise, TrainingMode } from "@/lib/types";
 import {
   fmtKg,
   fmtDateShort,
@@ -20,6 +20,8 @@ import {
   detectPlateau,
   e1rm,
   suggestedWeightForProfile,
+  exerciseForMode,
+  targetForMode,
   type LastEntry,
 } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
@@ -37,15 +39,22 @@ interface Draft {
   dayId: string;
   date: string;
   entries: ExerciseLog[];
+  mode: TrainingMode;
 }
 
 function loadDraft(): Draft | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
-    return raw ? (JSON.parse(raw) as Draft) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Draft;
+    return { ...parsed, mode: parsed.mode ?? "strength" };
   } catch {
     return null;
   }
+}
+
+interface LastEntryInfo extends LastEntry {
+  mode: TrainingMode;
 }
 
 /** Najlepsza zaliczona seria wpisu (wg e1RM, albo najdłuższy hold) */
@@ -74,7 +83,7 @@ export function TrainScreen() {
   // gdy zmieni się historia — inaczej każde wciśnięcie klawisza w loggerze
   // kopiowało i sortowało wszystkie sesje raz na kartę ćwiczenia.
   const lastByExercise = useMemo(() => {
-    const map = new Map<string, LastEntry>();
+    const map = new Map<string, LastEntryInfo>();
     const sorted = [...state.sessions]
       .filter((s) => s.completed)
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -83,7 +92,7 @@ export function TrainScreen() {
         if (map.has(entry.exerciseId)) continue;
         const done = entry.sets.filter((s) => s.done);
         if (done.length === 0) continue;
-        map.set(entry.exerciseId, { date: session.date, sets: done });
+        map.set(entry.exerciseId, { date: session.date, sets: done, mode: session.mode ?? "strength" });
       }
     }
     return map;
@@ -149,6 +158,7 @@ export function TrainScreen() {
   const activeGymProfile = (state.settings.gymProfiles ?? []).find(
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
+  const mode: TrainingMode = state.settings.trainingMode ?? "strength";
 
   function startDay(dayId: string) {
     const day = state.days.find((d) => d.id === dayId);
@@ -157,21 +167,22 @@ export function TrainScreen() {
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
-        const target = state.targets[exId] ?? 0;
+        const hEx = exerciseForMode(ex, mode);
+        const target = targetForMode(state, ex, mode);
         return {
           exerciseId: exId,
           targetWeight: target,
           sets: Array.from({ length: ex.targetSets }, () => ({
             weight: target,
-            // Prefill górnym limitem zakresu — dążymy do maksimum powtórzeń,
-            // więc częściej trafisz od razu (mniej ręcznej korekty).
-            reps: ex.repMax,
+            // Prefill górnym limitem zakresu (dla trybu tygodnia) — dążymy do
+            // maksimum powtórzeń, więc częściej trafisz od razu.
+            reps: hEx.repMax,
             done: false,
           })),
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries });
+    setDraft({ dayId, date: new Date().toISOString(), entries, mode });
   }
 
   function updateSet(entryIdx: number, setIdx: number, patch: Partial<{ weight: number; reps: number; done: boolean }>) {
@@ -227,7 +238,8 @@ export function TrainScreen() {
   function swapExercise(entryIdx: number, newExId: string) {
     const newEx = state.exercises.find((e) => e.id === newExId);
     if (!newEx) return;
-    const target = state.targets[newExId] ?? 0;
+    const hEx = exerciseForMode(newEx, mode);
+    const target = targetForMode(state, newEx, mode);
     setDraft((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -236,7 +248,7 @@ export function TrainScreen() {
         targetWeight: target,
         sets: Array.from({ length: newEx.targetSets }, () => ({
           weight: target,
-          reps: newEx.repMax, // górny limit zakresu, jak przy starcie dnia
+          reps: hEx.repMax, // górny limit zakresu (dla trybu tygodnia), jak przy starcie dnia
           done: false,
         })),
       };
@@ -253,10 +265,12 @@ export function TrainScreen() {
       dayId: draft.dayId,
       date: draft.date,
       entries: draft.entries,
+      mode: draft.mode,
     });
     setSummary(results);
 
-    const dayName = state.days.find((d) => d.id === draft.dayId)?.name ?? "Trening";
+    const dayNameBase = state.days.find((d) => d.id === draft.dayId)?.name ?? "Trening";
+    const dayName = draft.mode === "hypertrophy" ? `${dayNameBase} · Hipertrofia` : dayNameBase;
     const doneSets = draft.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
     const totalSets = draft.entries.reduce((n, e) => n + e.sets.length, 0);
     const volume = sessionVolume(state, {
@@ -357,6 +371,35 @@ export function TrainScreen() {
     return (
       <div className="space-y-3 p-4">
         <h1 className="text-lg font-bold">Cześć, {state.settings.name}! 💪</h1>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs font-medium">Cel tygodnia</p>
+          <div className="mt-1.5 flex overflow-hidden rounded-md border border-border text-xs">
+            {(["strength", "hypertrophy"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  if (m !== mode) {
+                    toast(
+                      "Zmieniono cel tygodnia",
+                      "Pamiętaj też o przełączniku Cel: Siła/Hipertrofia w zakładce Progres."
+                    );
+                  }
+                  store.updateSettings({ trainingMode: m });
+                }}
+                className={cn(
+                  "flex-1 px-3 py-1.5 transition-colors",
+                  mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                )}
+              >
+                {m === "strength" ? "Siła" : "Hipertrofia"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
+          </p>
+        </div>
         <p className="text-sm text-muted-foreground">Wybierz dzień treningowy:</p>
         {activeDays.map((day) => (
           <button
@@ -406,7 +449,18 @@ export function TrainScreen() {
       >
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{
+                  backgroundColor: draft.mode === "hypertrophy" ? "#a855f733" : "#38bdf833",
+                  color: draft.mode === "hypertrophy" ? "#a855f7" : "#38bdf8",
+                }}
+              >
+                {draft.mode === "hypertrophy" ? "Hipertrofia" : "Siła"}
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground">
               {day?.short} · {doneCount}/{totalCount} serii · {fmtKg(volume)}
             </p>
@@ -421,7 +475,8 @@ export function TrainScreen() {
         {draft.entries.map((entry, ei) => {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) return null;
-          const unitLabel = ex.isHold ? "s" : "powt.";
+          const hEx = exerciseForMode(ex, draft.mode);
+          const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
           const swapCandidates = ex.primaryMuscle
@@ -450,9 +505,9 @@ export function TrainScreen() {
                   )}
                 </div>
                 <CardDescription>
-                  {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`}{" "}
+                  {hEx.targetSets}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
-                  {ex.perHand && " (na rękę)"} · RIR {ex.rir}
+                  {hEx.perHand && " (na rękę)"} · RIR {hEx.rir}
                 </CardDescription>
                 {gymSuggestion !== null && (
                   <div className="flex items-center justify-between gap-2 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-300">
@@ -488,13 +543,14 @@ export function TrainScreen() {
                 )}
                 {last && (
                   <p className="text-xs text-muted-foreground">
-                    Ostatnio ({fmtDateShort(last.date)}):{" "}
+                    Ostatnio ({fmtDateShort(last.date)}
+                    {last.mode !== draft.mode ? (last.mode === "strength" ? " (siła)" : " (hip.)") : ""}):{" "}
                     {last.sets
-                      .map((s) => (ex.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
+                      .map((s) => (hEx.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
                       .join(" · ")}
                   </p>
                 )}
-                {ex.note && <p className="text-[11px] leading-snug text-amber-200/70">{ex.note}</p>}
+                {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
               </CardHeader>
               <CardContent className="space-y-1.5">
                 {entry.sets.map((set, si) => (

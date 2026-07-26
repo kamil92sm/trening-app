@@ -24,7 +24,7 @@ import {
   SCHEMA_VERSION,
   STORAGE_KEY,
 } from "./seed";
-import { computeProgression, type ProgressionResult } from "./logic";
+import { computeProgression, exerciseForMode, type ProgressionResult } from "./logic";
 import { uid } from "./utils";
 
 export interface FinishSummary {
@@ -118,17 +118,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Policzone PRZED mutate: updater przekazany do setState musi być czysty
         // (StrictMode wywołuje go dwa razy w dev) — side-effect (push) w środku
         // podwajał wpisy w summaries.
+        const mode = sessionData.mode ?? "strength";
         const summaries: FinishSummary[] = [];
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) continue;
-          summaries.push({ exercise: ex, result: computeProgression(ex, entry.targetWeight, entry.sets) });
+          // Progresja liczona na ćwiczeniu przeliczonym pod tryb tygodnia (zakres
+          // powtórzeń), ale zapisywana pod ID oryginalnego ćwiczenia.
+          const modeEx = exerciseForMode(ex, mode);
+          summaries.push({ exercise: ex, result: computeProgression(modeEx, entry.targetWeight, entry.sets) });
         }
         mutate((d) => {
           const session: Session = { ...sessionData, id: uid(), completed: true };
           d.sessions.push(session);
           for (const s of summaries) {
-            d.targets[s.exercise.id] = s.result.nextWeight;
+            if (mode === "hypertrophy") {
+              d.hyperTargets = d.hyperTargets ?? {};
+              d.hyperTargets[s.exercise.id] = s.result.nextWeight;
+            } else {
+              d.targets[s.exercise.id] = s.result.nextWeight;
+            }
           }
           return d;
         });
