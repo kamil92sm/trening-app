@@ -891,7 +891,7 @@ dostaje ramkę w kolorze własnego `accent` + chip „następny w rotacji", wszy
 klikalne. Zweryfikowane w przeglądarce (domyślna historia kończy się na piątku → podpowiedź to
 poniedziałek).
 
-### [ ] P2-11. Kalendarz konsekwencji (8 tygodni × dni + seria)
+### [x] P2-11. Kalendarz konsekwencji (8 tygodni × dni + seria) (2026-07-26)
 **Po co:** wszystkie dzisiejsze wykresy pokazują CIĘŻARY. Żaden nie pokazuje najsilniejszego
 predyktora wyniku — czy w ogóle chodzisz na siłownię. Jeden rzut oka na 8 tygodni mówi więcej niż
 tonaż tygodniowy, bo pokazuje dziury.
@@ -908,6 +908,10 @@ nie wyrzut sumienia).
 **Testy:** tydzień z 3/3 sesji → `done === planned`; tydzień pusty → `done === 0`; dzień bonusowy
 nie podbija `planned`; okno obejmuje dokładnie `weeks` tygodni wstecz.
 **Rozmiar:** S/M
+**Wdrożone:** `weeklyAdherence(state, weeks=8, nowIso?)` w `logic.ts` (6 testów). `ProgressScreen.tsx`:
+karta „Konsekwencja" — 8 kolumn (tygodnie), każda kolumna to `planned` kropek (pełne w kolorze
+statusu tygodnia, puste = sam obrys), podpis „X/8 tygodni z kompletem". Zweryfikowane w
+przeglądarce (3 ostatnie tygodnie z historii startowej pełne/zielone, starsze puste).
 
 ### [ ] P2-12. Standardy siłowe względem masy ciała
 **Po co:** `body` (waga) i e1RM leżą w tym samym stanie i nigdy się nie spotykają. Stosunek
