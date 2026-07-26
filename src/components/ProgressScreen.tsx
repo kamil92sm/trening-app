@@ -12,6 +12,7 @@ import {
   projectHistory,
   sessionVolume,
   sessionDuration,
+  weeklyAdherence,
   mondayOf,
   fmtDateShort,
   fmtKg,
@@ -97,6 +98,10 @@ export function ProgressScreen() {
       count: withDuration.length,
     };
   }, [state]);
+
+  // P2-11: konsekwencja - ukonczone treningi ostatnich 8 tygodni vs plan.
+  const adherence = useMemo(() => weeklyAdherence(state), [state]);
+  const completeWeeks = adherence.filter((w) => w.done >= w.planned).length;
 
   const records = useMemo(() => {
     return state.exercises
@@ -360,6 +365,43 @@ export function ProgressScreen() {
               {" "}(z {sessionStats.count} {sessionStats.count === 1 ? "treningu z czasem" : "treningów z czasem"})
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Konsekwencja */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Konsekwencja</CardTitle>
+          <CardDescription>Ukończone treningi tygodniami — najsilniejszy predyktor wyniku</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-between gap-1">
+            {adherence.map((w) => {
+              const status = w.done === 0 ? "zero" : w.done >= w.planned ? "full" : "partial";
+              const color = status === "full" ? "#22c55e" : status === "partial" ? "#f59e0b" : "#71717a";
+              return (
+                <div key={w.week} className="flex flex-1 flex-col items-center gap-1.5">
+                  <div className="flex flex-col gap-1">
+                    {Array.from({ length: w.planned }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={
+                          i < w.done
+                            ? { backgroundColor: color }
+                            : { border: "1px solid currentColor", opacity: 0.25 }
+                        }
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[8px] text-muted-foreground">{fmtDateShort(w.week)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {completeWeeks}/{adherence.length} tygodni z kompletem
+          </p>
         </CardContent>
       </Card>
 

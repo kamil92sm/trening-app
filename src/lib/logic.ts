@@ -728,6 +728,41 @@ export function mondayOf(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface WeekAdherence {
+  /** ISO daty poniedziałku tego tygodnia (klucz). */
+  week: string;
+  /** Wszystkie ukończone sesje w tym tygodniu, WŁĄCZNIE z dniem bonusowym. */
+  done: number;
+  /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
+  planned: number;
+}
+
+/**
+ * Konsekwencja treningowa (P2-11) — ostatnie `weeks` tygodni (domyślnie 8),
+ * chronologicznie rosnąco, kończąc na tygodniu zawierającym `nowIso` (domyślnie
+ * dziś). `planned` to zawsze liczba dni głównych planu (dzień bonusowy liczy
+ * się do `done`, ale nigdy nie podbija `planned` — inaczej włączenie bonusu
+ * fałszywie poprawiałoby statystykę za tygodnie sprzed jego włączenia).
+ */
+export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): WeekAdherence[] {
+  const planned = state.days.filter((d) => !d.optional).length;
+  const thisMonday = mondayOf(nowIso ?? new Date().toISOString());
+  const base = new Date(thisMonday + "T12:00:00");
+
+  const weekKeys: string[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const d = new Date(base);
+    d.setDate(d.getDate() - i * 7);
+    weekKeys.push(d.toISOString().slice(0, 10));
+  }
+
+  return weekKeys.map((week) => ({
+    week,
+    done: state.sessions.filter((s) => s.completed && mondayOf(s.date) === week).length,
+    planned,
+  }));
+}
+
 /**
  * Podpowiedź kolejnego dnia w rotacji planu (P2-10) — id dnia z `state.days`,
  * NIE bonusowego. Bierze ostatnią ukończoną sesję spośród dni głównych

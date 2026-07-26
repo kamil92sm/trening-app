@@ -19,6 +19,7 @@ import {
   warmupPlan,
   sessionDuration,
   nextDaySuggestion,
+  weeklyAdherence,
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
@@ -535,6 +536,36 @@ check(
   nextDaySuggestion(stRotBonus) === "wed",
   nextDaySuggestion(stRotBonus)
 );
+
+// P2-11: kalendarz konsekwencji (8 tygodni)
+const stAdh = defaultState();
+stAdh.sessions.push(
+  { id: "a1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] },
+  { id: "a2", dayId: "wed", date: "2026-07-22", completed: true, entries: [] },
+  { id: "a3", dayId: "fri", date: "2026-07-24", completed: true, entries: [] },
+  { id: "a4", dayId: "bonus", date: "2026-07-08", completed: true, entries: [] }
+);
+const adherence = weeklyAdherence(stAdh, 8, "2026-07-26");
+check("weeklyAdherence: okno = dokladnie 8 tygodni", adherence.length === 8, adherence.length);
+check(
+  "weeklyAdherence: ostatni element = tydzien zawierajacy nowIso",
+  adherence[adherence.length - 1].week === "2026-07-20",
+  adherence[adherence.length - 1]
+);
+const fullWeek = adherence.find((w) => w.week === "2026-07-20")!;
+check(
+  "weeklyAdherence: tydzien z 3/3 sesji -> done === planned",
+  fullWeek.done === 3 && fullWeek.planned === 3,
+  fullWeek
+);
+const bonusWeek = adherence.find((w) => w.week === "2026-07-06")!;
+check(
+  "weeklyAdherence: dzien bonusowy liczy sie do done, NIE podbija planned",
+  bonusWeek.done === 1 && bonusWeek.planned === 3,
+  bonusWeek
+);
+const emptyWeek = adherence.find((w) => w.week === "2026-06-29");
+check("weeklyAdherence: pusty tydzien -> done 0", emptyWeek !== undefined && emptyWeek.done === 0, emptyWeek);
 
 // INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni
 const stActual = defaultState();
