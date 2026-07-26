@@ -84,6 +84,7 @@ export function TrainScreen() {
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const pendingBackup = useRef(false);
+  const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
 
   // Mapa exId -> ostatni wynik, liczona JEDNYM przejściem po sesjach i tylko
@@ -168,6 +169,20 @@ export function TrainScreen() {
       .catch((err: unknown) => {
         toast("Auto-backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
       });
+  }, [state]);
+
+  // Przypomnienie o reczym backupie (P1-7) — tylko gdy auto-backup jest WYŁĄCZONY
+  // (inaczej P0-2 i tak robi backup po każdym treningu, licznik byłby zbędny).
+  useEffect(() => {
+    if (!pendingBackupReminder.current) return;
+    pendingBackupReminder.current = false;
+    const { autoBackup, lastBackup } = state.settings;
+    if (autoBackup) return;
+    const completed = state.sessions.filter((s) => s.completed);
+    const sessionsSince = lastBackup ? completed.filter((s) => s.date > lastBackup).length : completed.length;
+    if (sessionsSince >= 6) {
+      toast("Zrób backup", `Ostatni: ${sessionsSince} treningów temu`, { label: "Przejdź do Więcej", tab: "more" });
+    }
   }, [state]);
 
   const activeDays = state.days.filter((d) => !d.optional || d.active);
@@ -303,6 +318,7 @@ export function TrainScreen() {
       // się w efekcie powyżej, po tym jak state odzwierciedli finishSession().
       pendingBackup.current = true;
     }
+    pendingBackupReminder.current = true;
   }
 
   function cancel() {

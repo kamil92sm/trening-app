@@ -5,7 +5,7 @@ import { ProgressScreen } from "@/components/ProgressScreen";
 import { HistoryScreen } from "@/components/HistoryScreen";
 import { PlanScreen } from "@/components/PlanScreen";
 import { MoreScreen } from "@/components/MoreScreen";
-import { useToasts } from "@/hooks/use-toast";
+import { useToasts, dismissToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 type Tab = "train" | "progress" | "history" | "plan" | "more";
@@ -18,7 +18,7 @@ const TABS: { id: Tab; label: string; icon: typeof Dumbbell }[] = [
   { id: "more", label: "Więcej", icon: Menu },
 ];
 
-function Toaster() {
+function Toaster({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const toasts = useToasts();
   return (
     <div
@@ -28,10 +28,22 @@ function Toaster() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="rounded-lg border border-border bg-card/95 p-3 shadow-lg backdrop-blur"
+          className="pointer-events-auto rounded-lg border border-border bg-card/95 p-3 shadow-lg backdrop-blur"
         >
           <p className="text-sm font-medium">{t.title}</p>
           {t.description && <p className="text-xs text-muted-foreground">{t.description}</p>}
+          {t.action && (
+            <button
+              type="button"
+              className="mt-1.5 text-xs font-semibold text-primary underline underline-offset-2"
+              onClick={() => {
+                onNavigate(t.action!.tab as Tab);
+                dismissToast(t.id);
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -47,7 +59,7 @@ export default function App() {
     // zakładki (Trening/Historia) — to rozwijanie zwężało viewport i „podnosiło"
     // dolną nawigację. Przy zwiniętym pasku Safari pozycja jest stała wszędzie.
     <div className="mx-auto flex min-h-full max-w-xl flex-col" style={{ minHeight: "calc(100lvh + 1px)" }}>
-      <Toaster />
+      <Toaster onNavigate={setTab} />
       <main className="flex-1 pb-20">
         {tab === "train" && <TrainScreen />}
         {tab === "progress" && <ProgressScreen />}

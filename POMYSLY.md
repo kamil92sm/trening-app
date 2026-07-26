@@ -494,11 +494,15 @@ UI: pencil-toggle w nagłówku karty Objętość, wiersz partii w edycji ma dwa 
 (min/max) + reset (RotateCcw, aktywny tylko gdy jest override); poza edycją znacznik „wł."
 przy nadpisanej partii. 3 nowe testy. `npm test` + `npm run build` OK.
 
-### [ ] P1-6. Druga metryka objętości: tonaż per partia
+### [x] P1-6. Druga metryka objętości: tonaż per partia (2026-07-26)
 **Z listy „otwarte pomysły" w CLAUDE.md** — `weeklyMuscleVolume` JUŻ liczy `tonnage`,
 brakuje tylko UI. **Spec:** w karcie Objętość przełącznik „serie | kg" — widok kg
 pokazuje `tonnage` (formatuj `x.x t` powyżej 1000 kg). Bez zmian silnika, bez testów.
 **Rozmiar:** S
+**Wdrożone:** przełącznik „Serie | kg" w `ProgressScreen.tsx`; widok kg pokazuje `fmtTonnage`
+(lokalna funkcja UI, bez zmian w `logic.ts`), pasek relatywny do max tonażu w widoku (bez
+kolorów statusu — zakresy są w seriach). Edycja zakresów (P1-5) i legenda statusów ukryte
+w widoku kg. `npm run build` OK.
 
 ### [ ] P1-7. Przypomnienie o backupie
 **Zależność:** jeśli P0-2 wdrożone i autoBackup włączony — pomiń licznik, pokaż tylko
