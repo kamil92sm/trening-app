@@ -913,7 +913,7 @@ karta „Konsekwencja" — 8 kolumn (tygodnie), każda kolumna to `planned` krop
 statusu tygodnia, puste = sam obrys), podpis „X/8 tygodni z kompletem". Zweryfikowane w
 przeglądarce (3 ostatnie tygodnie z historii startowej pełne/zielone, starsze puste).
 
-### [ ] P2-12. Standardy siłowe względem masy ciała
+### [x] P2-12. Standardy siłowe względem masy ciała (2026-07-26)
 **Po co:** `body` (waga) i e1RM leżą w tym samym stanie i nigdy się nie spotykają. Stosunek
 ciężaru do masy ciała to jedyny kontekst, który mówi „jesteś już mocny", gdy same kilogramy
 przestają robić wrażenie. Tanie, bo dane są.
@@ -931,6 +931,11 @@ Bez emoji-medali i bez „awansów" — to ma być punkt odniesienia, nie grywal
 **Testy:** brak wagi → pusty wynik; progi klasyfikują poprawnie na granicy (dokładnie 1,0 × masy
 w benchu → średniozaawansowany, nie początkujący); e1RM brany jako maksimum z całej historii.
 **Rozmiar:** S
+**Wdrożone:** `strengthRatios()` w `logic.ts` (5 testów) — środkowy i górny próg sterują etykietą,
+dolny tylko punkt odniesienia w danych (dokumentacyjny, nie wyświetlany osobno w MVP).
+`ProgressScreen.tsx`: karta ukryta w całości bez wpisu wagi, z obowiązkowym zastrzeżeniem pod
+listą. Zweryfikowane w przeglądarce: karta niewidoczna bez wagi, po dodaniu wpisu poprawne
+współczynniki i etykiety dla wszystkich czterech ćwiczeń z historią.
 
 ---
 
