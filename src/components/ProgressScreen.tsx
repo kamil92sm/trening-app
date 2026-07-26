@@ -26,11 +26,17 @@ import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
 import { cn } from "@/lib/utils";
 
+// P1-6: druga metryka objetosci (kg zamiast serii) - czysto UI, silnik juz liczy tonnage.
+function fmtTonnage(kg: number): string {
+  return kg >= 1000 ? `${(kg / 1000).toFixed(1)} t` : `${Math.round(kg)} kg`;
+}
+
 export function ProgressScreen() {
   const { state, setDayActive, updateSettings } = useStore();
 
   const volumeGoal: VolumeGoal = state.settings.volumeGoal ?? "hypertrophy";
   const [volumeView, setVolumeView] = useState<"planned" | "actual">("planned");
+  const [volumeMetric, setVolumeMetric] = useState<"sets" | "tonnage">("sets");
   const [editingRanges, setEditingRanges] = useState(false);
   const ranges = muscleRangesFor(volumeGoal, state.settings.muscleRanges);
   const plannedVolumes = useMemo(() => weeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
@@ -102,21 +108,25 @@ export function ProgressScreen() {
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             <CardTitle>Objętość tygodniowa</CardTitle>
-            <button
-              type="button"
-              onClick={() => setEditingRanges((v) => !v)}
-              className={cn(
-                "shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground",
-                editingRanges && "bg-accent text-foreground"
-              )}
-              aria-label="Edytuj zakresy serii"
-            >
-              <Pencil size={14} />
-            </button>
+            {volumeMetric === "sets" && (
+              <button
+                type="button"
+                onClick={() => setEditingRanges((v) => !v)}
+                className={cn(
+                  "shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+                  editingRanges && "bg-accent text-foreground"
+                )}
+                aria-label="Edytuj zakresy serii"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
           </div>
           <CardDescription>
-            Serie robocze na partię (główna = 1, wspomagająca = ½) ·{" "}
-            {volumeView === "planned" ? "z planu" : "wykonane w ostatnich 7 dniach"}
+            {volumeMetric === "sets"
+              ? "Serie robocze na partię (główna = 1, wspomagająca = ½)"
+              : "Tonaż na partię (kg × powtórzenia, hantle ×2)"}{" "}
+            · {volumeView === "planned" ? "z planu" : "wykonane w ostatnich 7 dniach"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -137,6 +147,24 @@ export function ProgressScreen() {
               ))}
             </div>
             <div className="flex overflow-hidden rounded-md border border-border text-[11px]">
+              {(["sets", "tonnage"] as const).map((metric) => (
+                <button
+                  key={metric}
+                  type="button"
+                  onClick={() => {
+                    setVolumeMetric(metric);
+                    if (metric === "tonnage") setEditingRanges(false);
+                  }}
+                  className={cn(
+                    "px-2.5 py-1.5 transition-colors",
+                    volumeMetric === metric ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {metric === "sets" ? "Serie" : "kg"}
+                </button>
+              ))}
+            </div>
+            <div className="flex overflow-hidden rounded-md border border-border text-[11px]">
               {(["strength", "hypertrophy"] as const).map((goal) => (
                 <button
                   key={goal}
@@ -152,7 +180,23 @@ export function ProgressScreen() {
               ))}
             </div>
           </div>
-          {volumes.map((v) => {
+          {(() => {
+            const maxTonnage = Math.max(1, ...volumes.map((v) => v.tonnage));
+            return volumes.map((v) => {
+            if (volumeMetric === "tonnage") {
+              const pct = Math.min((v.tonnage / maxTonnage) * 100, 100);
+              return (
+                <div key={v.muscle}>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="shrink-0">{v.muscle}</span>
+                    <span className="tabular-nums font-semibold text-foreground">{fmtTonnage(v.tonnage)}</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-sky-400 transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            }
             const range = ranges[v.muscle];
             const hasOverride = !!state.settings.muscleRanges?.[v.muscle];
             const pct = Math.min((v.sets / (range.max * 1.3)) * 100, 100);
@@ -203,15 +247,18 @@ export function ProgressScreen() {
                 </div>
               </div>
             );
-          })}
-          <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
-            {(Object.keys(STATUS_LABELS) as (keyof typeof STATUS_LABELS)[]).map((s) => (
-              <span key={s} className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: STATUS_COLORS[s] }} />
-                {STATUS_LABELS[s]}
-              </span>
-            ))}
-          </div>
+            });
+          })()}
+          {volumeMetric === "sets" && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
+              {(Object.keys(STATUS_LABELS) as (keyof typeof STATUS_LABELS)[]).map((s) => (
+                <span key={s} className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: STATUS_COLORS[s] }} />
+                  {STATUS_LABELS[s]}
+                </span>
+              ))}
+            </div>
+          )}
           {bonusDay && (
             <div className="mt-2 flex items-center justify-between rounded-md border border-border p-2.5">
               <div>

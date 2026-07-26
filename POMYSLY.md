@@ -483,11 +483,16 @@ serie prefill wg `targetSets`. **Rozmiar:** M
 gdy `draft !== null`: `navigator.wakeLock?.request("screen")`; zwolnij przy finish/cancel;
 ponów przy `visibilitychange` (wraca z tła). Cicho ignoruj brak API. **Rozmiar:** S
 
-### [ ] P1-5. Edytowalne zakresy objętości (MUSCLE_RANGES)
+### [x] P1-5. Edytowalne zakresy objętości (MUSCLE_RANGES) (2026-07-26)
 **Z listy „otwarte pomysły" w CLAUDE.md.** **Spec:** `Settings` += `muscleRanges?:
 Partial<Record<Muscle, {min,max}>>`; `weeklyMuscleVolume` przyjmuje merge
 `MUSCLE_RANGES` + override z settings. UI: w karcie Objętość (Progres) tryb edycji
 (ołówek) → dwa inputy przy partii. **Rozmiar:** S/M
+**Wdrożone:** `muscleRangesFor(goal, overrides?)` mergujący; `weeklyMuscleVolume`/
+`actualWeeklyMuscleVolume`/`suggestBonusExercises` czytają `state.settings.muscleRanges`.
+UI: pencil-toggle w nagłówku karty Objętość, wiersz partii w edycji ma dwa `NumberField`
+(min/max) + reset (RotateCcw, aktywny tylko gdy jest override); poza edycją znacznik „wł."
+przy nadpisanej partii. 3 nowe testy. `npm test` + `npm run build` OK.
 
 ### [ ] P1-6. Druga metryka objętości: tonaż per partia
 **Z listy „otwarte pomysły" w CLAUDE.md** — `weeklyMuscleVolume` JUŻ liczy `tonnage`,
