@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, ChevronDown, Dumbbell, Pencil, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Session } from "@/lib/types";
-import { fmtDate, fmtKg, sessionVolume } from "@/lib/logic";
+import { fmtDate, fmtKg, sessionVolume, sessionDuration } from "@/lib/logic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -52,6 +52,7 @@ export function HistoryScreen() {
         const day = state.days.find((d) => d.id === session.dayId);
         const open = expanded === session.id;
         const doneSets = session.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
+        const duration = sessionDuration(session);
         return (
           <Card key={session.id}>
             <button
@@ -69,6 +70,7 @@ export function HistoryScreen() {
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   {fmtDate(session.date)} · {doneSets} serii · {fmtKg(sessionVolume(state, session))}
+                  {duration !== null && ` · ${duration} min`}
                 </span>
               </span>
               <ChevronDown

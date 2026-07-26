@@ -121,6 +121,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // (StrictMode wywołuje go dwa razy w dev) — side-effect (push) w środku
         // podwajał wpisy w summaries.
         const mode = sessionData.mode ?? "strength";
+        // P1-10: moment ZAKOŃCZENIA (date w sessionData to moment startu, patrz
+        // TrainScreen.startDay) — liczony PRZED mutate, żeby StrictMode (dev)
+        // podwajające wywołanie updatera nie dało dwóch różnych znaczników czasu.
+        const finishedAt = new Date().toISOString();
         const summaries: FinishSummary[] = [];
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
@@ -131,7 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           summaries.push({ exercise: ex, result: computeProgression(modeEx, entry.targetWeight, entry.sets) });
         }
         mutate((d) => {
-          const session: Session = { ...sessionData, id: uid(), completed: true };
+          const session: Session = { ...sessionData, id: uid(), completed: true, finishedAt };
           d.sessions.push(session);
           for (const s of summaries) {
             if (mode === "hypertrophy") {

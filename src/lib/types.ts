@@ -81,6 +81,8 @@ export interface Session {
   completed: boolean;
   /** Cel tygodnia, w którym zalogowano trening. Brak = "strength" (stare sesje sprzed tej funkcji). */
   mode?: TrainingMode;
+  /** Moment zakończenia (ISO) — `date` to moment STARTU. Brak = czas nieznany (stare sesje/historia startowa). */
+  finishedAt?: string;
 }
 
 export interface BodyEntry {

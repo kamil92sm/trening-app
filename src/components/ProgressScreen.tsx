@@ -11,9 +11,11 @@ import {
   exerciseHistory,
   projectHistory,
   sessionVolume,
+  sessionDuration,
   mondayOf,
   fmtDateShort,
   fmtKg,
+  fmtTonnage,
   bestE1rm,
   e1rm,
   detectPlateau,
@@ -25,11 +27,6 @@ import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
 import { cn } from "@/lib/utils";
-
-// P1-6: druga metryka objetosci (kg zamiast serii) - czysto UI, silnik juz liczy tonnage.
-function fmtTonnage(kg: number): string {
-  return kg >= 1000 ? `${(kg / 1000).toFixed(1)} t` : `${Math.round(kg)} kg`;
-}
 
 export function ProgressScreen() {
   const { state, setDayActive, updateSettings } = useStore();
@@ -77,6 +74,25 @@ export function ProgressScreen() {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .slice(-8)
       .map(([week, v]) => ({ label: fmtDateShort(week), value: Math.round(v) }));
+  }, [state]);
+
+  // P1-10: sredni czas i gestosc (kg/min) z tych samych ostatnich 8 tygodni co
+  // wykres tonazu wyzej. Tylko sesje z policzalnym sessionDuration (finishedAt).
+  const sessionStats = useMemo(() => {
+    const weekKeys = [...new Set(state.sessions.map((s) => mondayOf(s.date)))].sort();
+    const last8Weeks = new Set(weekKeys.slice(-8));
+    const withDuration = state.sessions
+      .filter((s) => last8Weeks.has(mondayOf(s.date)))
+      .map((s) => ({ duration: sessionDuration(s), volume: sessionVolume(state, s) }))
+      .filter((s): s is { duration: number; volume: number } => s.duration !== null);
+    if (withDuration.length === 0) return null;
+    const totalMinutes = withDuration.reduce((sum, s) => sum + s.duration, 0);
+    const totalVolume = withDuration.reduce((sum, s) => sum + s.volume, 0);
+    return {
+      avgDuration: Math.round(totalMinutes / withDuration.length),
+      avgDensity: Math.round(totalVolume / totalMinutes),
+      count: withDuration.length,
+    };
   }, [state]);
 
   const records = useMemo(() => {
@@ -327,6 +343,13 @@ export function ProgressScreen() {
         </CardHeader>
         <CardContent>
           <BarChart data={weeklyTonnage} formatValue={(v) => `${(v / 1000).toFixed(1)}t`} />
+          {sessionStats && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Śr. czas treningu: <span className="font-medium text-foreground">{sessionStats.avgDuration} min</span>
+              {" · "}gęstość: <span className="font-medium text-foreground">{sessionStats.avgDensity} kg/min</span>
+              {" "}(z {sessionStats.count} {sessionStats.count === 1 ? "treningu z czasem" : "treningów z czasem"})
+            </p>
+          )}
         </CardContent>
       </Card>
 

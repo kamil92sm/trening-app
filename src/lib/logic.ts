@@ -340,6 +340,18 @@ export function sessionVolume(state: AppState, session: Session): number {
   }, 0);
 }
 
+/**
+ * Czas trwania treningu w minutach (`finishedAt` - `date`). `null`, gdy
+ * `finishedAt` nieznane (stare sesje, historia startowa) ALBO wynik > 240 min
+ * (apka zostawiona otwarta na noc — lepiej "czas nieznany" niż bzdura).
+ */
+export function sessionDuration(session: Session): number | null {
+  if (!session.finishedAt) return null;
+  const minutes = (new Date(session.finishedAt).getTime() - new Date(session.date).getTime()) / 60000;
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) return null;
+  return Math.round(minutes);
+}
+
 /** Epley; 1 powtórzenie = ciężar */
 export function e1rm(weight: number, reps: number): number {
   if (reps <= 1) return weight;
@@ -691,6 +703,11 @@ export function warmupPlan(ex: Exercise, workWeight: number, bar: number, plates
 
 export function fmtKg(x: number): string {
   return `${(+x.toFixed(2)).toString().replace(".", ",")} kg`;
+}
+
+/** Tonaż z przejściem na tony powyżej 1000 kg (P1-6/P1-10) — używane zamiast `fmtKg`, gdy liczba może być duża. */
+export function fmtTonnage(kg: number): string {
+  return kg >= 1000 ? `${(kg / 1000).toFixed(1)} t` : `${Math.round(kg)} kg`;
 }
 
 export function fmtDate(iso: string): string {

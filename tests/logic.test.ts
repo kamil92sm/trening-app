@@ -17,6 +17,7 @@ import {
   snapToStep,
   suggestedWeightForProfile,
   warmupPlan,
+  sessionDuration,
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
@@ -491,6 +492,27 @@ check(
   "warmupPlan: lekki ciezar (30 kg) - brak duplikatow wag",
   new Set(warmup30.map((s) => s.weight)).size === warmup30.length,
   warmup30
+);
+
+// P1-10: czas trwania treningu
+function mkSessionAt(date: string, finishedAt?: string): Session {
+  return { id: "dur", dayId: "mon", date, completed: true, entries: [], finishedAt };
+}
+check(
+  "sessionDuration: liczy minuty (58 min)",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T10:58:00.000Z")) === 58
+);
+check(
+  "sessionDuration: brak finishedAt -> null",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z")) === null
+);
+check(
+  "sessionDuration: 5h -> null (za dlugo, apka zostawiona otwarta)",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T15:00:00.000Z")) === null
+);
+check(
+  "sessionDuration: finishedAt przed date -> null",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T09:00:00.000Z")) === null
 );
 
 // INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni

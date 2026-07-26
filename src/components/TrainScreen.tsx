@@ -12,11 +12,13 @@ import {
   Repeat,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
-import type { Exercise, ExerciseLog, TrainingMode, WorkoutDay } from "@/lib/types";
+import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
+  fmtTonnage,
   fmtDateShort,
   sessionVolume,
+  sessionDuration,
   detectPlateau,
   suggestedWeightForProfile,
   suggestBonusExercises,
@@ -100,6 +102,7 @@ export function TrainScreen() {
   const [bonusSuggestion, setBonusSuggestion] = useState<BonusSuggestion | null>(loadBonusSuggestion);
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
   const [sessionRecords, setSessionRecords] = useState<RecordHit[]>([]);
+  const [summarySession, setSummarySession] = useState<Session | null>(null);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
@@ -391,6 +394,19 @@ export function TrainScreen() {
       mode: draft.mode,
     });
     setSummary(results);
+    // P1-10: "kopia" zapisanej sesji do podsumowania (czas trwania/gęstość) —
+    // store.finishSession nie zwraca pełnej sesji, tylko podsumowania progresji;
+    // date/entries są identyczne z tym, co właśnie zapisano, finishedAt to ten
+    // sam moment (z dokładnością do pojedynczych ms, bez znaczenia po zaokrągleniu).
+    setSummarySession({
+      id: "summary",
+      dayId: draft.dayId,
+      date: draft.date,
+      entries: draft.entries,
+      completed: true,
+      mode: draft.mode,
+      finishedAt: new Date().toISOString(),
+    });
     setDraft(null);
 
     if (state.settings.autoBackup && state.settings.gistToken) {
@@ -410,6 +426,18 @@ export function TrainScreen() {
     return (
       <div className="space-y-3 p-4">
         <h1 className="text-lg font-bold">Podsumowanie treningu</h1>
+        {summarySession && (() => {
+          const duration = sessionDuration(summarySession);
+          const volume = sessionVolume(state, summarySession);
+          const density = duration ? Math.round(volume / duration) : null;
+          return (
+            <p className="text-sm text-muted-foreground">
+              {duration !== null && `${duration} min · `}
+              {fmtTonnage(volume)}
+              {density !== null && ` · ${density} kg/min`}
+            </p>
+          );
+        })()}
         {sessionRecords.length > 0 && (
           <Card className="border-amber-400/40 bg-amber-400/5">
             <CardHeader>
