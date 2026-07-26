@@ -1336,7 +1336,7 @@ zwinięty.**
 
 ---
 
-### [ ] P3-6. Tryb skupienia — jedno ćwiczenie na ekran (przełącznik na ekranie wyboru dnia)
+### [x] P3-6. Tryb skupienia — jedno ćwiczenie na ekran (przełącznik na ekranie wyboru dnia) (2026-07-26)
 
 **Czego chce Kamil (screen `IMG_3157`):** alternatywny układ loggera — jedno
 ćwiczenie na cały ekran, duże wiersze serii, duży timer przerwy z „uciekającym"

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   Minus,
   Plus,
@@ -39,6 +40,7 @@ import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
 import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -142,6 +144,21 @@ export function TrainScreen() {
   const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
   // P3-1: panel gotowosci domyslnie zwiniety - rozwijany recznie.
   const [readinessOpen, setReadinessOpen] = useState(false);
+  // P3-6: tryb skupienia - indeks aktualnie widocznego cwiczenia. W stanie
+  // (NIE w drafcie) - po restarcie apki w trakcie treningu wraca na pierwsze
+  // cwiczenie z niezaliczona seria (albo ostatnie, gdy wszystko zaliczone).
+  const [focusIdx, setFocusIdx] = useState(() => {
+    const d = loadDraft();
+    if (!d) return 0;
+    const idx = d.entries.findIndex((e) => e.sets.some((s) => !s.done));
+    return idx === -1 ? Math.max(0, d.entries.length - 1) : idx;
+  });
+  const focusAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
+    };
+  }, []);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -268,6 +285,8 @@ export function TrainScreen() {
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
+  // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
+  const layout = state.settings.loggerLayout ?? "list";
   // P1-9/P3-5: rozgrzewka i talerze licza sie wzgledem AKTYWNEGO sprzetu (profil
   // siłowni, jesli ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego
   // z ustawien.
@@ -337,6 +356,7 @@ export function TrainScreen() {
       .filter((e): e is ExerciseLog => e !== null);
     setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
     setReadiness(null);
+    setFocusIdx(0);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
@@ -375,6 +395,21 @@ export function TrainScreen() {
           const suffix = kind === "weight" ? ` × ${finalSet.reps}` : "";
           toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10)}${suffix}`);
         }
+      }
+
+      // P3-6: tryb skupienia - auto-przejscie do kolejnego cwiczenia, gdy ten
+      // klik zaliczyl WSZYSTKIE serie biezacego cwiczenia (nie tylko przy juz
+      // kompletnym). Nie z ostatniego cwiczenia (tam czeka "Zakoncz trening").
+      const sets = draft?.entries[entryIdx]?.sets ?? [];
+      const othersAlreadyDone = sets.length > 0 && sets.every((s, i) => i === setIdx || s.done);
+      const totalEntries = draft?.entries.length ?? 0;
+      if (layout === "focus" && entryIdx === focusIdx && othersAlreadyDone && entryIdx < totalEntries - 1) {
+        if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
+        const idxAtSchedule = entryIdx;
+        focusAdvanceTimer.current = setTimeout(() => {
+          focusAdvanceTimer.current = null;
+          setFocusIdx((cur) => (cur === idxAtSchedule ? cur + 1 : cur));
+        }, 900);
       }
     }
   }
@@ -669,6 +704,18 @@ export function TrainScreen() {
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
         </div>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+          <div>
+            <p className="text-xs font-medium">Tryb skupienia</p>
+            <p className="text-[10px] text-muted-foreground">
+              Jedno ćwiczenie na ekran zamiast listy ze scrollem.
+            </p>
+          </div>
+          <Switch
+            checked={layout === "focus"}
+            onCheckedChange={(v) => store.updateSettings({ loggerLayout: v ? "focus" : "list" })}
+          />
+        </div>
         {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
             {weeksSinceDeloadCount >= 6 && plateauCount >= 3
@@ -824,45 +871,18 @@ export function TrainScreen() {
     completed: false,
   });
 
-  return (
-    <div className="pb-16">
-      <div
-        className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
-        style={{
-          // przykryj pasek statusu tłem nagłówka (body ma padding-top pod island)
-          marginTop: "calc(env(safe-area-inset-top) * -1)",
-          paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                style={{
-                  backgroundColor: `${MODE_BADGE[draft.mode].color}33`,
-                  color: MODE_BADGE[draft.mode].color,
-                }}
-              >
-                {MODE_BADGE[draft.mode].label}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {day?.short} · {doneCount}/{totalCount} serii · {fmtKg(volume)}
-            </p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
-            <X size={15} /> Porzuć
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-3 p-4">
-        {draft.entries.map((entry, ei) => {
-          const ex = state.exercises.find((e) => e.id === entry.exerciseId);
-          if (!ex) return null;
-          const hEx = exerciseForMode(ex, draft.mode);
+  // P3-6: karta jednego cwiczenia - funkcja (nie osobny plik/komponent), zeby
+  // uzyskac pelne wspoldzielenie kodu miedzy ukladem "list" (scroll, wszystkie
+  // karty) i "focus" (jedno cwiczenie na ekran) bez przekazywania dziesiatkow
+  // propsow - obie sciezki renderu dziela to samo domkniecie (draft, timer,
+  // swapIdx itd. zyja w TrainScreen). TS nie zweza `draft` przez granice
+  // deklaracji funkcji (mimo ze `draft` jest const) - stad lokalny guard.
+  function renderExerciseCard(ei: number) {
+    if (!draft) return null;
+    const entry = draft.entries[ei];
+    const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+    if (!ex) return null;
+    const hEx = exerciseForMode(ex, draft.mode);
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1122,8 +1142,127 @@ export function TrainScreen() {
                 </Button>
               </CardContent>
             </Card>
-          );
-        })}
+    );
+  }
+
+  if (layout === "focus") {
+    // ── Tryb skupienia (P3-6): jedno ćwiczenie na ekran ─────────────────────
+    return (
+      <div className="pb-16">
+        <div
+          className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
+          style={{
+            marginTop: "calc(env(safe-area-inset-top) * -1)",
+            paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold">{day?.short ?? "Trening"}</h1>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    backgroundColor: `${MODE_BADGE[draft.mode].color}33`,
+                    color: MODE_BADGE[draft.mode].color,
+                  }}
+                >
+                  {MODE_BADGE[draft.mode].label}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                ĆW. {focusIdx + 1}/{draft.entries.length}
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
+              <X size={15} /> Porzuć
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-3 p-4">
+          {renderExerciseCard(focusIdx)}
+          <div className="rounded-lg border border-border bg-card p-3">
+            <RestTimer variant="panel" seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={focusIdx === 0}
+              onClick={() => setFocusIdx((i) => Math.max(0, i - 1))}
+              aria-label="Poprzednie ćwiczenie"
+            >
+              <ChevronLeft size={18} />
+            </Button>
+            <div className="flex gap-1.5">
+              {draft.entries.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setFocusIdx(i)}
+                  className={cn("h-2 w-2 rounded-full transition-colors", i === focusIdx ? "bg-primary" : "bg-muted")}
+                  aria-label={`Ćwiczenie ${i + 1}`}
+                />
+              ))}
+            </div>
+            {focusIdx < draft.entries.length - 1 ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setFocusIdx((i) => Math.min(draft.entries.length - 1, i + 1))}
+                aria-label="Następne ćwiczenie"
+              >
+                <ChevronRight size={18} />
+              </Button>
+            ) : (
+              <Button size="sm" onClick={finish}>
+                Zakończ trening
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tryb listy (domyślny) ──────────────────────────────────────────────────
+  return (
+    <div className="pb-16">
+      <div
+        className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
+        style={{
+          // przykryj pasek statusu tłem nagłówka (body ma padding-top pod island)
+          marginTop: "calc(env(safe-area-inset-top) * -1)",
+          paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{
+                  backgroundColor: `${MODE_BADGE[draft.mode].color}33`,
+                  color: MODE_BADGE[draft.mode].color,
+                }}
+              >
+                {MODE_BADGE[draft.mode].label}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {day?.short} · {doneCount}/{totalCount} serii · {fmtKg(volume)}
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
+            <X size={15} /> Porzuć
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3 p-4">
+        {draft.entries.map((_, ei) => renderExerciseCard(ei))}
 
         <Button className="w-full" size="lg" onClick={finish}>
           Zakończ trening

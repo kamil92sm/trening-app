@@ -116,11 +116,15 @@ export function RestTimer({
   seconds,
   sound,
   autostartKey,
+  variant = "pill",
 }: {
   seconds: number;
   sound: boolean;
   /** zmiana wartości restartuje odliczanie (np. po odhaczeniu serii) */
   autostartKey?: number;
+  /** P3-6: "pill" (domyślnie, jak dziś - pływająca pigułka) albo "panel" (duże cyfry
+   * + pasek postępu, tryb skupienia). */
+  variant?: "pill" | "panel";
 }) {
   const [left, setLeft] = useState(seconds);
   const [running, setRunning] = useState(false);
@@ -155,6 +159,58 @@ export function RestTimer({
   const ss = left % 60;
   const almostDone = running && left > 0 && left <= 5;
 
+  const toggle = () => {
+    if (left === 0) setLeft(seconds);
+    beeped.current = false;
+    setRunning((r) => !r);
+  };
+  const reset = () => {
+    setRunning(false);
+    setLeft(seconds);
+    beeped.current = false;
+  };
+
+  if (variant === "panel") {
+    // P3-6: tryb skupienia - duze cyfry + pasek "uciekajacy" w miare odliczania.
+    // Bez animate-pulse/animowanego opacity (patrz P0-6) - animujemy tylko width.
+    const pct = seconds > 0 ? Math.max(0, Math.min(100, (left / seconds) * 100)) : 0;
+    const totalMm = Math.floor(seconds / 60);
+    const totalSs = seconds % 60;
+    return (
+      <div>
+        <div className="flex items-end justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span
+              className={cn(
+                "font-mono text-4xl tabular-nums",
+                left === 0 ? "text-green-400" : almostDone ? "text-amber-400" : "text-foreground"
+              )}
+            >
+              {mm}:{ss.toString().padStart(2, "0")}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              / {totalMm}:{totalSs.toString().padStart(2, "0")}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button size="icon" variant="secondary" className="h-9 w-9" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
+              {running ? <Pause size={16} /> : <Play size={16} />}
+            </Button>
+            <Button size="icon" variant="ghost" className="h-9 w-9" onClick={reset} aria-label="Reset">
+              <RotateCcw size={16} />
+            </Button>
+          </div>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full transition-all", left > 0 && left <= 5 ? "bg-red-500" : "bg-amber-400")}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       {/* Bez animate-pulse: pulsujące opacity wewnątrz pigułki z backdrop-blur
@@ -175,30 +231,10 @@ export function RestTimer({
       >
         {mm}:{ss.toString().padStart(2, "0")}
       </span>
-      <Button
-        size="icon"
-        variant="secondary"
-        className="h-8 w-8"
-        onClick={() => {
-          if (left === 0) setLeft(seconds);
-          beeped.current = false;
-          setRunning((r) => !r);
-        }}
-        aria-label={running ? "Pauza" : "Start"}
-      >
+      <Button size="icon" variant="secondary" className="h-8 w-8" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
         {running ? <Pause size={14} /> : <Play size={14} />}
       </Button>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="h-8 w-8"
-        onClick={() => {
-          setRunning(false);
-          setLeft(seconds);
-          beeped.current = false;
-        }}
-        aria-label="Reset"
-      >
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={reset} aria-label="Reset">
         <RotateCcw size={14} />
       </Button>
     </div>

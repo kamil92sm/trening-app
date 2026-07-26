@@ -581,6 +581,7 @@ export const DEFAULT_SETTINGS: Settings = {
   restSeconds: 120,
   sound: true,
   autoBackup: false,
+  loggerLayout: "list",
 };
 
 /** Partia domyślna dla ćwiczeń użytkownika bez primaryMuscle */

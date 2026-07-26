@@ -134,6 +134,8 @@ export interface Settings {
   trainingMode?: TrainingMode;
   /** Ręczne nadpisania zakresów serii/tydzień per partia (Progres → Objętość). Brak partii = domyślny zakres celu. */
   muscleRanges?: Partial<Record<Muscle, { min: number; max: number }>>;
+  /** Układ loggera (P3-6): "list" (domyślnie, jak dziś) albo "focus" (jedno ćwiczenie na ekran). */
+  loggerLayout?: "list" | "focus";
 }
 
 export interface AppState {
