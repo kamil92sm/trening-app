@@ -26,11 +26,38 @@ import {
   STORAGE_KEY,
 } from "./seed";
 import { computeProgression, exerciseForMode, type ProgressionResult } from "./logic";
+import { validateBackup } from "./validate";
 import { uid } from "./utils";
 
 export interface FinishSummary {
   exercise: Exercise;
   result: ProgressionResult;
+}
+
+/** Jeden slot, nadpisywany przed każdym importem/resetem — ratunek po pomyłce, nie drugi backup. */
+export const AUTO_BACKUP_KEY = "trening-app-backup-auto";
+
+export interface AutoBackupSnapshot {
+  savedAt: string;
+  state: AppState;
+}
+
+function saveAutoBackupSnapshot(current: AppState) {
+  try {
+    const snapshot: AutoBackupSnapshot = { savedAt: new Date().toISOString(), state: current };
+    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(snapshot));
+  } catch {
+    // localStorage pełny/niedostępny — nie blokuj importu/resetu z tego powodu
+  }
+}
+
+export function readAutoBackupSnapshot(): AutoBackupSnapshot | null {
+  try {
+    const raw = localStorage.getItem(AUTO_BACKUP_KEY);
+    return raw ? (JSON.parse(raw) as AutoBackupSnapshot) : null;
+  } catch {
+    return null;
+  }
 }
 
 interface Store {
@@ -57,6 +84,7 @@ interface Store {
   exportJson(): string;
   importJson(json: string): string | null;
   resetAll(): void;
+  restoreAutoBackup(): string | null;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -289,23 +317,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       importJson(json) {
+        let parsed: unknown;
         try {
-          const parsed = JSON.parse(json);
-          if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions)) {
-            return "To nie wygląda na backup tej aplikacji.";
-          }
-          setState(migrateState(parsed));
-          return null;
+          parsed = JSON.parse(json);
         } catch {
           return "Nie udało się odczytać pliku (niepoprawny JSON).";
         }
+        const err = validateBackup(parsed);
+        if (err) return err;
+        // Kopia bezpieczeństwa PRZED nadpisaniem — ratunek po pomyłce (zły plik,
+        // przypadkowy klik). Stan sprzed importu, nie ten właśnie wczytywany.
+        saveAutoBackupSnapshot(state);
+        setState(migrateState(parsed));
+        return null;
       },
 
       resetAll() {
+        // Kopia bezpieczeństwa PRZED wyzerowaniem — z tych samych powodów co przy imporcie.
+        saveAutoBackupSnapshot(state);
         // "Wyzeruj wszystko" ma naprawdę czyścić historię — ustawiamy flagi
         // historySeeded/historyTargetsSeeded, żeby jednorazowe dosiewy NIE
         // wstrzyknęły z powrotem historii ani nie przeliczyły celów.
         setState({ ...defaultState(), historySeeded: true, historyTargetsSeeded: true });
+      },
+
+      restoreAutoBackup() {
+        const snapshot = readAutoBackupSnapshot();
+        if (!snapshot) return "Brak zapisanej kopii automatycznej.";
+        setState(snapshot.state);
+        return null;
       },
     };
   }, [state]);

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus } from "lucide-react";
-import { useStore } from "@/lib/store";
+import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus, RotateCcw } from "lucide-react";
+import { useStore, readAutoBackupSnapshot } from "@/lib/store";
 import type { GymProfile } from "@/lib/types";
 import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
 import { gistBackup, gistRestore } from "@/lib/backup";
@@ -121,6 +121,18 @@ export function MoreScreen() {
     }
   }
 
+  // P1-11: liczba sesji w PLIKU vs OBECNIE, zeby bylo widac PRZED potwierdzeniem
+  // ile danych zostanie zastapionych. Niepoprawny JSON/ksztalt -> importJson i
+  // tak to zlapie i zwroci czytelny komunikat, tu po prostu pomijamy liczniki.
+  function fileSessionCount(json: string): number | null {
+    try {
+      const parsed = JSON.parse(json);
+      return parsed && Array.isArray(parsed.sessions) ? parsed.sessions.length : null;
+    } catch {
+      return null;
+    }
+  }
+
   function exportBackup() {
     const blob = new Blob([store.exportJson()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -135,11 +147,26 @@ export function MoreScreen() {
   function importBackup(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
-      const err = store.importJson(String(reader.result));
+      const json = String(reader.result);
+      const count = fileSessionCount(json);
+      if (count !== null) {
+        const ok = confirm(`Zaimportować ${count} sesji? Obecne ${state.sessions.length} zostaną zastąpione.`);
+        if (!ok) return;
+      }
+      const err = store.importJson(json);
       if (err) toast("Import nieudany", err);
       else toast("Backup wczytany", "Dane zostały przywrócone.");
     };
     reader.readAsText(file);
+  }
+
+  function restoreAutoBackup() {
+    const snapshot = readAutoBackupSnapshot();
+    if (!snapshot) return;
+    if (!confirm(`Przywrócić stan sprzed ostatniego importu/resetu (${fmtDate(snapshot.savedAt)})? Obecne dane zostaną zastąpione.`)) return;
+    const err = store.restoreAutoBackup();
+    if (err) toast("Nie udało się przywrócić", err);
+    else toast("Przywrócono kopię automatyczną", `Stan sprzed ${fmtDate(snapshot.savedAt)}.`);
   }
 
   const bodySorted = [...state.body].sort((a, b) => b.date.localeCompare(a.date));
@@ -580,6 +607,16 @@ export function MoreScreen() {
               }}
             />
           </div>
+          {(() => {
+            const autoBackup = readAutoBackupSnapshot();
+            return (
+              <Button variant="outline" className="w-full" disabled={!autoBackup} onClick={restoreAutoBackup}>
+                <RotateCcw size={15} />
+                Przywróć ostatnią kopię automatyczną
+                {autoBackup && <span className="text-[10px] text-muted-foreground">({fmtDate(autoBackup.savedAt)})</span>}
+              </Button>
+            );
+          })()}
           <Button
             variant="outline"
             className="w-full text-destructive"

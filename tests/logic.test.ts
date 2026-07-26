@@ -36,6 +36,7 @@ import {
   SCHEMA_VERSION,
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
+import { validateBackup } from "../src/lib/validate";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -768,6 +769,23 @@ check(
 const stNoSeedDay = defaultState();
 const untouched = computeRestoredDayPlan(stNoSeedDay, "nieistniejacy-dzien");
 check("computeRestoredDayPlan: dzien spoza seeda -> stan bez zmian", untouched === stNoSeedDay);
+
+// P1-11: walidacja pliku backupu
+check("validateBackup: poprawny defaultState() -> null", validateBackup(defaultState()) === null);
+check("validateBackup: {} -> komunikat", typeof validateBackup({}) === "string");
+check("validateBackup: null -> komunikat", typeof validateBackup(null) === "string");
+check(
+  "validateBackup: obcy JSON z polem sessions ale bez exercises/settings -> komunikat",
+  typeof validateBackup({ sessions: [] }) === "string"
+);
+const stBadSession = defaultState();
+// @ts-expect-error - celowo niepoprawny ksztalt sesji (brak entries) do testu walidacji
+stBadSession.sessions = [{ id: "x", dayId: "mon", date: "2026-01-01" }];
+check("validateBackup: sesja bez entries -> komunikat", typeof validateBackup(stBadSession) === "string", validateBackup(stBadSession));
+check(
+  "validateBackup: cwiczenie bez id/name -> komunikat",
+  typeof validateBackup({ ...defaultState(), exercises: [{ foo: "bar" }] }) === "string"
+);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);
