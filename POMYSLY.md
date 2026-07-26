@@ -1131,7 +1131,7 @@ jest powód, żeby ich nie naprawiać, ale nie ma potrzeby dorabiania konsument�
 
 ---
 
-### [ ] P3-2. Plus/minus przy ciężarze w loggerze (szybka korekta wagi)
+### [x] P3-2. Plus/minus przy ciężarze w loggerze (szybka korekta wagi) (2026-07-26)
 
 **Czego chce Kamil:** przy każdym ciężarze mały `−` i `+`, żeby nie wywoływać
 klawiatury iOS na zmianę 45 → 47,5 kg.

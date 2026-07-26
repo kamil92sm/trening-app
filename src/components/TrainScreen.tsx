@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   X,
   Repeat,
+  Trash2,
 } from "lucide-react";
 import { useStore, type FinishSummary, type UndoSnapshot } from "@/lib/store";
 import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
@@ -361,6 +362,27 @@ export function TrainScreen() {
         }
       }
     }
+  }
+
+  // P3-2: stepper +/- przy ciezarze. Synchronizuje INNE jeszcze niezaliczone
+  // serie tego cwiczenia, ktore maja dokladnie ta sama wage co edytowana
+  // seria PRZED zmiana - jesli Kamil wczesniej recznie rozjechal ciezar
+  // konkretnej serii, ta seria przestaje sie synchronizowac (nie nadpisuje
+  // sie juz nic). Zaliczonych serii nigdy nie dotyka. entry.targetWeight
+  // (baza progresji) zostaje bez zmian - to tylko korekta wag serii w drafcie.
+  function setWeightWithSync(entryIdx: number, setIdx: number, weight: number) {
+    const w = Math.max(0, Math.round(weight * 100) / 100);
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      const sets = next.entries[entryIdx].sets;
+      const oldWeight = sets[setIdx].weight;
+      if (!sets[setIdx].done) sets[setIdx].weight = w;
+      for (let i = setIdx + 1; i < sets.length; i++) {
+        if (!sets[i].done && sets[i].weight === oldWeight) sets[i].weight = w;
+      }
+      return next;
+    });
   }
 
   function addSet(entryIdx: number) {
@@ -941,30 +963,47 @@ export function TrainScreen() {
                   <div
                     key={si}
                     className={cn(
-                      "flex items-center gap-2 rounded-md",
+                      "flex items-center gap-1 rounded-md",
                       recordKind && "ring-1 ring-amber-400/70"
                     )}
                   >
-                    <span className="w-4 text-xs text-muted-foreground">{si + 1}</span>
+                    <span className="w-4 shrink-0 text-xs text-muted-foreground">{si + 1}</span>
+                    <button
+                      type="button"
+                      disabled={set.done}
+                      onClick={() => setWeightWithSync(ei, si, set.weight - hEx.increment)}
+                      className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
+                      aria-label="Zmniejsz ciężar"
+                    >
+                      <Minus size={14} />
+                    </button>
                     <Input
                       type="number"
                       inputMode="decimal"
                       step="0.25"
-                      className="h-9 w-20 text-center"
+                      className="h-9 w-16 px-1 text-center"
                       value={set.weight === 0 ? "" : set.weight}
                       placeholder="kg"
                       onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
                     />
-                    <span className="text-xs text-muted-foreground">kg ×</span>
+                    <button
+                      type="button"
+                      disabled={set.done}
+                      onClick={() => setWeightWithSync(ei, si, set.weight + hEx.increment)}
+                      className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
+                      aria-label="Zwiększ ciężar"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <span className="shrink-0 text-xs text-muted-foreground">×</span>
                     <Input
                       type="number"
                       inputMode="numeric"
-                      className="h-9 w-16 text-center"
+                      className="h-9 w-14 px-1 text-center"
                       value={set.reps === 0 ? "" : set.reps}
                       placeholder={unitLabel}
                       onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
                     />
-                    <span className="w-8 text-xs text-muted-foreground">{unitLabel}</span>
                     {recordKind && (
                       <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
                         PR
@@ -987,10 +1026,10 @@ export function TrainScreen() {
                       <button
                         type="button"
                         onClick={() => removeSet(ei, si)}
-                        className="flex h-9 w-7 items-center justify-center text-muted-foreground hover:text-destructive"
+                        className="flex h-9 w-7 shrink-0 items-center justify-center text-muted-foreground hover:text-destructive"
                         aria-label="Usuń serię"
                       >
-                        <Minus size={14} />
+                        <Trash2 size={14} />
                       </button>
                     )}
                   </div>
