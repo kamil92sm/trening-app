@@ -159,6 +159,113 @@ iść do Historii.
 **Akceptacja:** wiersz widoczny od drugiego treningu danego ćwiczenia.
 **Rozmiar:** S
 
+### [ ] P0-5. Tryb treningu: Siła / Hipertrofia (przełącznik na ekranie wyboru dnia)
+**Pomysł Kamila (26.07.2026), architektura: Fable.** Użytkownik chce w danym tygodniu
+świadomie wybrać cel: siła (jak dotychczas — plan trenera 1:1) albo hipertrofia
+(wzrost mięśni), a apka ma przeliczyć powtórzenia / ciężar / RIR. Wybór tygodniowy,
+przełączalny w dowolnym momencie.
+
+**Podstawa naukowa (stan wiedzy 2026) — z niej wynika KAŻDA decyzja specu, nie zmieniać
+mechaniki bez zajrzenia tutaj:**
+1. **Ciężar:** hipertrofia jest podobna w szerokim zakresie ciężarów (~30–85% 1RM),
+   o ile serie kończą się blisko upadku; siła wymaga specyficznie ciężkich ciężarów
+   (Schoenfeld et al. 2017 JSCR, meta; Currier et al. 2023 BJSM, sieciowa meta).
+   → Tryb siły zostaje na 5–8 z ciężkim ciężarem; tryb hipertrofii schodzi na 8–12
+   przy ~75–80% e1RM (najlepszy kompromis czas/efekt).
+2. **Bliskość upadku:** hipertrofia rośnie w sposób CIĄGŁY im bliżej upadku mięśniowego,
+   siła jest na to w dużej mierze niewrażliwa (Robinson, Pelland, Remmert et al. 2024,
+   Sports Medicine — meta-regresja 55 badań hipertrofii + 67 siły, RIR jako predyktor
+   ciągły). → Tryb hipertrofii obniża RIR 2→1; tryb siły zostaje na RIR 2.
+3. **Objętość:** liczba serii/tydzień napędza hipertrofię z malejącymi zwrotami; siła
+   wysyca się objętością szybciej, a częstotliwość pomaga głównie sile (Pelland et al.,
+   Sports Medicine 2026 — 67 badań, 2058 osób). → W v1 serie BEZ zmian (plan 3-dniowy
+   jest w sensownym oknie); dźwignią trybu są powtórzenia+RIR+ciężar. Opcjonalne v2:
+   +1 seria na izolacjach w trybie hipertrofii.
+4. **Przerwy:** dłuższe przerwy (≥2 min) są LEPSZE także dla hipertrofii na ruchach
+   złożonych — krótkie przerwy „na pompę" to mit (Schoenfeld et al. 2016 JSCR).
+   → `restSeconds` BEZ ZMIAN w obu trybach.
+5. **Przełączanie tygodniami** = periodyzacja falująca; meta-analizy nie pokazują
+   przewagi sztywnej periodyzacji liniowej nad falującą (Grgic et al. 2017).
+   → Wybór trybu per tydzień przez użytkownika jest w pełni uprawniony metodycznie.
+
+**Pliki:** `types.ts`, `logic.ts`, `store.tsx`, `TrainScreen.tsx`, `tests/logic.test.ts`.
+**NIE dotykać `seed.ts`** — plan trenera to źródło prawdy trybu siły; hipertrofia jest
+WIDOKIEM POCHODNYM liczonym w locie (żadnych zmian ID/zakresów w seedzie).
+
+**Spec:**
+1. Typy (`types.ts`): `export type TrainingMode = "strength" | "hypertrophy"`.
+   `Settings.trainingMode?: TrainingMode` (brak = "strength" — zero zmian dla obecnego
+   użytkownika). `Session.mode?: TrainingMode` (brak = "strength" — wszystkie stare
+   sesje są siłowe). `AppState.hyperTargets?: Record<string, number>` — cele trybu
+   hipertrofii, OSOBNE od `targets`, żeby tryby nie psuły sobie nawzajem podwójnej
+   progresji. Wszystkie pola opcjonalne i samonaprawiające → **BEZ bumpa
+   SCHEMA_VERSION** (Zasady pkt 2).
+2. `logic.ts` — czyste funkcje (każda z testem):
+   ```ts
+   export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise
+   // strength → ex bez zmian.
+   // hypertrophy:
+   //   isHold            → bez zmian (plank zostaje plankiem)
+   //   id === "deadlift" → { ...ex, repMin: 6, repMax: 8, rir: 2 }  // WYJĄTEK
+   //     bezpieczeństwa: nie schodzimy na 8-12 i RIR 1 na klasycznym MC,
+   //     nota "UWAGA NA PLECY" zostaje
+   //   repMax <= 8       → { ...ex, repMin: 8, repMax: 12, rir: 1 } // bench/squat/row/ohp
+   //   else              → { ...ex, rir: 1 }  // zakres już hipertroficzny, bliżej upadku
+   // targetSets / increment / restSeconds NIGDY nie zmieniane (nauka pkt 3 i 4).
+
+   export function weightForReps(e1: number, reps: number, rir: number): number
+   // Odwrócony Epley: e1 / (1 + (reps + rir) / 30) — ciężar, przy którym `reps`
+   // powtórzeń zostawia ~`rir` w zapasie.
+
+   export function hyperTargetFor(state: AppState, ex: Exercise): number
+   // 1) state.hyperTargets?.[ex.id] jeśli istnieje (wypracowana progresja hip.);
+   // 2) jeśli exerciseForMode NIE zmienia zakresu (bazowe repMax > 8) → targets[ex.id]
+   //    (ten sam zakres, różnica tylko w RIR — wspólny cel na start);
+   // 3) inaczej (konwersja z ciężkiego zakresu): e1 = e1rm ostatniego punktu
+   //    exerciseHistory(state, ex.id); fallback bez historii:
+   //    e1 = targets[ex.id] * (1 + (ex.repMin + ex.rir) / 30);
+   //    hEx = exerciseForMode(ex, "hypertrophy");
+   //    w = weightForReps(e1, hEx.repMin, hEx.rir)   // np. 8 powt. @ RIR 1 ≈ 77% e1RM
+   //    zaokrąglij do wielokrotności ex.increment: Math.round(w/inc)*inc (inc min 0,5).
+   // Sanity-check na danych Kamila: bench e1RM 54 → 42,5 kg (8-12 RIR1) vs 45 (5-8 RIR2);
+   // squat e1RM 82,3 → 62,5; deadlift e1RM 95,6 → 75 (6-8 RIR2). Liczby wychodzą sensownie.
+   ```
+3. `store.tsx`: `finishSession` — sessionData ma już `mode` (bo `Session.mode?`);
+   progresję licz na `exerciseForMode(ex, mode)`, a `nextWeight` zapisuj do `targets`
+   (strength) ALBO `hyperTargets` (hypertrophy). `resetAll` bez zmian.
+4. `TrainScreen.tsx`:
+   - Ekran wyboru dnia: segmented control „Cel tygodnia: Siła | Hipertrofia" nad listą
+     dni; persist `updateSettings({ trainingMode })`; default strength. Mikro-copy pod
+     spodem: „Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna
+     jak sztywne bloki."
+   - `startDay`: `hEx = exerciseForMode(ex, mode)`; cel = strength ? `targets[id]` :
+     `hyperTargetFor(state, ex)`; prefill reps = `hEx.repMax`; `Draft += mode`
+     (stary draft w localStorage bez pola = strength).
+   - Nagłówek loggera: badge trybu (Siła #38bdf8 / Hipertrofia #a855f7).
+   - Karta ćwiczenia: zakres/RIR renderuj z `hEx`, nie z `ex`.
+   - „Ostatnio": gdy mode sesji ostatniego wpisu ≠ bieżący tryb, dopisz „ (siła)" /
+     „ (hip.)" — rozszerz mapę lastByExercise o mode sesji.
+   - Sugestia profilu siłowni (FEAT-1) liczy się na trybowym celu — API bez zmian.
+   - `finish()`: mode idzie w sessionData; paragon: dopisek „· Hipertrofia" przy nazwie
+     dnia gdy tryb hip. (opcjonalne).
+5. Progres: BEZ zmian — e1RM normalizuje oba tryby do jednej linii (to zaleta metryki),
+   projekcja FEAT-2 działa. Opcjonalnie toast przy przełączeniu trybu: „Pamiętaj o
+   przełączniku Cel: Siła/Hipertrofia w Progresie" (NIE zmieniaj volumeGoal automatycznie).
+6. Testy (`tests/logic.test.ts`):
+   - exerciseForMode: bench 5-8 → 8-12 RIR1; deadlift → 6-8 RIR2 (wyjątek); lateral
+     12-15 → zakres bez zmian + RIR1; plank → identyczny; mode strength → identyczny.
+   - weightForReps: e1=130, reps=8, rir=1 → 100.
+   - hyperTargetFor: (a) z historii (100×8 → e1 126,7 → ~97,5 przy inc 2,5);
+     (b) fallback z targets bez historii; (c) hyperTargets ma pierwszeństwo;
+     (d) ćwiczenie 8-12 → cel == targets (bez konwersji).
+   - Sesja bez `mode` (stare dane) → progresja pisze do `targets`, nie hyperTargets.
+
+**Akceptacja:** przełącznik na ekranie wyboru dnia zmienia prescriptions w loggerze
+(np. bench: 45 kg × 5-8 RIR 2 → ~42,5 kg × 8-12 RIR 1); sesja hipertroficzna aktualizuje
+`hyperTargets`, `targets` nietknięte (i odwrotnie); stare dane zachowują się identycznie;
+`npm test` + `npm run build` OK.
+**Rozmiar:** L
+
 ---
 
 ## P1 — drugi rzut (analityka i wygoda)
