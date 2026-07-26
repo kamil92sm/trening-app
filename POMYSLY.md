@@ -1408,7 +1408,7 @@ wyboru dnia**.
 
 ---
 
-### [ ] P3-7. Kolorowe tagi partii przy ćwiczeniach w Treningu
+### [x] P3-7. Kolorowe tagi partii przy ćwiczeniach w Treningu (2026-07-26)
 
 **Czego chce Kamil:** przy każdym ćwiczeniu w loggerze widoczne, jakie partie
 pracują — kolorowe plakietki.

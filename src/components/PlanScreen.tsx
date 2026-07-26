@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store";
 import type { Category, Exercise, Unit } from "@/lib/types";
 import { fmtKg } from "@/lib/logic";
 import { SEED_DAYS } from "@/lib/seed";
+import { MuscleTags } from "@/components/Gym";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -161,17 +162,22 @@ export function PlanScreen() {
                 if (!ex) return null;
                 return (
                   <div key={exId} className="flex items-center gap-1.5 text-xs">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate rounded p-1 text-left hover:bg-accent"
-                      onClick={() => openEdit(ex)}
-                    >
-                      {ex.name}{" "}
-                      <span className="text-muted-foreground">
-                        {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
-                        {fmtKg(state.targets[exId] ?? 0)}
-                      </span>
-                    </button>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="w-full truncate rounded p-1 text-left hover:bg-accent"
+                        onClick={() => openEdit(ex)}
+                      >
+                        {ex.name}{" "}
+                        <span className="text-muted-foreground">
+                          {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
+                          {fmtKg(state.targets[exId] ?? 0)}
+                        </span>
+                      </button>
+                      <div className="px-1">
+                        <MuscleTags exercise={ex} />
+                      </div>
+                    </div>
                     <button type="button" onClick={() => moveExercise(day.id, idx, -1)} className="p-1 text-muted-foreground disabled:opacity-30" disabled={idx === 0} aria-label="W górę">
                       <ArrowUp size={13} />
                     </button>

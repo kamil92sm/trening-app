@@ -38,7 +38,7 @@ import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { RestTimer } from "@/components/Gym";
+import { RestTimer, MuscleTags } from "@/components/Gym";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
@@ -854,6 +854,7 @@ export function TrainScreen() {
                     </button>
                   )}
                 </div>
+                <MuscleTags exercise={ex} />
                 <CardDescription>
                   {entry.sets.length}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}

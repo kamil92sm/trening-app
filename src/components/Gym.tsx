@@ -1,8 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play, RotateCcw, TimerReset } from "lucide-react";
-import { platePlan, fmtKg } from "@/lib/logic";
+import { platePlan, fmtKg, MUSCLE_COLORS } from "@/lib/logic";
+import type { Exercise, Muscle } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+// ── Kolorowe tagi partii (P3-7) ─────────────────────────────────────────────
+
+export function MuscleTag({ muscle, kind }: { muscle: Muscle; kind: "primary" | "secondary" }) {
+  const color = MUSCLE_COLORS[muscle];
+  return (
+    <span
+      className={cn(
+        "rounded-full px-1.5 py-0.5 text-[9px] leading-none",
+        kind === "primary" ? "font-semibold" : "opacity-70"
+      )}
+      style={{ backgroundColor: `${color}${kind === "primary" ? "33" : "1a"}`, color }}
+    >
+      {muscle}
+      {kind === "secondary" && " ½"}
+    </span>
+  );
+}
+
+/** Tagi partii ćwiczenia (główna + wspomagające) — brak `primaryMuscle` = brak renderu. */
+export function MuscleTags({ exercise }: { exercise: Exercise }) {
+  if (!exercise.primaryMuscle) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      <MuscleTag muscle={exercise.primaryMuscle} kind="primary" />
+      {(exercise.secondaryMuscles ?? []).map((m) => (
+        <MuscleTag key={m} muscle={m} kind="secondary" />
+      ))}
+    </div>
+  );
+}
 
 // ── Wizualny kalkulator talerzy ────────────────────────────────────────────
 

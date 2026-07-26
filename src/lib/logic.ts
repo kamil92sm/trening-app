@@ -80,6 +80,22 @@ export function muscleRangesFor(
   return merged;
 }
 
+// P3-7: kolor per partia - jedno zrodlo prawdy uzywane w Treningu i Planie
+// (tagi partii przy cwiczeniu) oraz w trybie skupienia. Dobrane tak, zeby
+// sasiadujace partie sie nie zlewaly na ciemnym tle.
+export const MUSCLE_COLORS: Record<Muscle, string> = {
+  Klatka: "#ef4444",
+  Plecy: "#3b82f6",
+  Barki: "#f59e0b",
+  Nogi: "#22c55e",
+  Pośladki: "#ec4899",
+  "Tył uda": "#14b8a6",
+  Łydki: "#84cc16",
+  Biceps: "#a855f7",
+  Triceps: "#f97316",
+  Brzuch: "#eab308",
+};
+
 export type VolumeStatus = "low" | "ok" | "high" | "veryhigh";
 
 export const STATUS_COLORS: Record<VolumeStatus, string> = {
