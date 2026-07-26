@@ -166,6 +166,7 @@ export function TrainScreen() {
     () => state.exercises.filter((ex) => !ex.archived && detectPlateau(state, ex.id)).length,
     [state]
   );
+  const weeksSinceDeloadCount = useMemo(() => weeksSinceDeload(state), [state]);
 
   useEffect(() => {
     try {
@@ -616,12 +617,12 @@ export function TrainScreen() {
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
         </div>
-        {mode !== "deload" && (weeksSinceDeload(state) >= 6 || plateauCount >= 3) && (
+        {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
-            {weeksSinceDeload(state) >= 6 && plateauCount >= 3
-              ? `${weeksSinceDeload(state)} tygodni bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
-              : weeksSinceDeload(state) >= 6
-                ? `${weeksSinceDeload(state)} tygodni bez lżejszego tygodnia — rozważ tydzień deloadu.`
+            {weeksSinceDeloadCount >= 6 && plateauCount >= 3
+              ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
+              : weeksSinceDeloadCount >= 6
+                ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia — rozważ tydzień deloadu.`
                 : `Zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`}
           </div>
         )}
@@ -956,7 +957,7 @@ export function TrainScreen() {
                     >
                       <Check size={16} />
                     </button>
-                    {si >= ex.targetSets && (
+                    {si >= setsForMode(ex, draft.mode) && (
                       <button
                         type="button"
                         onClick={() => removeSet(ei, si)}

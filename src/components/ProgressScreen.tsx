@@ -68,6 +68,11 @@ export function ProgressScreen() {
   // zostawiona człowiekowi do oceny, apka tylko pokazuje surowe dane obok siebie.
   const squashMarkers = useMemo(() => state.squash.map((s) => new Date(s.date).getTime()), [state.squash]);
   const projectionData = projection.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
+  // Zakres X wykresu (bez punktów projekcji) — do sprawdzenia, czy warto pokazac
+  // podpis "fioletowa kreska = squash" (pusty gdy brak historii cwiczenia).
+  const chartXs = chartData.map((d) => d.x);
+  const hasVisibleSquashMarker =
+    chartXs.length > 0 && squashMarkers.some((m) => m >= Math.min(...chartXs) && m <= Math.max(...chartXs));
 
   const weeklyTonnage = useMemo(() => {
     const byWeek = new Map<string, number>();
@@ -332,7 +337,7 @@ export function ProgressScreen() {
               — nie prognoza, ekstrapolacja trendu.
             </p>
           )}
-          {squashMarkers.some((m) => m >= Math.min(...chartData.map((d) => d.x)) && m <= Math.max(...chartData.map((d) => d.x))) && (
+          {hasVisibleSquashMarker && (
             <p className="text-[10px] text-muted-foreground">
               <span className="mr-1 inline-block h-2 w-0.5 bg-purple-400 align-middle" /> Fioletowa
               kreska: dzień squasha. Wniosek o wpływie na siłę zostaw sobie — apka tylko pokazuje daty obok siebie.
