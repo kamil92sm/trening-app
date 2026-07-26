@@ -1253,7 +1253,7 @@ polega na tym, żeby widok sam się tłumaczył i różnicę było widać na pie
 
 ---
 
-### [ ] P3-4. Pola z datą mają inny rozmiar niż sąsiednie inputy (sekcja „Więcej")
+### [x] P3-4. Pola z datą mają inny rozmiar niż sąsiednie inputy (sekcja „Więcej") (2026-07-26)
 
 **Objaw:** w kartach „Waga ciała" i „Squash" kafelek z datą jest wyższy/szerszy niż
 sąsiednie pola i wygląda inaczej w każdej z tych dwóch kart.

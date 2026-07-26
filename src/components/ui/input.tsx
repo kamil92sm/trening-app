@@ -17,6 +17,16 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 );
 Input.displayName = "Input";
 
+// P3-4: input[type=date] renderowany przez Safari iOS ma wlasny rozmiar shadow
+// DOM-u (patrz index.css) - jeden komponent z ustalona szerokoscia/wysokoscia,
+// zeby nie rozjezdzalo sie miedzy kartami (Waga ciala ma inne sasiedztwo niz Squash).
+export const DateInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, ...props }, ref) => (
+    <Input ref={ref} type="date" className={cn("h-10 w-[9.5rem] shrink-0 appearance-none", className)} {...props} />
+  )
+);
+DateInput.displayName = "DateInput";
+
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
   ({ className, ...props }, ref) => (
     <select

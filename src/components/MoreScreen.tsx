@@ -6,7 +6,7 @@ import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
 import { gistBackup, gistRestore } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { DateInput, Input, Label, Select } from "@/components/ui/input";
 import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { PlateBar } from "@/components/Gym";
@@ -198,18 +198,20 @@ export function MoreScreen() {
           <CardDescription>Obwód pasa (opcjonalnie) — sygnał rekompozycji obok samej wagi</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Input
               type="number" inputMode="decimal" step="0.1" placeholder="kg"
+              className="min-w-0"
               value={bodyWeight}
               onChange={(e) => setBodyWeight(e.target.value)}
             />
             <Input
               type="number" inputMode="decimal" step="0.5" placeholder="pas cm"
+              className="min-w-0"
               value={bodyWaist}
               onChange={(e) => setBodyWaist(e.target.value)}
             />
-            <Input type="date" value={bodyDate} onChange={(e) => setBodyDate(e.target.value)} />
+            <DateInput value={bodyDate} onChange={(e) => setBodyDate(e.target.value)} />
             <Button
               onClick={() => {
                 const w = parseFloat(bodyWeight);
@@ -288,7 +290,7 @@ export function MoreScreen() {
                 </option>
               ))}
             </Select>
-            <Input type="date" value={sqDate} onChange={(e) => setSqDate(e.target.value)} />
+            <DateInput value={sqDate} onChange={(e) => setSqDate(e.target.value)} />
             <Button
               onClick={() => {
                 const m = parseInt(sqMinutes);
