@@ -51,7 +51,7 @@ interface Draft {
   entries: ExerciseLog[];
   mode: TrainingMode;
   /** Check-in gotowości (P2-4) — opcjonalny, wpisany PRZED startem dnia na ekranie wyboru. */
-  readiness?: { sleep: number; doms: number };
+  readiness?: { sleep?: number; doms?: number };
 }
 
 function loadDraft(): Draft | null {
@@ -112,6 +112,12 @@ function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
   return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
 }
 
+// P3-1: pusty obiekt (obie skale nietkniete) -> undefined, nie zapisujemy smiecia do sesji.
+function cleanReadiness(r: { sleep?: number; doms?: number } | null | undefined) {
+  if (!r || (r.sleep === undefined && r.doms === undefined)) return undefined;
+  return r;
+}
+
 export function TrainScreen() {
   const store = useStore();
   const { state } = store;
@@ -127,7 +133,9 @@ export function TrainScreen() {
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
   // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
   // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
-  const [readiness, setReadiness] = useState<{ sleep: number; doms: number } | null>(null);
+  const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
+  // P3-1: panel gotowosci domyslnie zwiniety - rozwijany recznie.
+  const [readinessOpen, setReadinessOpen] = useState(false);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -268,13 +276,19 @@ export function TrainScreen() {
     });
   }
 
-  // P2-4: pierwsze dotknięcie ustawia OBA pola (nietknięte = neutralne 3), żeby
-  // nie zapisywać połowicznego stanu. Niska gotowość -> jednorazowa sugestia.
-  // Efekt (toast) policzony PRZED setState, nie w jego updaterze — StrictMode
-  // (dev) wywołuje updatery dwa razy, co podwoiłoby toast (patrz finishSession).
+  // P3-1: kazde pole niezalezne - klikniecie Snu NIE dotyka Zakwasow (byl bug:
+  // dosypywalo domyslna trojke do drugiej skali). Toast tylko przy PRZEJSCIU
+  // w stan niskiej gotowosci (nie przy kazdym kliknieciu, gdy juz tam bylismy).
+  // Policzony PRZED setState — StrictMode (dev) wywoluje updatery dwa razy,
+  // co podwoiloby toast (patrz finishSession).
   function updateReadiness(patch: Partial<{ sleep: number; doms: number }>) {
-    const next = { sleep: readiness?.sleep ?? 3, doms: readiness?.doms ?? 3, ...patch };
-    if (next.sleep <= 2 || next.sleep + next.doms <= 4) {
+    const prev = readiness ?? {};
+    const next = { ...prev, ...patch };
+    const wasLow = (prev.sleep !== undefined && prev.sleep <= 2) ||
+      (prev.sleep !== undefined && prev.doms !== undefined && prev.sleep + prev.doms <= 4);
+    const isLow = (next.sleep !== undefined && next.sleep <= 2) ||
+      (next.sleep !== undefined && next.doms !== undefined && next.sleep + next.doms <= 4);
+    if (isLow && !wasLow) {
       toast("Słaba regeneracja", "Rozważ -1 serię w przysiadzie/MC, izolacje bez zmian.");
     }
     setReadiness(next);
@@ -305,7 +319,7 @@ export function TrainScreen() {
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: readiness ?? undefined });
+    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
     setReadiness(null);
   }
 
@@ -627,58 +641,69 @@ export function TrainScreen() {
           </div>
         )}
         <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-xs font-medium">Jak się dziś czujesz? (opcjonalnie)</p>
-          <div className="mt-2 space-y-2">
-            <div>
-              <p className="text-[10px] text-muted-foreground">Sen — 1 słabo, 5 świetnie</p>
-              <div className="mt-1 flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => updateReadiness({ sleep: n })}
-                    className={cn(
-                      "h-7 w-7 rounded-md border text-xs transition-colors",
-                      readiness?.sleep === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
+          <button
+            type="button"
+            onClick={() => setReadinessOpen((v) => !v)}
+            className="flex w-full items-center gap-1 text-left text-xs font-medium"
+          >
+            {readinessOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {readiness?.sleep === undefined && readiness?.doms === undefined
+              ? "Jak się dziś czujesz? (opcjonalnie)"
+              : `Gotowość: sen ${readiness?.sleep ?? "—"} · zakwasy ${readiness?.doms ?? "—"}`}
+          </button>
+          {readinessOpen && (
+            <div className="mt-2 space-y-2">
+              <div>
+                <p className="text-[10px] text-muted-foreground">Sen — 1 słabo, 5 świetnie</p>
+                <div className="mt-1 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => updateReadiness({ sleep: n })}
+                      className={cn(
+                        "h-7 w-7 rounded-md border text-xs transition-colors",
+                        readiness?.sleep === n
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground">Zakwasy — 1 mocne, 5 brak</p>
-              <div className="mt-1 flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => updateReadiness({ doms: n })}
-                    className={cn(
-                      "h-7 w-7 rounded-md border text-xs transition-colors",
-                      readiness?.doms === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
+              <div>
+                <p className="text-[10px] text-muted-foreground">Zakwasy — 1 mocne, 5 brak</p>
+                <div className="mt-1 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => updateReadiness({ doms: n })}
+                      className={cn(
+                        "h-7 w-7 rounded-md border text-xs transition-colors",
+                        readiness?.doms === n
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
+              {readiness && (
+                <button
+                  type="button"
+                  onClick={() => setReadiness(null)}
+                  className="text-[10px] text-muted-foreground underline underline-offset-2"
+                >
+                  Wyczyść
+                </button>
+              )}
             </div>
-            {readiness && (
-              <button
-                type="button"
-                onClick={() => setReadiness(null)}
-                className="text-[10px] text-muted-foreground underline underline-offset-2"
-              >
-                Wyczyść
-              </button>
-            )}
-          </div>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">Wybierz dzień treningowy:</p>
         {activeDays.map((day) => (

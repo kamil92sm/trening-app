@@ -1075,7 +1075,7 @@ zacommitowane), a tryb skupienia (P3-6) na końcu, bo renderuje wszystko powyże
 
 ---
 
-### [ ] P3-1. BUG: zaznaczenie Snu podświetla Zakwasy „3" + panel gotowości ma być domyślnie zwinięty
+### [x] P3-1. BUG: zaznaczenie Snu podświetla Zakwasy „3" + panel gotowości ma być domyślnie zwinięty (2026-07-26)
 
 **Objaw (screen Kamila):** klika „Sen 4", a apka od razu zaznacza „Zakwasy 3",
 których nie wybierał. Do sesji zapisuje się zmyślona wartość.
