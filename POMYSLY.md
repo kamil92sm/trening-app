@@ -516,7 +516,7 @@ licznik sesji od `lastBackup` (lub od zera, gdy backupu jeszcze nie było) ≥ 6
 Zweryfikowane w przeglądarce: toast pojawia się przy 6. sesji, „Przejdź do Więcej"
 przełącza zakładkę. `npm test` + `npm run build` OK.
 
-### [ ] P1-8. Rekord (PR) na żywo — w loggerze i w podsumowaniu
+### [x] P1-8. Rekord (PR) na żywo — w loggerze i w podsumowaniu (2026-07-26)
 **Skąd:** rekordy są dziś liczone TYLKO w Progresie (`ProgressScreen.tsx:63`, karta „Rekordy") —
 w trakcie treningu apka nie mówi ani słowa, gdy właśnie pobiłeś życiówkę. Najtańsza możliwa
 dawka motywacji: dane już są, brakuje sygnału w momencie, w którym ma znaczenie.
@@ -547,6 +547,12 @@ dawka motywacji: dane już są, brakuje sygnału w momencie, w którym ma znacze
 **Akceptacja:** pobicie ciężaru/e1RM w trakcie treningu widać natychmiast przy serii i w
 podsumowaniu; brak fałszywych PR na pierwszym treningu ćwiczenia; `npm test` + `npm run build` OK.
 **Rozmiar:** M
+**Wdrożone:** `personalBests`/`isSetRecord` w `logic.ts` (9 testów). `TrainScreen.tsx`:
+`personalBestsByExercise` (useMemo po `state.sessions`/`state.exercises`) → złoty pierścień +
+plakietka „PR" przy serii i jednorazowy toast przy zaznaczeniu; podsumowanie liczy rekordy
+PRZED `finishSession` (na rekordach sprzed tej sesji), karta „🏆 Rekordy tej sesji" pokazuje
+jeden, najlepszy wynik na ćwiczenie. Zweryfikowane w przeglądarce (Playwright): 50 kg × 5 na
+tle historii 40 kg × 8 poprawnie oznaczone jako PR na żywo i w podsumowaniu.
 
 ### [ ] P1-9. Serie rozgrzewkowe — ramp-up z gotowym układem talerzy
 **Po co:** przy 65–80 kg w przysiadzie/MC rozgrzewka to 3–4 serie, których nikt nie liczy w
