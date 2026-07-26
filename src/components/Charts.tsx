@@ -15,6 +15,7 @@ export function LineChart({
   data,
   data2,
   projection,
+  markers,
   height = 170,
   color = "#38bdf8",
   color2 = "#f59e0b",
@@ -26,6 +27,8 @@ export function LineChart({
   data2?: Point[];
   /** Opcjonalna przerywana projekcja/trend — od ostatniego punktu `data` dalej, ten sam kolor, styl przerywany */
   projection?: Point[];
+  /** Pionowe znaczniki (timestampy) — np. dni squasha (P2-2). Poza domeną X są pomijane. */
+  markers?: number[];
   height?: number;
   color?: string;
   color2?: string;
@@ -96,6 +99,20 @@ export function LineChart({
           </text>
         </>
       )}
+      {markers
+        ?.filter((x) => x >= minX && x <= maxX)
+        .map((x, i) => (
+          <line
+            key={`marker-${i}`}
+            x1={px(x)}
+            x2={px(x)}
+            y1={pad.t}
+            y2={height - pad.b}
+            stroke="#a855f7"
+            strokeOpacity={0.4}
+            strokeDasharray="2 2"
+          />
+        ))}
       <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       {data.map((d, i) => (
         <circle key={i} cx={px(d.x)} cy={py(d.y)} r={3} fill={color} />

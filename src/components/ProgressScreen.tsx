@@ -62,6 +62,9 @@ export function ProgressScreen() {
   const history = selected ? exerciseHistory(state, selected.id) : [];
   const chartData = history.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
   const projection = useMemo(() => projectHistory(history, 3), [history]);
+  // P2-2: dni squasha jako pionowe znaczniki na wykresie postępu — korelacja
+  // zostawiona człowiekowi do oceny, apka tylko pokazuje surowe dane obok siebie.
+  const squashMarkers = useMemo(() => state.squash.map((s) => new Date(s.date).getTime()), [state.squash]);
   const projectionData = projection.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
 
   const weeklyTonnage = useMemo(() => {
@@ -310,6 +313,7 @@ export function ProgressScreen() {
           <LineChart
             data={chartData}
             projection={projectionData}
+            markers={squashMarkers}
             formatY={(y) => `${Math.round(y)}`}
             formatX={(x) => fmtDateShort(new Date(x).toISOString())}
           />
@@ -317,6 +321,12 @@ export function ProgressScreen() {
             <p className="text-[10px] text-muted-foreground">
               Przerywana linia: szacunek na kolejne treningi przy utrzymaniu dotychczasowego tempa
               — nie prognoza, ekstrapolacja trendu.
+            </p>
+          )}
+          {squashMarkers.some((m) => m >= Math.min(...chartData.map((d) => d.x)) && m <= Math.max(...chartData.map((d) => d.x))) && (
+            <p className="text-[10px] text-muted-foreground">
+              <span className="mr-1 inline-block h-2 w-0.5 bg-purple-400 align-middle" /> Fioletowa
+              kreska: dzień squasha. Wniosek o wpływie na siłę zostaw sobie — apka tylko pokazuje daty obok siebie.
             </p>
           )}
           {selected && history.length > 0 && (
