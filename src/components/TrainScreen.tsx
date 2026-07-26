@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
+  ChevronDown,
   Minus,
   Plus,
   TrendingUp,
@@ -24,6 +25,8 @@ import {
   personalBests,
   isSetRecord,
   e1rm,
+  warmupPlan,
+  platePlan,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -100,6 +103,7 @@ export function TrainScreen() {
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
+  const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -217,6 +221,19 @@ export function TrainScreen() {
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
+  // P1-9: rozgrzewka liczy sie wzgledem AKTYWNEGO sprzetu (profil siłowni, jesli
+  // ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego z ustawien.
+  const warmupBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
+  const warmupPlates = activeGymProfile?.plates ?? state.settings.plates;
+
+  function toggleWarmup(entryIdx: number) {
+    setOpenWarmups((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryIdx)) next.delete(entryIdx);
+      else next.add(entryIdx);
+      return next;
+    });
+  }
 
   // `overrideExerciseIds` — propozycja bonusu (P2-7): podmienia skład TYLKO
   // w tym drafcie, plan (state.days) zostaje nietknięty.
@@ -588,6 +605,7 @@ export function TrainScreen() {
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
+          const warmupSteps = warmupPlan(ex, entry.targetWeight, warmupBar, warmupPlates);
           const swapCandidates = ex.primaryMuscle
             ? state.exercises.filter(
                 (e) =>
@@ -660,6 +678,36 @@ export function TrainScreen() {
                   </p>
                 )}
                 {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
+                {warmupSteps.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => toggleWarmup(ei)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      {openWarmups.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      Rozgrzewka ({warmupSteps.length})
+                    </button>
+                    {openWarmups.has(ei) && (
+                      <div className="mt-1 space-y-1 rounded-md border border-border p-2">
+                        {warmupSteps.map((s, si) => {
+                          const plan = platePlan(s.weight, warmupBar, warmupPlates);
+                          return (
+                            <div key={si} className="flex items-center justify-between text-[11px]">
+                              <span className="tabular-nums">
+                                {fmtKg(s.weight)} × {s.reps}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="space-y-1.5">
                 {entry.sets.map((set, si) => {

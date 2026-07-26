@@ -653,6 +653,40 @@ export function suggestedWeightForProfile(
   return Math.abs(suggested - target) > 1e-9 ? suggested : null;
 }
 
+export interface WarmupStep {
+  weight: number;
+  reps: number;
+}
+
+/**
+ * Rampa rozgrzewkowa do ciężaru roboczego — tylko dla sztangi (dla hantli/maszyn
+ * ramp jest trywialny i zaśmiecałby UI, świadome ograniczenie v1). Kroki: pusty
+ * gryf ×8 (pomijany, gdy gryf ≥ połowa ciężaru roboczego — wtedy jest za blisko
+ * celu, żeby miał sens), potem 50%/70%/85% ×5/3/2, każdy dobrany do najbliższego
+ * OSIĄGALNEGO ciężaru z podanych talerzy. Nigdy nie osiąga ani nie przekracza
+ * ciężaru roboczego; kroki, które przy lekkich ciężarach wypadłyby takie same
+ * (albo cofnęłyby się przez zaokrąglenie), są odrzucane — wynik jest zawsze
+ * ściśle rosnący.
+ */
+export function warmupPlan(ex: Exercise, workWeight: number, bar: number, plates: number[]): WarmupStep[] {
+  if (ex.unit !== "barbell" || ex.isHold || workWeight <= bar) return [];
+
+  const candidates: WarmupStep[] = [];
+  if (bar < 0.5 * workWeight) candidates.push({ weight: bar, reps: 8 });
+  for (const [pct, reps] of [[0.5, 5], [0.7, 3], [0.85, 2]] as const) {
+    candidates.push({ weight: nearestAchievable(pct * workWeight, bar, plates), reps });
+  }
+
+  const steps: WarmupStep[] = [];
+  for (const c of candidates) {
+    if (c.weight >= workWeight) continue;
+    const prev = steps[steps.length - 1];
+    if (prev && c.weight <= prev.weight) continue;
+    steps.push(c);
+  }
+  return steps;
+}
+
 // ── Formatery ──────────────────────────────────────────────────────────────
 
 export function fmtKg(x: number): string {

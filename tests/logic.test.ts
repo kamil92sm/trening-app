@@ -16,6 +16,7 @@ import {
   nearestAchievable,
   snapToStep,
   suggestedWeightForProfile,
+  warmupPlan,
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
@@ -466,6 +467,30 @@ check(
   "suggestedWeightForProfile: cel juz osiagalny -> null (brak sugestii)",
   suggestedWeightForProfile(bench, 40, altGym) === null,
   suggestedWeightForProfile(bench, 40, altGym)
+);
+
+// P1-9: serie rozgrzewkowe (ramp-up)
+const homePlates = [25, 20, 15, 10, 5, 2.5, 1.25];
+const warmup100 = warmupPlan(bench, 100, 20, homePlates);
+check(
+  "warmupPlan: monotonicznie rosnacy",
+  warmup100.every((s, i) => i === 0 || s.weight > warmup100[i - 1].weight),
+  warmup100
+);
+check("warmupPlan: ostatni krok < ciezar roboczy", warmup100[warmup100.length - 1].weight < 100, warmup100);
+check(
+  "warmupPlan: wszystkie ciezary osiagalne z talerzy (gryf 20)",
+  warmup100.every((s) => achievableWeights(20, homePlates).includes(s.weight)),
+  warmup100
+);
+check("warmupPlan: sam gryf (workWeight <= bar) -> []", warmupPlan(bench, 20, 20, homePlates).length === 0);
+check("warmupPlan: cwiczenie nie-sztangowe -> []", warmupPlan(lateral, 20, 20, homePlates).length === 0);
+check("warmupPlan: isHold -> []", warmupPlan(plank, 40, 20, homePlates).length === 0);
+const warmup30 = warmupPlan(bench, 30, 20, homePlates);
+check(
+  "warmupPlan: lekki ciezar (30 kg) - brak duplikatow wag",
+  new Set(warmup30.map((s) => s.weight)).size === warmup30.length,
+  warmup30
 );
 
 // INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni
