@@ -8,6 +8,10 @@ import {
   weeklyMuscleVolume,
   lastEntry,
   detectPlateau,
+  achievableWeights,
+  nearestAchievable,
+  snapToStep,
+  suggestedWeightForProfile,
 } from "../src/lib/logic";
 import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
@@ -281,6 +285,24 @@ check(
   w4fri?.entries.find((e) => e.exerciseId === "ohp")
 );
 
+// BUG-1: cele dogonione do progresji z historii (bez wyjatku dla martwego ciagu)
+check(
+  "BUG-1: cel row_bb dogoniony do 62,5 (60x8x8x8 trafilo gorny zakres)",
+  migV5.targets["row_bb"] === 62.5,
+  migV5.targets["row_bb"]
+);
+check(
+  "BUG-1: cel deadlift dogoniony do 80 (77,5x7x7 bez wyjatku dla martwego)",
+  migV5.targets["deadlift"] === 80,
+  migV5.targets["deadlift"]
+);
+check(
+  "BUG-1: cel bench_db NIE obnizony (zostaje 17,5 mimo ze czysta progresja dalaby 17)",
+  migV5.targets["bench_db"] === 17.5,
+  migV5.targets["bench_db"]
+);
+check("BUG-1: flaga historyTargetsSeeded ustawiona po dogonieniu", migV5.historyTargetsSeeded === true);
+
 // Dedup: wlasny wpis uzytkownika z tego samego dnia blokuje wstrzykniecie duplikatu
 const oldV4dup = {
   ...oldV4,
@@ -310,6 +332,37 @@ check(
   "historia startowa: z flaga usunieta sesja NIE wraca",
   migAfterDelete.sessions.length === 8 && !migAfterDelete.sessions.some((s) => s.id === "hist-w2-mon"),
   migAfterDelete.sessions.length
+);
+
+// FEAT-1: profile silowni (inny sprzet na wyjezdzie)
+check(
+  "achievableWeights: gryf 20 + talerze [25,10] -> [20,40,70,90]",
+  JSON.stringify(achievableWeights(20, [25, 10])) === JSON.stringify([20, 40, 70, 90]),
+  achievableWeights(20, [25, 10])
+);
+check("nearestAchievable: 65 -> 70 (blizej niz 40)", nearestAchievable(65, 20, [25, 10]) === 70);
+check("snapToStep: 17,5 krok 2 -> 18", snapToStep(17.5, 2) === 18);
+check("snapToStep: krok 0 -> bez zmian", snapToStep(17.5, 0) === 17.5);
+
+const altGym = { id: "alt", name: "Inna silownia", barWeight: 20, plates: [20, 15, 10, 5], weightStep: 2 };
+check(
+  "suggestedWeightForProfile: sztanga -> najblizszy osiagalny z talerzy profilu (47,5 -> 50)",
+  suggestedWeightForProfile(bench, 47.5, altGym) === 50,
+  suggestedWeightForProfile(bench, 47.5, altGym)
+);
+check(
+  "suggestedWeightForProfile: hantle -> krok profilu (9 kg krok 2 -> 10)",
+  suggestedWeightForProfile(lateral, 9, altGym) === 10,
+  suggestedWeightForProfile(lateral, 9, altGym)
+);
+check(
+  "suggestedWeightForProfile: brak aktywnego profilu -> null",
+  suggestedWeightForProfile(bench, 45, null) === null
+);
+check(
+  "suggestedWeightForProfile: cel juz osiagalny -> null (brak sugestii)",
+  suggestedWeightForProfile(bench, 40, altGym) === null,
+  suggestedWeightForProfile(bench, 40, altGym)
 );
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

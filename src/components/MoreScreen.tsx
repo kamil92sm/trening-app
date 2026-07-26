@@ -1,15 +1,34 @@
 import { useRef, useState } from "react";
-import { Download, Trash2, Upload, Cloud, CloudDownload } from "lucide-react";
+import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
+import type { GymProfile } from "@/lib/types";
 import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
 import { gistBackup, gistRestore } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { PlateBar } from "@/components/Gym";
 import { LineChart } from "@/components/Charts";
+import { uid } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+
+interface ProfileFormState {
+  editingId: string | null;
+  name: string;
+  barWeight: number;
+  platesRaw: string;
+  weightStep: number;
+}
+
+const emptyProfileForm: ProfileFormState = {
+  editingId: null,
+  name: "",
+  barWeight: 20,
+  platesRaw: "25, 20, 15, 10, 5, 2.5, 1.25",
+  weightStep: 0,
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -29,6 +48,34 @@ export function MoreScreen() {
 
   // Talerze
   const [plateTarget, setPlateTarget] = useState(String(state.targets["squat"] ?? 60));
+
+  // Siłownie (profile innego sprzętu)
+  const [profileForm, setProfileForm] = useState<ProfileFormState | null>(null);
+  const gymProfiles = state.settings.gymProfiles ?? [];
+  const activeProfile = gymProfiles.find((p) => p.id === state.settings.activeGymProfileId) ?? null;
+
+  function saveProfile() {
+    if (!profileForm) return;
+    const plates = profileForm.platesRaw
+      .split(",")
+      .map((x) => parseFloat(x.trim().replace(",", ".")))
+      .filter((x) => x > 0);
+    if (!profileForm.name.trim() || plates.length === 0) {
+      toast("Uzupełnij nazwę i talerze");
+      return;
+    }
+    const profile: GymProfile = {
+      id: profileForm.editingId ?? uid(),
+      name: profileForm.name.trim(),
+      barWeight: profileForm.barWeight,
+      plates,
+      weightStep: profileForm.weightStep > 0 ? profileForm.weightStep : undefined,
+    };
+    if (profileForm.editingId) store.updateGymProfile(profile);
+    else store.addGymProfile(profile);
+    toast("Zapisano siłownię", profile.name);
+    setProfileForm(null);
+  }
 
   // Chmura (auto-backup)
   const [cloudBusy, setCloudBusy] = useState<"backup" | "restore" | null>(null);
@@ -245,11 +292,136 @@ export function MoreScreen() {
         </CardContent>
       </Card>
 
+      {/* Siłownie (profile innego sprzętu — wyjazd, inny klub) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Siłownie</CardTitle>
+          <CardDescription>
+            Inny gryf, talerze lub skok hantli na innej siłowni? Dodaj profil i przełącz aktywny —
+            cele w Treningu dostaną sugestię dopasowaną do dostępnego sprzętu.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div>
+            <Label>Aktywna siłownia</Label>
+            <Select
+              value={activeProfile?.id ?? ""}
+              onChange={(e) => store.setActiveGymProfile(e.target.value || null)}
+            >
+              <option value="">Domowa (gryf {fmtKg(state.settings.barWeight)})</option>
+              {gymProfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {gymProfiles.map((p) => (
+            <div key={p.id} className="flex items-center justify-between rounded-md border border-border p-2 text-xs">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{p.name}</p>
+                <p className="truncate text-muted-foreground">
+                  Gryf {fmtKg(p.barWeight)} · talerze {p.plates.join("/")}
+                  {p.weightStep ? ` · krok ${fmtKg(p.weightStep)}` : ""}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  className="p-1.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Edytuj siłownię"
+                  onClick={() =>
+                    setProfileForm({
+                      editingId: p.id,
+                      name: p.name,
+                      barWeight: p.barWeight,
+                      platesRaw: p.plates.join(", "),
+                      weightStep: p.weightStep ?? 0,
+                    })
+                  }
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="p-1.5 text-muted-foreground hover:text-destructive"
+                  aria-label="Usuń siłownię"
+                  onClick={() => {
+                    if (confirm(`Usunąć siłownię „${p.name}"?`)) store.deleteGymProfile(p.id);
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+          {profileForm ? (
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <div>
+                <Label>Nazwa</Label>
+                <Input
+                  placeholder="np. Siłownia u rodziców"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Gryf (kg)</Label>
+                  <NumberField
+                    decimal
+                    value={profileForm.barWeight}
+                    fallback={20}
+                    onChange={(n) => setProfileForm({ ...profileForm, barWeight: n })}
+                  />
+                </div>
+                <div>
+                  <Label>Krok hantli/maszyn (kg, opc.)</Label>
+                  <NumberField
+                    decimal
+                    value={profileForm.weightStep}
+                    fallback={0}
+                    onChange={(n) => setProfileForm({ ...profileForm, weightStep: n })}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Talerze (kg, po przecinku)</Label>
+                <Input
+                  value={profileForm.platesRaw}
+                  onChange={(e) => setProfileForm({ ...profileForm, platesRaw: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button className="flex-1" size="sm" onClick={saveProfile}>
+                  Zapisz
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setProfileForm(null)}>
+                  Anuluj
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setProfileForm(emptyProfileForm)}
+            >
+              <Plus size={14} /> Dodaj siłownię
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Kalkulator talerzy */}
       <Card>
         <CardHeader>
           <CardTitle>Kalkulator talerzy</CardTitle>
-          <CardDescription>Gryf {fmtKg(state.settings.barWeight)}</CardDescription>
+          <CardDescription>
+            Gryf {fmtKg(activeProfile?.barWeight ?? state.settings.barWeight)}
+            {activeProfile && ` · ${activeProfile.name}`}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <Input
@@ -259,8 +431,8 @@ export function MoreScreen() {
           />
           <PlateBar
             target={parseFloat(plateTarget) || 0}
-            barWeight={state.settings.barWeight}
-            plates={state.settings.plates}
+            barWeight={activeProfile?.barWeight ?? state.settings.barWeight}
+            plates={activeProfile?.plates ?? state.settings.plates}
           />
         </CardContent>
       </Card>

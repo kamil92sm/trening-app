@@ -2,6 +2,7 @@ import type {
   AppState,
   Exercise,
   ExerciseLog,
+  GymProfile,
   Muscle,
   Session,
   SetLog,
@@ -299,6 +300,58 @@ export function platePlan(target: number, bar: number, plates: number[]): PlateP
     }
   }
   return { ok: Math.abs(rest) < 1e-9, perSide: out, leftover: Math.round(rest * 2 * 1000) / 1000 };
+}
+
+// ── Profile siłowni (inny sprzęt na wyjeździe) ─────────────────────────────
+
+/** Wszystkie osiągalne ciężary całkowite dla danego gryfu i zestawu talerzy. */
+export function achievableWeights(bar: number, plates: number[]): number[] {
+  const perSideSums = new Set<number>([0]);
+  for (const p of plates) {
+    for (const s of Array.from(perSideSums)) {
+      perSideSums.add(Math.round((s + p) * 1000) / 1000);
+    }
+  }
+  return Array.from(perSideSums)
+    .map((s) => Math.round((bar + 2 * s) * 1000) / 1000)
+    .sort((a, b) => a - b);
+}
+
+/** Najbliższy osiągalny (talerzami) ciężar do celu. */
+export function nearestAchievable(target: number, bar: number, plates: number[]): number {
+  const list = achievableWeights(bar, plates);
+  if (list.length === 0) return target;
+  return list.reduce((best, w) => (Math.abs(w - target) < Math.abs(best - target) ? w : best));
+}
+
+/** Zaokrąglenie do najbliższej wielokrotności kroku (sprzęt bez talerzy — hantle/maszyny). */
+export function snapToStep(target: number, step: number): number {
+  if (step <= 0) return target;
+  return Math.round(target / step) * step;
+}
+
+/**
+ * Sugerowany ciężar na dziś dla ćwiczenia w AKTYWNYM profilu siłowni (inny
+ * sprzęt niż domowy) — null gdy brak aktywnego profilu albo sugestia == cel.
+ * Sztanga: dokładny dobór z talerzy profilu. Reszta sprzętu: krok profilu
+ * (jeśli podany) — to przybliżenie, bo maszyny/wyciągi w różnych klubach mają
+ * różne skoki stosu, których apka nie modeluje per-siłownia.
+ */
+export function suggestedWeightForProfile(
+  ex: Exercise,
+  target: number,
+  profile: GymProfile | null
+): number | null {
+  if (!profile) return null;
+  let suggested: number;
+  if (ex.unit === "barbell") {
+    suggested = nearestAchievable(target, profile.barWeight, profile.plates);
+  } else if (profile.weightStep) {
+    suggested = snapToStep(target, profile.weightStep);
+  } else {
+    return null;
+  }
+  return Math.abs(suggested - target) > 1e-9 ? suggested : null;
 }
 
 // ── Formatery ──────────────────────────────────────────────────────────────

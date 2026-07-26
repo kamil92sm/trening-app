@@ -312,19 +312,48 @@ tak, by dało się naprawiać od zera z Sonnetem bez ponownej analizy.
   na `fallback`. Podmienione pola: Serie, Powt. min, Powt. max, Cel, Przyrost, RIR. Zweryfikowane
   end-to-end w przeglądarce (wyczyszczenie → wpisanie z przecinkiem → zapis → ponowne otwarcie).
 
-### FEAT-1 — „Tryb innej siłowni": przelicz cele wg dostępnych obciążeń
-- **Czego chce Kamil:** wchodzi na obcą siłownię (inne hantle/talerze, np. skok co 2 kg zamiast 2,5).
-  Chce wpisać realny skok/dostępny ciężar, a apka ma przeliczyć cele na dziś (np. 17,5 → 17 gdy
-  najbliższy dostępny), i najlepiej zapamiętać to na stałe, bo może tam chodzić regularnie.
-- **Pomysł (do rozbicia):**
-  - Osobny profil siłowni w `settings`: `{ id, name, plates[], barWeight, dumbbells[] }`, przełączany
-    globalnie. `platePlan` (`logic.ts:290`) już liczy układ z dowolnej listy talerzy — wystarczy
-    podać listę z aktywnego profilu.
-  - „Snap celu do najbliższego dostępnego ciężaru": funkcja `snapWeight(target, availableSteps)`
-    → wybiera najbliższą realizowalną wartość. Pokazywać obok celu: „na tej siłowni: 17 kg".
-  - Przyrost per-profil, żeby progresja szła skokiem danej siłowni.
-- **Uwaga:** to większa funkcja — zaproponować Kamilowi MVP (jeden alternatywny profil + snap celu),
-  zanim budować pełny menedżer siłowni.
+### FEAT-1 — ✅ WDROŻONE — MVP (26.07.2026) — „Tryb innej siłowni": przelicz cele wg dostępnych obciążeń
+- **Czego chciał Kamil:** wchodzi na obcą siłownię (inne hantle/talerze), wpisuje dostępny sprzęt,
+  a apka przelicza cel na dziś do najbliższej realizowalnej wartości; profil ma zostać na stałe,
+  bo może tam wracać.
+- **Model danych:** nowy typ `GymProfile` (`types.ts`) — `{ id, name, barWeight, plates[], weightStep? }`.
+  `Settings.gymProfiles?: GymProfile[]` (lista dodatkowych siłowni) + `Settings.activeGymProfileId?`
+  (który jest aktywny; brak = siłownia domowa czyli `settings.barWeight/plates`).
+- **Logika (`logic.ts`):**
+  - `achievableWeights(bar, plates)` — wszystkie osiągalne ciężary całkowite (subset-sum talerzy ×2
+    strony + gryf), dokładne (nie heurystyka).
+  - `nearestAchievable(target, bar, plates)` — najbliższy z powyższej listy; remis rozstrzyga na
+    korzyść mniejszej wartości.
+  - `snapToStep(target, step)` — zaokrąglenie do wielokrotności kroku (sprzęt bez talerzy: hantle/
+    maszyny/wyciągi, gdzie apka nie modeluje realnych skoków stosu per siłownia).
+  - `suggestedWeightForProfile(ex, target, profile)` — dysponent: `unit==="barbell"` → talerze
+    profilu (dokładnie), reszta → `weightStep` profilu (przybliżenie), `null` gdy brak różnicy/profilu.
+- **Store (`store.tsx`):** `addGymProfile`, `updateGymProfile`, `deleteGymProfile`,
+  `setActiveGymProfile` — CRUD + przełącznik, w `settings` więc persystentne (localStorage).
+- **UI:**
+  - `MoreScreen.tsx` — nowa karta „Siłownie": select aktywnej siłowni, lista profili (edytuj/usuń),
+    inline formularz dodawania (Nazwa, Gryf, Krok hantli/maszyn, Talerze). „Kalkulator talerzy" pod
+    spodem automatycznie używa gryfu/talerzy aktywnego profilu zamiast domowych.
+  - `TrainScreen.tsx` — pod opisem każdego ćwiczenia w trakcie treningu: gdy aktywny profil daje
+    inną sugestię niż zapisany cel, pokazuje pasek „{nazwa siłowni}: sugerowany X kg (zamiast Y)"
+    z przyciskiem **Użyj**. Kliknięcie nadpisuje `entry.targetWeight` i wagę wszystkich jeszcze
+    niezaliczonych serii TYLKO w bieżącym drafcie sesji — **nie rusza** stałego `state.targets[id]`,
+    więc progresja na domowej siłowni jest bezpieczna niezależnie od tego, co się dzieje na wyjeździe.
+  - Numeryczne pola formularza profilu (Gryf, Krok) używają współdzielonego `NumberField`
+    (`src/components/ui/number-field.tsx`, wydzielony z fixa BUG-2) — bez ryzyka odtworzenia tego
+    samego buga w nowym formularzu.
+- **Świadomie POZA MVP** (do rozważenia później, jeśli okaże się potrzebne):
+  - `weightStep` to jeden globalny krok dla WSZYSTKICH maszyn/hantli danego profilu — nie modeluje
+    osobnych skoków stosu per ćwiczenie/maszyna (rzeczywiste siłownie różnią się tu bardziej niż
+    talerze). Wystarczające jako przybliżenie, nie dokładne.
+  - Brak automatycznego powrotu do „Domowa" — trzeba ręcznie przełączyć po powrocie, inaczej
+    Kalkulator talerzy i sugestie w Treningu nadal będą liczyć wg obcego sprzętu.
+  - „Użyj" nie zmienia `ex.increment` ani stałego celu — progresja wypracowana na wyjeździe NIE
+    przenosi się automatycznie na domową siłownię po powrocie (to świadomy wybór ochronny, patrz wyżej).
+- **Zweryfikowane w przeglądarce:** dodanie profilu „Siłownia u rodziców" (gryf 20, talerze
+  20/15/10/5, krok 2) → poprawne sugestie dla sztangi (dokładny dobór z talerzy, w tym remisy) i
+  hantli/wyciągu (krok), „Użyj" poprawnie nadpisuje draft bez ruszania `state.targets`, Kalkulator
+  talerzy przełącza się razem z aktywnym profilem. 8 nowych testów w `tests/logic.test.ts` (52/52 OK).
 
 ### BUG-3 — ✅ CZĘŚCIOWO NAPRAWIONE (26.07.2026) — Backup „Bad credentials" mimo działającego wczoraj tokena
 - **Diagnoza:** apka wysyła token poprawnie (`src/lib/backup.ts:19` — `Authorization: Bearer <token>`).

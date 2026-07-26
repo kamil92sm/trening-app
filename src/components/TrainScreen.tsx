@@ -13,7 +13,15 @@ import {
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
 import type { ExerciseLog, Exercise } from "@/lib/types";
-import { fmtKg, fmtDateShort, sessionVolume, detectPlateau, e1rm, type LastEntry } from "@/lib/logic";
+import {
+  fmtKg,
+  fmtDateShort,
+  sessionVolume,
+  detectPlateau,
+  e1rm,
+  suggestedWeightForProfile,
+  type LastEntry,
+} from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
 import { drawReceipt, shareReceipt, type ReceiptData } from "@/lib/receipt";
 import { Button } from "@/components/ui/button";
@@ -138,6 +146,9 @@ export function TrainScreen() {
   }, [state]);
 
   const activeDays = state.days.filter((d) => !d.optional || d.active);
+  const activeGymProfile = (state.settings.gymProfiles ?? []).find(
+    (p) => p.id === state.settings.activeGymProfileId
+  ) ?? null;
 
   function startDay(dayId: string) {
     const day = state.days.find((d) => d.id === dayId);
@@ -195,6 +206,19 @@ export function TrainScreen() {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next.entries[entryIdx].sets.splice(setIdx, 1);
+      return next;
+    });
+  }
+
+  // Nadpisuje cel wpisu (i wszystkie jeszcze niezaliczone serie) sugestią z
+  // aktywnego profilu siłowni — tylko w tym drafcie, docelowy plan bez zmian.
+  function applyGymSuggestion(entryIdx: number, weight: number) {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      const entry = next.entries[entryIdx];
+      entry.targetWeight = weight;
+      entry.sets = entry.sets.map((s) => (s.done ? s : { ...s, weight }));
       return next;
     });
   }
@@ -399,6 +423,7 @@ export function TrainScreen() {
           if (!ex) return null;
           const unitLabel = ex.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
+          const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
           const swapCandidates = ex.primaryMuscle
             ? state.exercises.filter(
                 (e) =>
@@ -429,6 +454,21 @@ export function TrainScreen() {
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
                   {ex.perHand && " (na rękę)"} · RIR {ex.rir}
                 </CardDescription>
+                {gymSuggestion !== null && (
+                  <div className="flex items-center justify-between gap-2 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-300">
+                    <span>
+                      {activeGymProfile!.name}: sugerowany {fmtKg(gymSuggestion)} (zamiast{" "}
+                      {fmtKg(entry.targetWeight)})
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-semibold underline underline-offset-2"
+                      onClick={() => applyGymSuggestion(ei, gymSuggestion)}
+                    >
+                      Użyj
+                    </button>
+                  </div>
+                )}
                 {swapIdx === ei && (
                   <div className="space-y-1 rounded-md border border-border p-2">
                     <p className="text-[11px] text-muted-foreground">

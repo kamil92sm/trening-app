@@ -10,6 +10,7 @@ import type {
   AppState,
   BodyEntry,
   Exercise,
+  GymProfile,
   Session,
   Settings,
   SquashEntry,
@@ -47,6 +48,10 @@ interface Store {
   updateExercise(exercise: Exercise): void;
   setArchived(exerciseId: string, archived: boolean): void;
   updateDay(day: WorkoutDay): void;
+  addGymProfile(profile: GymProfile): void;
+  updateGymProfile(profile: GymProfile): void;
+  deleteGymProfile(id: string): void;
+  setActiveGymProfile(id: string | null): void;
   exportJson(): string;
   importJson(json: string): string | null;
   resetAll(): void;
@@ -224,6 +229,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         mutate((d) => {
           const i = d.days.findIndex((x) => x.id === day.id);
           if (i >= 0) d.days[i] = day;
+          return d;
+        });
+      },
+
+      addGymProfile(profile) {
+        mutate((d) => {
+          d.settings.gymProfiles = [...(d.settings.gymProfiles ?? []), profile];
+          return d;
+        });
+      },
+
+      updateGymProfile(profile) {
+        mutate((d) => {
+          const list = d.settings.gymProfiles ?? [];
+          const i = list.findIndex((p) => p.id === profile.id);
+          if (i >= 0) list[i] = profile;
+          d.settings.gymProfiles = list;
+          return d;
+        });
+      },
+
+      deleteGymProfile(id) {
+        mutate((d) => {
+          d.settings.gymProfiles = (d.settings.gymProfiles ?? []).filter((p) => p.id !== id);
+          if (d.settings.activeGymProfileId === id) d.settings.activeGymProfileId = undefined;
+          return d;
+        });
+      },
+
+      setActiveGymProfile(id) {
+        mutate((d) => {
+          d.settings.activeGymProfileId = id ?? undefined;
           return d;
         });
       },

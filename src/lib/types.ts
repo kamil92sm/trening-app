@@ -92,6 +92,15 @@ export interface SquashEntry {
   intensity: number; // 1-5
 }
 
+export interface GymProfile {
+  id: string;
+  name: string;
+  barWeight: number;
+  plates: number[];
+  /** Krok dostępnych obciążeń dla sprzętu bez talerzy (hantle/maszyny/wyciągi), w kg. */
+  weightStep?: number;
+}
+
 export interface Settings {
   name: string;
   barWeight: number;
@@ -106,6 +115,10 @@ export interface Settings {
   autoBackup?: boolean;
   /** ISO data ostatniego udanego backupu do chmury. */
   lastBackup?: string;
+  /** Dodatkowe siłownie (inny gryf/talerze/krok) — poza domową (barWeight/plates powyżej). */
+  gymProfiles?: GymProfile[];
+  /** ID aktywnego profilu z gymProfiles; brak/undefined = siłownia domowa. */
+  activeGymProfileId?: string;
 }
 
 export interface AppState {
