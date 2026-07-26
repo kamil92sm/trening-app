@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Pencil, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Category, Exercise, Unit } from "@/lib/types";
 import { fmtKg } from "@/lib/logic";
+import { SEED_DAYS } from "@/lib/seed";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -101,6 +102,17 @@ export function PlanScreen() {
     setAddingTo(null);
   }
 
+  function restoreDay(dayId: string) {
+    if (
+      !confirm(
+        "Przywrócić oryginalny zestaw ćwiczeń dla tego dnia? Dołoży brakujące ćwiczenia i ustawi kolejność jak w planie. Twoje ciężary zostają."
+      )
+    )
+      return;
+    store.restoreDayPlan(dayId);
+    toast("Przywrócono standardowy plan", state.days.find((d) => d.id === dayId)?.name);
+  }
+
   return (
     <div className="space-y-3 p-4">
       <h1 className="text-lg font-bold">Plan</h1>
@@ -122,13 +134,26 @@ export function PlanScreen() {
                   <CardDescription>{day.short}</CardDescription>
                 </div>
               </div>
-              {day.optional && (
-                <Switch
-                  checked={!!day.active}
-                  onCheckedChange={(v) => store.setDayActive(day.id, v)}
-                  accent="#a855f7"
-                />
-              )}
+              <div className="flex items-center gap-1.5">
+                {SEED_DAYS.some((d) => d.id === day.id) && (
+                  <button
+                    type="button"
+                    onClick={() => restoreDay(day.id)}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label="Przywróć standardowy plan"
+                    title="Przywróć standardowy plan"
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                )}
+                {day.optional && (
+                  <Switch
+                    checked={!!day.active}
+                    onCheckedChange={(v) => store.setDayActive(day.id, v)}
+                    accent="#a855f7"
+                  />
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-1">
               {day.exerciseIds.map((exId, idx) => {

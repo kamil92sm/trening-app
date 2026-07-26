@@ -347,3 +347,33 @@ function catchUpTargetsOnce(state: AppState): AppState {
 function applyOneTimeSeeds(state: AppState): AppState {
   return catchUpTargetsOnce(seedHistoryOnce(state));
 }
+
+/**
+ * Przywraca oryginalny skład dnia z seeda (P0-7): brakujące ćwiczenia dokłada
+ * z powrotem (z celem z `SEED_TARGETS`), zarchiwizowane odarchiwizuje BEZ
+ * dotykania ich celu/parametrów, `day.exerciseIds` resetuje do kolejności
+ * z seeda. `targets` ISTNIEJĄCYCH ćwiczeń (wypracowana progresja) — nietknięte.
+ * Dzień spoza `SEED_DAYS` (stworzony przez użytkownika) → stan bez zmian.
+ */
+export function computeRestoredDayPlan(state: AppState, dayId: string): AppState {
+  const seedDay = SEED_DAYS.find((d) => d.id === dayId);
+  if (!seedDay) return state;
+
+  const exercises = state.exercises.map((e) => ({ ...e }));
+  const targets = { ...state.targets };
+  for (const exId of seedDay.exerciseIds) {
+    const existing = exercises.find((e) => e.id === exId);
+    if (!existing) {
+      const seedEx = SEED_EXERCISES.find((e) => e.id === exId);
+      if (seedEx) {
+        exercises.push(structuredClone(seedEx));
+        targets[exId] = SEED_TARGETS[exId] ?? 0;
+      }
+    } else if (existing.archived) {
+      existing.archived = false;
+    }
+  }
+
+  const days = state.days.map((d) => (d.id === dayId ? { ...d, exerciseIds: [...seedDay.exerciseIds] } : d));
+  return { ...state, exercises, days, targets };
+}

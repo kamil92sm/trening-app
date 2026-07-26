@@ -301,7 +301,7 @@ w kolejności:
 szerokość do 0:00; `npm run build` OK. To fix UI — bez nowych zależności, bez zmian silnika.
 **Rozmiar:** S
 
-### [ ] P0-7. Przywróć standardowy plan dnia (po przypadkowym usunięciu ćwiczenia)
+### [x] P0-7. Przywróć standardowy plan dnia (po przypadkowym usunięciu ćwiczenia) (2026-07-26)
 **Zgłoszenie Kamila (2026-07-26 wieczór):** „usunęło mi się jedno ćwiczenie z planu i nie
 mogę przywrócić standardowego planu na dany dzień, chcę mieć tę opcję." — Fable potwierdza:
 dobry pomysł, `SEED_DAYS`/`SEED_EXERCISES`/`SEED_TARGETS` w `src/lib/seed.ts` są źródłem
@@ -350,6 +350,104 @@ w `PlanScreen.tsx`. Store ma już `updateDay(day)` (`store.tsx:237`), `addExerci
 brakujące ćwiczenie; ciężary/progresja pozostałych ćwiczeń nietknięte; `npm test` +
 `npm run build` OK.
 **Rozmiar:** M
+
+### [ ] P0-8. Hipertrofia zmienia też SERIE (cel serii/partia + mądry rozkład z limitem)
+**Zgłoszenie/decyzja Kamila (2026-07-26 wieczór):** dziś przełącznik Siła/Hipertrofia w
+Treningu zmienia tylko powtórzenia/RIR/ciężar (`exerciseForMode`), NIE serie — więc po
+wejściu w Progres → Objętość → „Plan" → Hipertrofia plan świeci bursztynem (te same serie
+mierzone wyższą poprzeczką hipertrofii). Kamil chce, żeby przełączenie na hipertrofię
+**realnie dokładało serie** (poprawna periodyzacja: hipertrofia jest objętościowo cięższa),
+dzięki czemu plan w trybie hipertrofii jest bardziej zielony — ale **zasłużenie** (serie
+realnie wykonane, nie kosmetyka słupka).
+
+**⚠️ TO COFA §5.7 CLAUDE.md** („`targetSets` NIGDY nie zmieniane"). Świadoma zmiana decyzji
+projektowej na prośbę użytkownika — zaktualizuj CLAUDE.md §5.7 i POMYSLY P0-5, żeby dok. nie
+kłamała. Reguła siły (Plan seed = źródło prawdy) zostaje; hipertrofia dalej jest widokiem
+POCHODNYM — tylko teraz pochodna dotyczy też liczby serii.
+
+**⚠️ ŚCIANA STRUKTURALNA (kluczowe — bez tego wyjdzie absurd):** plan 3-dniowy ma dla części
+partii TYLKO JEDNO ćwiczenie/tydzień (Biceps = tylko `curl_bb` w pn.; Łydki = tylko `calf` w
+śr.). Naiwne „dobij serie do celu partii" dałoby 8 serii uginania w jednej sesji. **Dlatego
+obowiązuje LIMIT serii na ćwiczenie**, a niedobór ponad limit ma zostać UCZCIWIE bursztynowy
+z nudge'em „włącz dzień bonusowy". Zielenienie ma być częściowe i prawdziwe (§11), nie na siłę.
+
+**Wybór Kamila:** wariant „stały cel serii/partia + mądry rozkład" (nie płaskie +1). Poniżej
+konkretny, deterministyczny, ograniczony algorytm realizujący ten wybór bez ściany.
+
+**Pliki:** `src/lib/logic.ts` (nowa funkcja + integracje), `src/lib/types.ts` (ewent. stałe),
+`src/components/TrainScreen.tsx` (logger + finishSession), `src/components/ProgressScreen.tsx`
+(widok objętości „Plan"), `tests/logic.test.ts`, CLAUDE.md, POMYSLY.md.
+
+**Spec — silnik:**
+1. **Stałe (tunable, w `logic.ts`):**
+   - `HYPER_SET_TARGET: Record<Muscle, number>` — docelowe serie robocze/tydzień/partię w
+     hipertrofii. Domyślnie = `MUSCLE_RANGES_HYPERTROPHY[m].min` (duże 10, małe 8). NIE wymyślaj
+     innych liczb bez powodu — spójność z istniejącymi progami statusu.
+   - `HYPER_SETS_CAP_PER_EXERCISE = 4` — twardy limit serii roboczych na jedno ćwiczenie w
+     hipertrofii (baza 3→max 4, izolacja 2→max 4). Powyżej = śmieciowa objętość, nie dokładaj.
+2. **Nowa funkcja `hyperSetPlan(state): Record<string, number>`** (exId → docelowe `targetSets`
+   w hipertrofii), liczona z AKTYWNYCH dni (dzień `optional` tylko gdy `active`):
+   - Start: każdemu ćwiczeniu przypisz jego bazowe `ex.targetSets`.
+   - Dla każdej `Muscle`: policz bieżące serie PRIMARY z aktywnych dni (suma `targetSets`
+     ćwiczeń, których `primaryMuscle === m`). `deficit = max(0, HYPER_SET_TARGET[m] - bieżące)`.
+   - Rozłóż deficyt na ćwiczenia z tym `primaryMuscle`: round-robin +1 seria naraz, aż deficyt
+     = 0 LUB wszystkie te ćwiczenia uderzą w `CAP`. (Round-robin = równy rozkład; jak jedno
+     ćwiczenie ma primary=tej partii i jest jedyne, dojdzie tylko do CAP i stop — reszta
+     deficytu przepada, co jest OK: widać to potem jako bursztyn + nudge.)
+   - Secondary (0,5×) NIE sterują dokładaniem serii (żeby uniknąć sprzężeń między partiami) —
+     liczą się dopiero w metryce objętości jak dziś. Overshoot partii mocno wspomaganych (np.
+     Triceps od wyciskań) jest OK — problemem jest tylko niedobór.
+   - Zwróć mapę tylko dla ćwiczeń, których serie realnie wzrosły względem bazy (reszta =
+     bez zmian, czytaj z `ex.targetSets`). Determinizm: ta sama mapa dla tego samego stanu.
+3. **Integracja z trybem:** `exerciseForMode(ex, mode)` NIE zmieniaj (jest per-ćwiczenie, bez
+   kontekstu planu). Zamiast tego w miejscach, które budują serie/liczą objętość, gdy tryb =
+   hipertrofia, użyj `targetSets = hyperSetPlan(state)[ex.id] ?? ex.targetSets`. Rozważ helper
+   `targetSetsForMode(state, ex, mode)` = `mode==="hypertrophy" ? (hyperSetPlan(...)[id] ??
+   ex.targetSets) : ex.targetSets`, żeby nie liczyć `hyperSetPlan` w wielu miejscach (memoizuj
+   albo policz raz i przekaż).
+4. **Progresja:** `finishSession` już liczy `computeProgression` na `exerciseForMode(ex, mode)`.
+   Rozszerz tak, by w hipertrofii warunek „wszystkie serie robocze trafiły `repMax`" używał
+   `targetSetsForMode(...)` (tej samej liczby serii co logger). Zapis dalej do `hyperTargets`
+   (hipertrofia) vs `targets` (siła) — tryby nie psują sobie progresji (§5.7). Nie zmieniaj
+   `ex.increment` ani seeda.
+
+**Spec — UI:**
+5. **Logger (`TrainScreen`):** startując dzień w trybie hipertrofii, generuj tyle wierszy serii
+   ile `targetSetsForMode(state, ex, "hypertrophy")` (nie `ex.targetSets`). W sile bez zmian.
+   Zweryfikuj, że „Ostatnio", paragon-usunięty (P2-6) i draft w localStorage znoszą zmienną
+   liczbę serii.
+6. **Objętość „Plan" (`ProgressScreen`):** widok „Plan" ma odzwierciedlać AKTUALNY
+   `settings.trainingMode`. Przekaż tryb do `weeklyMuscleVolume` (dodaj opcjonalny param
+   `setsFor?: (ex)=>number` albo `mode?`), żeby w hipertrofii liczył serie z `hyperSetPlan`.
+   „Wykonane (7 dni)" liczy z realnych sesji — bez zmian (i tak pokaże, czy Kamil te serie
+   ZROBIŁ). Domyślne wywołania i istniejące testy bez `mode` mają działać jak dziś (siła/baza).
+7. **Rozwiąż dezorientację dwóch przełączników** (to był punkt zapalny Kamila):
+   - Minimum: gdy `trainingMode === "hypertrophy"`, domyślnie ustaw też widok „Plan" na progi
+     hipertrofii (albo zsynchronizuj `volumeGoal` z `trainingMode` przy wejściu w Progres —
+     wybierz jedno, opisz w commicie). Cel: „przełączam trening na hipertrofię → w Progresie od
+     razu widzę plan hipertroficzny", bez ręcznego drugiego klika.
+   - Zostaw krótką notę pod kartą objętości: „Hipertrofia = wyższa poprzeczka serii; plan
+     dokłada serie do limitu {CAP}/ćwiczenie. Partie z jednym ćwiczeniem/tydzień zostają
+     poniżej — dołóż dzień bonusowy, by je dobić." (uczciwe wyjaśnienie ściany strukturalnej.)
+
+**Testy (`tests/logic.test.ts`):**
+- `hyperSetPlan`: dla partii z ≥2 ćwiczeniami/tydzień deficyt rozkłada się równo i dobija do
+  celu bez przekroczenia CAP; dla partii z 1 ćwiczeniem (biceps) dochodzi TYLKO do CAP i
+  zatrzymuje się (nie 8 serii).
+- `weeklyMuscleVolume` w hipertrofii pokazuje więcej serii niż w sile dla partii z ≥2
+  ćwiczeniami (bardziej zielono), ale partia z 1 ćwiczeniem dalej `low` (uczciwie).
+- Progresja w hipertrofii z podbitą liczbą serii: „wszystkie serie robocze na `repMax`"
+  liczy właściwą (podbitą) liczbę serii; zapis do `hyperTargets`, `targets` nietknięte.
+- Determinizm: `hyperSetPlan(state)` dwa razy = ten sam wynik.
+
+**Akceptacja:** przełączenie Treningu na Hipertrofię realnie dokłada serie (widać w loggerze),
+Progres → Objętość → Plan jest bardziej zielony dla partii z ≥2 ćwiczeniami i uczciwie
+bursztynowy dla partii z jednym; progresja siły i hipertrofii dalej rozdzielne; CLAUDE.md §5.7
+zaktualizowane; `npm test` + `npm run build` OK.
+**Rozmiar:** L
+**UWAGA dla Sonneta:** to duże zadanie z realnymi decyzjami (synchro przełączników, wartości
+stałych). Jeśli któraś decyzja z pkt 6–7 jest niejasna — dopytaj Kamila PRZED kodowaniem,
+nie zgaduj. Reszta (algorytm `hyperSetPlan`, limit, uczciwy residual) jest zamknięta.
 
 ---
 

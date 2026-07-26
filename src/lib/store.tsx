@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import {
   CATEGORY_TO_MUSCLE,
+  computeRestoredDayPlan,
   defaultState,
   migrateState,
   OLD_STORAGE_KEY,
@@ -48,6 +49,7 @@ interface Store {
   updateExercise(exercise: Exercise): void;
   setArchived(exerciseId: string, archived: boolean): void;
   updateDay(day: WorkoutDay): void;
+  restoreDayPlan(dayId: string): void;
   addGymProfile(profile: GymProfile): void;
   updateGymProfile(profile: GymProfile): void;
   deleteGymProfile(id: string): void;
@@ -240,6 +242,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (i >= 0) d.days[i] = day;
           return d;
         });
+      },
+
+      restoreDayPlan(dayId) {
+        mutate((d) => computeRestoredDayPlan(d, dayId));
       },
 
       addGymProfile(profile) {

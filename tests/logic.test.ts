@@ -20,7 +20,15 @@ import {
   targetForMode,
   type HistoryPoint,
 } from "../src/lib/logic";
-import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
+import {
+  defaultState,
+  SEED_EXERCISES,
+  SEED_DAYS,
+  SEED_TARGETS,
+  migrateState,
+  computeRestoredDayPlan,
+  SCHEMA_VERSION,
+} from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
 
 let failures = 0;
@@ -522,6 +530,47 @@ check(
   "targetForMode: hipertrofia -> hyperTargetFor",
   Math.abs(targetForMode(stHyperB, bench, "hypertrophy") - 42.5) < 1e-9
 );
+
+// P0-7: przywroc standardowy plan dnia
+const stRestore = defaultState();
+stRestore.exercises = stRestore.exercises.filter((e) => e.id !== "crunch");
+stRestore.days = stRestore.days.map((d) =>
+  d.id === "mon" ? { ...d, exerciseIds: d.exerciseIds.filter((id) => id !== "crunch") } : d
+);
+stRestore.targets["bench_bb"] = 55; // symuluje wypracowana progresje
+const restored = computeRestoredDayPlan(stRestore, "mon");
+check(
+  "computeRestoredDayPlan: przywraca usuniete cwiczenie do exercises",
+  restored.exercises.some((e) => e.id === "crunch")
+);
+check(
+  "computeRestoredDayPlan: przywraca exerciseIds dnia (crunch z powrotem)",
+  restored.days.find((d) => d.id === "mon")!.exerciseIds.includes("crunch")
+);
+check(
+  "computeRestoredDayPlan: cel istniejacego bench_bb NIE wraca do seeda (zostaje 55)",
+  restored.targets["bench_bb"] === 55,
+  restored.targets["bench_bb"]
+);
+check(
+  "computeRestoredDayPlan: przywrocone crunch dostaje cel z SEED_TARGETS",
+  restored.targets["crunch"] === SEED_TARGETS["crunch"],
+  restored.targets["crunch"]
+);
+
+const stArchived = defaultState();
+stArchived.exercises = stArchived.exercises.map((e) => (e.id === "crunch" ? { ...e, archived: true } : e));
+const restoredArchived = computeRestoredDayPlan(stArchived, "mon");
+const crunchAfter = restoredArchived.exercises.filter((e) => e.id === "crunch");
+check(
+  "computeRestoredDayPlan: zarchiwizowane cwiczenie odarchiwizowane, nie zdublowane",
+  crunchAfter.length === 1 && crunchAfter[0].archived === false,
+  crunchAfter
+);
+
+const stNoSeedDay = defaultState();
+const untouched = computeRestoredDayPlan(stNoSeedDay, "nieistniejacy-dzien");
+check("computeRestoredDayPlan: dzien spoza seeda -> stan bez zmian", untouched === stNoSeedDay);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);
