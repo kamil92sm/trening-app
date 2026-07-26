@@ -9,6 +9,8 @@ import {
   actualWeeklyMuscleVolume,
   muscleRangesFor,
   lastEntry,
+  personalBests,
+  isSetRecord,
   detectPlateau,
   achievableWeights,
   nearestAchievable,
@@ -216,6 +218,90 @@ const last = lastEntry(stLast, "bench_bb");
 check("lastEntry: najnowsza sesja wygrywa", last?.date === "2026-07-21", last);
 check("lastEntry: pomija nieukonczone serie", last?.sets.length === 2, last);
 check("lastEntry: brak historii -> null", lastEntry(defaultState(), "bench_bb") === null);
+
+// P1-8: Rekord (PR) na zywo
+const stPB = defaultState();
+stPB.sessions.push(
+  {
+    id: "pb1",
+    dayId: "mon",
+    date: "2026-07-14",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_bb",
+        targetWeight: 40,
+        sets: [
+          { weight: 50, reps: 5, done: false }, // niezaliczona - pomijana
+          { weight: 40, reps: 8, done: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: "pb2",
+    dayId: "mon",
+    date: "2026-07-21",
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 6, done: true }] }],
+  },
+  {
+    id: "pb3",
+    dayId: "mon",
+    date: "2026-07-23",
+    completed: false, // nieukonczona sesja - pomijana w calosci
+    entries: [{ exerciseId: "bench_bb", targetWeight: 100, sets: [{ weight: 100, reps: 10, done: true }] }],
+  }
+);
+const pb = personalBests(stPB, "bench_bb");
+check("personalBests: pomija niezaliczone serie (max 45, nie 50)", pb.weight === 45, pb);
+check("personalBests: pomija sesje nieukonczone (nie 100)", pb.weight === 45, pb);
+check("personalBests: e1rm liczony z zaliczonych serii (45x6 -> 54)", Math.abs(pb.e1rm - 54) < 0.01, pb);
+const pbExcl = personalBests(stPB, "bench_bb", "pb2");
+check(
+  "personalBests: excludeSessionId pomija wskazana sesje (zostaje tylko 40x8)",
+  pbExcl.weight === 40 && Math.abs(pbExcl.e1rm - 40 * (1 + 8 / 30)) < 0.01,
+  pbExcl
+);
+check("personalBests: brak historii -> same zera", (() => {
+  const z = personalBests(defaultState(), "bench_bb");
+  return z.weight === 0 && z.e1rm === 0 && z.holdSeconds === 0;
+})());
+
+const pbBest = { weight: 45, e1rm: 54, holdSeconds: 0 };
+check(
+  "isSetRecord: ciezszy ciezar -> weight (priorytet nad e1rm mimo ze oba pobite)",
+  isSetRecord(bench, { weight: 47.5, reps: 5, done: true }, pbBest) === "weight"
+);
+check(
+  "isSetRecord: ten sam ciezar, wiecej powtorzen (wyzszy e1rm) -> e1rm",
+  isSetRecord(bench, { weight: 45, reps: 10, done: true }, pbBest) === "e1rm"
+);
+check(
+  "isSetRecord: nie bije ani ciezaru ani e1rm -> null",
+  isSetRecord(bench, { weight: 40, reps: 5, done: true }, pbBest) === null
+);
+check(
+  "isSetRecord: niezaliczona seria -> null",
+  isSetRecord(bench, { weight: 100, reps: 10, done: false }, pbBest) === null
+);
+check(
+  "isSetRecord: brak historii (best zerowy) -> null",
+  isSetRecord(bench, { weight: 20, reps: 5, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+);
+const holdBest = { weight: 0, e1rm: 0, holdSeconds: 30 };
+check(
+  "isSetRecord: hold - wiecej sekund niz rekord -> hold",
+  isSetRecord(plank, { weight: 10, reps: 35, done: true }, holdBest) === "hold"
+);
+check(
+  "isSetRecord: hold - tyle samo sekund co rekord -> null",
+  isSetRecord(plank, { weight: 10, reps: 30, done: true }, holdBest) === null
+);
+check(
+  "isSetRecord: hold bez historii -> null",
+  isSetRecord(plank, { weight: 10, reps: 40, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+);
 
 // P1-1: Plateau breaker
 function sessionAt(date: string, weight: number, reps: number): Session {

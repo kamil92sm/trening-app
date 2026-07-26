@@ -357,6 +357,58 @@ export function bestE1rm(ex: Exercise, entry: ExerciseLog): number {
   return best;
 }
 
+export interface PersonalBests {
+  weight: number;
+  e1rm: number;
+  holdSeconds: number;
+}
+
+/**
+ * Rekordy życia dla ćwiczenia — maksimum po WSZYSTKICH ukończonych sesjach
+ * (tylko zaliczone serie). Dla `isHold` liczy się `holdSeconds` (reps to
+ * sekundy); dla reszty `weight` i `e1rm` (Epley). `excludeSessionId` pomija
+ * jedną sesję (np. właśnie zakończoną) — pozwala policzyć "rekord SPRZED tej
+ * sesji" do podsumowania treningu.
+ */
+export function personalBests(state: AppState, exId: string, excludeSessionId?: string): PersonalBests {
+  const ex = state.exercises.find((e) => e.id === exId);
+  const best: PersonalBests = { weight: 0, e1rm: 0, holdSeconds: 0 };
+  if (!ex) return best;
+  for (const session of state.sessions) {
+    if (!session.completed || session.id === excludeSessionId) continue;
+    const entry = session.entries.find((e) => e.exerciseId === exId);
+    if (!entry) continue;
+    for (const set of entry.sets) {
+      if (!set.done) continue;
+      if (ex.isHold) {
+        best.holdSeconds = Math.max(best.holdSeconds, set.reps);
+      } else {
+        best.weight = Math.max(best.weight, set.weight);
+        best.e1rm = Math.max(best.e1rm, e1rm(set.weight, set.reps));
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Czy pojedyncza seria bije rekord życia. Brak historii (rekord zerowy) ->
+ * `null` — pierwszy trening ćwiczenia NIE jest "rekordem" przy każdej serii.
+ * Priorytet, gdy pobite oba warunki: `weight` > `e1rm` (cięższy ciężar to
+ * mocniejszy komunikat niż szacunek).
+ */
+export function isSetRecord(ex: Exercise, set: SetLog, best: PersonalBests): "weight" | "e1rm" | "hold" | null {
+  if (!set.done) return null;
+  if (ex.isHold) {
+    if (best.holdSeconds === 0) return null;
+    return set.reps > best.holdSeconds ? "hold" : null;
+  }
+  if (best.weight === 0 && best.e1rm === 0) return null;
+  if (set.weight > best.weight) return "weight";
+  if (e1rm(set.weight, set.reps) > best.e1rm) return "e1rm";
+  return null;
+}
+
 export interface HistoryPoint {
   date: string;
   e1rm: number;

@@ -11,7 +11,7 @@ import {
   Repeat,
 } from "lucide-react";
 import { useStore, type FinishSummary } from "@/lib/store";
-import type { ExerciseLog, TrainingMode, WorkoutDay } from "@/lib/types";
+import type { Exercise, ExerciseLog, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
   fmtDateShort,
@@ -21,7 +21,11 @@ import {
   suggestBonusExercises,
   exerciseForMode,
   targetForMode,
+  personalBests,
+  isSetRecord,
+  e1rm,
   type LastEntry,
+  type PersonalBests,
 } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
@@ -74,12 +78,25 @@ interface LastEntryInfo extends LastEntry {
   mode: TrainingMode;
 }
 
+// P1-8: rekord (PR) trafiony podczas treningu — do podsumowania sesji.
+interface RecordHit {
+  exercise: Exercise;
+  kind: "weight" | "e1rm" | "hold";
+  value: number;
+}
+
+function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
+  if (kind === "hold") return `${value} s`;
+  return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
+}
+
 export function TrainScreen() {
   const store = useStore();
   const { state } = store;
   const [draft, setDraft] = useState<Draft | null>(loadDraft);
   const [bonusSuggestion, setBonusSuggestion] = useState<BonusSuggestion | null>(loadBonusSuggestion);
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
+  const [sessionRecords, setSessionRecords] = useState<RecordHit[]>([]);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
@@ -105,6 +122,16 @@ export function TrainScreen() {
     }
     return map;
   }, [state.sessions]);
+
+  // P1-8: rekordy życia per ćwiczenie, liczone RAZ na zmianę historii sesji
+  // (nie per keystroke w loggerze) — ten sam wzorzec co lastByExercise wyżej.
+  const personalBestsByExercise = useMemo(() => {
+    const map = new Map<string, PersonalBests>();
+    for (const ex of state.exercises) {
+      map.set(ex.id, personalBests(state, ex.id));
+    }
+    return map;
+  }, [state.sessions, state.exercises]);
 
   useEffect(() => {
     try {
@@ -241,6 +268,21 @@ export function TrainScreen() {
       const ex = exId ? state.exercises.find((e) => e.id === exId) : undefined;
       setTimerSeconds(ex?.restSeconds ?? state.settings.restSeconds);
       setTimerKey((k) => k + 1);
+
+      // P1-8: jednorazowy toast, gdy zaznaczenie serii bije rekord życia.
+      // `prevSet` to jeszcze stary stan (przed setDraft powyżej) — merge z
+      // patchem daje finalny wiersz (weight/reps + done:true).
+      const prevSet = draft?.entries[entryIdx]?.sets[setIdx];
+      if (ex && prevSet) {
+        const finalSet = { ...prevSet, ...patch };
+        const best = personalBestsByExercise.get(ex.id);
+        const kind = best ? isSetRecord(ex, finalSet, best) : null;
+        if (kind) {
+          const value = kind === "hold" ? finalSet.reps : kind === "weight" ? finalSet.weight : e1rm(finalSet.weight, finalSet.reps);
+          const suffix = kind === "weight" ? ` × ${finalSet.reps}` : "";
+          toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10)}${suffix}`);
+        }
+      }
     }
   }
 
@@ -304,6 +346,27 @@ export function TrainScreen() {
     if (!draft) return;
     const anyDone = draft.entries.some((e) => e.sets.some((s) => s.done));
     if (!anyDone && !confirm("Żadna seria nie jest odhaczona. Zakończyć mimo to?")) return;
+
+    // P1-8: rekordy trafione w tym treningu — liczone PRZED finishSession, na
+    // rekordach SPRZED tej sesji (personalBestsByExercise jeszcze ich nie
+    // zawiera, bo store.finishSession jeszcze nie dopisał tej sesji do stanu).
+    // Jeden wpis na ćwiczenie (najlepsza z serii, które biją rekord).
+    const recordHits: RecordHit[] = [];
+    for (const entry of draft.entries) {
+      const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+      const best = ex ? personalBestsByExercise.get(ex.id) : undefined;
+      if (!ex || !best) continue;
+      let top: RecordHit | null = null;
+      for (const set of entry.sets) {
+        const kind = isSetRecord(ex, set, best);
+        if (!kind) continue;
+        const value = kind === "hold" ? set.reps : kind === "weight" ? set.weight : e1rm(set.weight, set.reps);
+        if (!top || value > top.value) top = { exercise: ex, kind, value };
+      }
+      if (top) recordHits.push(top);
+    }
+    setSessionRecords(recordHits);
+
     const results = store.finishSession({
       dayId: draft.dayId,
       date: draft.date,
@@ -330,6 +393,21 @@ export function TrainScreen() {
     return (
       <div className="space-y-3 p-4">
         <h1 className="text-lg font-bold">Podsumowanie treningu</h1>
+        {sessionRecords.length > 0 && (
+          <Card className="border-amber-400/40 bg-amber-400/5">
+            <CardHeader>
+              <CardTitle className="text-amber-300">🏆 Rekordy tej sesji</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {sessionRecords.map((r) => (
+                <div key={r.exercise.id} className="flex items-center justify-between text-xs">
+                  <span>{r.exercise.name}</span>
+                  <span className="font-semibold text-amber-300">{fmtRecordHit(r.kind, Math.round(r.value * 10) / 10)}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
         {summary.map(({ exercise, result }) => (
           <Card key={exercise.id}>
             <CardContent className="flex items-start gap-3 p-3">
@@ -584,8 +662,17 @@ export function TrainScreen() {
                 {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
               </CardHeader>
               <CardContent className="space-y-1.5">
-                {entry.sets.map((set, si) => (
-                  <div key={si} className="flex items-center gap-2">
+                {entry.sets.map((set, si) => {
+                  const best = personalBestsByExercise.get(ex.id);
+                  const recordKind = best ? isSetRecord(ex, set, best) : null;
+                  return (
+                  <div
+                    key={si}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md",
+                      recordKind && "ring-1 ring-amber-400/70"
+                    )}
+                  >
                     <span className="w-4 text-xs text-muted-foreground">{si + 1}</span>
                     <Input
                       type="number"
@@ -606,11 +693,16 @@ export function TrainScreen() {
                       onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
                     />
                     <span className="w-8 text-xs text-muted-foreground">{unitLabel}</span>
+                    {recordKind && (
+                      <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                        PR
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => updateSet(ei, si, { done: !set.done })}
                       className={cn(
-                        "ml-auto flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
+                        "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors",
                         set.done
                           ? "border-green-500 bg-green-500/20 text-green-400"
                           : "border-border text-muted-foreground hover:bg-accent"
@@ -630,7 +722,8 @@ export function TrainScreen() {
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 <Button variant="ghost" size="sm" className="mt-1 text-muted-foreground" onClick={() => addSet(ei)}>
                   <Plus size={14} /> Dodaj serię
                 </Button>
