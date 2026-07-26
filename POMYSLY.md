@@ -504,11 +504,17 @@ pokazuje `tonnage` (formatuj `x.x t` powyżej 1000 kg). Bez zmian silnika, bez t
 kolorów statusu — zakresy są w seriach). Edycja zakresów (P1-5) i legenda statusów ukryte
 w widoku kg. `npm run build` OK.
 
-### [ ] P1-7. Przypomnienie o backupie
+### [x] P1-7. Przypomnienie o backupie (2026-07-26)
 **Zależność:** jeśli P0-2 wdrożone i autoBackup włączony — pomiń licznik, pokaż tylko
 gdy autoBackup OFF. **Spec:** po `finishSession`, jeśli liczba sesji od `lastBackup`
 ≥ 6 (lub `lastBackup` pusty i sesji ≥ 6) → toast „Zrób backup — ostatni: X treningów
 temu" z guzikiem prowadzącym do Więcej. **Rozmiar:** S
+**Wdrożone:** `toast()` dostał opcjonalny trzeci argument `{label, tab}` — `Toaster`
+(App.tsx) renderuje przycisk akcji i nawiguje przez własny `setTab` (toast żyje 6 s
+zamiast 3 s, gdy ma akcję). `TrainScreen`: po `finishSession`, gdy `autoBackup` OFF,
+licznik sesji od `lastBackup` (lub od zera, gdy backupu jeszcze nie było) ≥ 6 → toast.
+Zweryfikowane w przeglądarce: toast pojawia się przy 6. sesji, „Przejdź do Więcej"
+przełącza zakładkę. `npm test` + `npm run build` OK.
 
 ### [ ] P1-8. Rekord (PR) na żywo — w loggerze i w podsumowaniu
 **Skąd:** rekordy są dziś liczone TYLKO w Progresie (`ProgressScreen.tsx:63`, karta „Rekordy") —
