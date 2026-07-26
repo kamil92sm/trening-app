@@ -42,33 +42,36 @@ export function PlateBar({
   target,
   barWeight,
   plates,
+  compact,
 }: {
   target: number;
   barWeight: number;
   plates: number[];
+  /** P3-5: mniejsza wersja do loggera (Trening) - "Wiecej" zostaje pelnowymiarowa. */
+  compact?: boolean;
 }) {
   const plan = platePlan(target, barWeight, plates);
   const maxPlate = Math.max(...plates, 25);
 
   return (
     <div>
-      <div className="flex h-24 items-center justify-center gap-[3px]">
+      <div className={cn("flex items-center justify-center gap-[3px]", compact ? "h-16" : "h-24")}>
         {/* gryf */}
-        <div className="h-2 w-16 rounded-l bg-zinc-500" />
-        <div className="h-6 w-2 bg-zinc-400" />
+        <div className={cn("rounded-l bg-zinc-500", compact ? "h-1.5 w-10" : "h-2 w-16")} />
+        <div className={cn("bg-zinc-400", compact ? "h-4 w-1.5" : "h-6 w-2")} />
         {plan.perSide.map((p, i) => {
-          const h = 28 + (p / maxPlate) * 60;
+          const h = (28 + (p / maxPlate) * 60) * (compact ? 0.65 : 1);
           return (
             <div
               key={i}
               className="flex items-center justify-center rounded-sm bg-primary/80 text-[9px] font-bold text-primary-foreground"
-              style={{ height: h, width: p >= 10 ? 14 : 10 }}
+              style={{ height: h, width: p >= 10 ? (compact ? 12 : 14) : compact ? 8 : 10 }}
             >
-              {p >= 10 ? p : ""}
+              {p >= 10 && !compact ? p : ""}
             </div>
           );
         })}
-        <div className="h-2 w-10 rounded-r bg-zinc-500" />
+        <div className={cn("rounded-r bg-zinc-500", compact ? "h-1.5 w-7" : "h-2 w-10")} />
       </div>
       <div className="mt-1 text-center text-xs text-muted-foreground">
         {plan.perSide.length > 0 ? (

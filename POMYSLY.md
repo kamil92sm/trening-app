@@ -1296,7 +1296,7 @@ sąsiednie pola i wygląda inaczej w każdej z tych dwóch kart.
 
 ---
 
-### [ ] P3-5. Rozwijana miniaturka sztangi (układ talerzy) przy każdym ćwiczeniu w loggerze
+### [x] P3-5. Rozwijana miniaturka sztangi (układ talerzy) przy każdym ćwiczeniu w loggerze (2026-07-26)
 
 **Czego chce Kamil:** przy ćwiczeniu w Treningu rozwijany panel z taką samą
 wizualizacją sztangi jak w „Więcej", pokazujący jakie talerze założyć. **Domyślnie

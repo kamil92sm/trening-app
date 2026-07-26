@@ -39,7 +39,7 @@ import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { RestTimer, MuscleTags } from "@/components/Gym";
+import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
@@ -132,6 +132,8 @@ export function TrainScreen() {
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
+  // P3-5: rozwijana miniaturka talerzy przy cwiczeniu - domyslnie zwinieta.
+  const [openPlates, setOpenPlates] = useState<Set<number>>(new Set());
   // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
   // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
   const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
@@ -263,13 +265,23 @@ export function TrainScreen() {
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
-  // P1-9: rozgrzewka liczy sie wzgledem AKTYWNEGO sprzetu (profil siłowni, jesli
-  // ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego z ustawien.
-  const warmupBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
-  const warmupPlates = activeGymProfile?.plates ?? state.settings.plates;
+  // P1-9/P3-5: rozgrzewka i talerze licza sie wzgledem AKTYWNEGO sprzetu (profil
+  // siłowni, jesli ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego
+  // z ustawien.
+  const activeBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
+  const activePlates = activeGymProfile?.plates ?? state.settings.plates;
 
   function toggleWarmup(entryIdx: number) {
     setOpenWarmups((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryIdx)) next.delete(entryIdx);
+      else next.add(entryIdx);
+      return next;
+    });
+  }
+
+  function togglePlates(entryIdx: number) {
+    setOpenPlates((prev) => {
       const next = new Set(prev);
       if (next.has(entryIdx)) next.delete(entryIdx);
       else next.add(entryIdx);
@@ -850,7 +862,15 @@ export function TrainScreen() {
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
-          const warmupSteps = warmupPlan(ex, entry.targetWeight, warmupBar, warmupPlates);
+          const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
+          // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
+          // entry.targetWeight, ktory po korekcie steperem moze juz nie byc prawda);
+          // gdy wszystkie zaliczone, ostatnia seria.
+          const plateWeight =
+            ex.unit === "barbell"
+              ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
+              : null;
+          const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
           const swapCandidates = ex.primaryMuscle
             ? state.exercises.filter(
                 (e) =>
@@ -937,7 +957,7 @@ export function TrainScreen() {
                     {openWarmups.has(ei) && (
                       <div className="mt-1 space-y-1 rounded-md border border-border p-2">
                         {warmupSteps.map((s, si) => {
-                          const plan = platePlan(s.weight, warmupBar, warmupPlates);
+                          const plan = platePlan(s.weight, activeBar, activePlates);
                           return (
                             <div key={si} className="flex items-center justify-between text-[11px]">
                               <span className="tabular-nums">
@@ -950,6 +970,37 @@ export function TrainScreen() {
                           );
                         })}
                         <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {platePlanForEntry && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => togglePlates(ei)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      {openPlates.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      {platePlanForEntry.ok ? (
+                        <>
+                          Talerze ·{" "}
+                          {platePlanForEntry.perSide.length > 0
+                            ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
+                            : "sam gryf"}
+                        </>
+                      ) : (
+                        <span className="text-amber-400">
+                          Talerze ·{" "}
+                          {platePlanForEntry.leftover > 0
+                            ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
+                            : "cel lżejszy niż gryf"}
+                        </span>
+                      )}
+                    </button>
+                    {openPlates.has(ei) && (
+                      <div className="mt-1 rounded-md border border-border p-2">
+                        <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
                       </div>
                     )}
                   </div>
