@@ -83,8 +83,8 @@ export interface Session {
   mode?: TrainingMode;
   /** Moment zakończenia (ISO) — `date` to moment STARTU. Brak = czas nieznany (stare sesje/historia startowa). */
   finishedAt?: string;
-  /** Check-in gotowości (opcjonalny, P2-4) — obie skale 1 (słabo) – 5 (świetnie/brak zakwasów). */
-  readiness?: { sleep: number; doms: number };
+  /** Check-in gotowości (opcjonalny, P2-4) — obie skale 1 (słabo) – 5 (świetnie/brak zakwasów). Każde pole niezależnie opcjonalne (P3-1). */
+  readiness?: { sleep?: number; doms?: number };
 }
 
 export interface BodyEntry {
@@ -134,6 +134,8 @@ export interface Settings {
   trainingMode?: TrainingMode;
   /** Ręczne nadpisania zakresów serii/tydzień per partia (Progres → Objętość). Brak partii = domyślny zakres celu. */
   muscleRanges?: Partial<Record<Muscle, { min: number; max: number }>>;
+  /** Układ loggera (P3-6): "list" (domyślnie, jak dziś) albo "focus" (jedno ćwiczenie na ekran). */
+  loggerLayout?: "list" | "focus";
 }
 
 export interface AppState {

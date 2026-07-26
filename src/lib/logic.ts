@@ -80,6 +80,22 @@ export function muscleRangesFor(
   return merged;
 }
 
+// P3-7: kolor per partia - jedno zrodlo prawdy uzywane w Treningu i Planie
+// (tagi partii przy cwiczeniu) oraz w trybie skupienia. Dobrane tak, zeby
+// sasiadujace partie sie nie zlewaly na ciemnym tle.
+export const MUSCLE_COLORS: Record<Muscle, string> = {
+  Klatka: "#ef4444",
+  Plecy: "#3b82f6",
+  Barki: "#f59e0b",
+  Nogi: "#22c55e",
+  Pośladki: "#ec4899",
+  "Tył uda": "#14b8a6",
+  Łydki: "#84cc16",
+  Biceps: "#a855f7",
+  Triceps: "#f97316",
+  Brzuch: "#eab308",
+};
+
 export type VolumeStatus = "low" | "ok" | "high" | "veryhigh";
 
 export const STATUS_COLORS: Record<VolumeStatus, string> = {
@@ -126,11 +142,13 @@ function volumeStatus(
 export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertrophy"): MuscleVolume[] {
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
+  const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
   for (const day of state.days) {
     if (day.optional && !day.active) continue;
     for (const exId of day.exerciseIds) {
-      const ex = state.exercises.find((e) => e.id === exId);
+      const ex = exById.get(exId);
       if (!ex || ex.archived) continue;
       const sets = ex.targetSets;
       const target = state.targets[ex.id] ?? 0;
@@ -162,6 +180,24 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
 }
 
 /**
+ * Granice okna "ostatnie 7 dni" (dziś + 6 wstecz) jako klucze YYYY-MM-DD z
+ * KOMPONENTÓW LOKALNYCH (nie `toISOString()` = UTC) — inaczej po północy
+ * czasu lokalnego w strefie o ujemnym przesunięciu okno mogłoby zjechać
+ * o dobę względem `session.date` (który bywa zapisany bez strefy, patrz
+ * historia startowa vs. `new Date().toISOString()` w drafcie). Wspólne dla
+ * `actualWeeklyMuscleVolume` i `actualVolumeWindow`, żeby nie rozjechały się
+ * w przyszłości.
+ */
+function volumeWindowBounds(nowIso?: string): { cutoffStr: string; nowStr: string } {
+  const now = nowIso ? new Date(nowIso) : new Date();
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 6);
+  const key = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { cutoffStr: key(cutoff), nowStr: key(now) };
+}
+
+/**
  * Serie robocze W OSTATNICH 7 DNIACH — z faktycznie zalogowanych (ukończonych)
  * sesji, nie z planu. Ta sama waga partia główna/wspomagająca jak wyżej.
  * `nowIso` opcjonalny (testowalność) — domyślnie bieżąca data urządzenia.
@@ -173,19 +209,17 @@ export function actualWeeklyMuscleVolume(
 ): MuscleVolume[] {
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
+  const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
-  const now = nowIso ? new Date(nowIso) : new Date();
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 6); // okno 7 dni: dzis + 6 wstecz
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const nowStr = now.toISOString().slice(0, 10);
+  const { cutoffStr, nowStr } = volumeWindowBounds(nowIso);
 
   for (const session of state.sessions) {
     if (!session.completed) continue;
     const d = session.date.slice(0, 10);
     if (d < cutoffStr || d > nowStr) continue;
     for (const entry of session.entries) {
-      const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+      const ex = exById.get(entry.exerciseId);
       if (!ex || ex.archived) continue;
       const doneSets = entry.sets.filter((s) => s.done).length;
       if (doneSets === 0) continue;
@@ -216,6 +250,25 @@ export function actualWeeklyMuscleVolume(
 }
 
 /**
+ * Kontekst okna "Wykonane (7 dni)" — do wyjaśnienia w UI (P3-3) dlaczego
+ * "Plan" i "Wykonane" czasem pokazują identyczne liczby: to zbieżność
+ * danych (okno akurat trafiło po jednym kompletnym treningu na dzień
+ * planu), nie błąd. Liczba ukończonych sesji w oknie + zakres dat.
+ */
+export function actualVolumeWindow(
+  state: AppState,
+  nowIso?: string
+): { sessions: number; fromIso: string; toIso: string } {
+  const { cutoffStr, nowStr } = volumeWindowBounds(nowIso);
+  const count = state.sessions.filter((s) => {
+    if (!s.completed) return false;
+    const d = s.date.slice(0, 10);
+    return d >= cutoffStr && d <= nowStr;
+  }).length;
+  return { sessions: count, fromIso: cutoffStr, toIso: nowStr };
+}
+
+/**
  * Dobiera ćwiczenia na dzień bonusowy pod partie z największym deficytem
  * objętości W TYM TYGODNIU — na podstawie faktycznie ukończonych sesji
  * (`actualWeeklyMuscleVolume`), nie z planu. Bonus robi się na końcu tygodnia
@@ -224,6 +277,11 @@ export function actualWeeklyMuscleVolume(
  * obecne w aktywnych dniach GŁÓWNYCH (nie dubluje ruchów, które i tak są w
  * tygodniu) i zarchiwizowane. Wynik ma znaczenie tylko jako propozycja do
  * drafta sesji (patrz TrainScreen) — nie rusza planu ani progresji.
+ *
+ * P3-8: przy ~90 ćwiczeniach w bibliotece kandydaci w obrębie tej samej
+ * deficytowej partii są rankowani, żeby propozycja nie trafiła w sprzęt,
+ * którego Kamil nie ma: (0) ćwiczenia, które kiedykolwiek wykonał (są
+ * w historii sesji), (1) ćwiczenia z dnia bonusowego, (2) reszta biblioteki.
  */
 export function suggestBonusExercises(state: AppState, count: number, nowIso?: string): Exercise[] {
   const goal = state.settings.volumeGoal ?? "hypertrophy";
@@ -235,12 +293,17 @@ export function suggestBonusExercises(state: AppState, count: number, nowIso?: s
   const mainExerciseIds = new Set(state.days.filter((d) => !d.optional).flatMap((d) => d.exerciseIds));
   const pool = state.exercises.filter((e) => !e.archived && !mainExerciseIds.has(e.id));
 
+  const historyIds = new Set(state.sessions.flatMap((s) => s.entries.map((e) => e.exerciseId)));
+  const bonusDayIds = new Set(state.days.find((d) => d.optional)?.exerciseIds ?? []);
+  const rank = (e: Exercise) => (historyIds.has(e.id) ? 0 : bonusDayIds.has(e.id) ? 1 : 2);
+  const rankedPool = [...pool].sort((a, b) => rank(a) - rank(b));
+
   const picked: Exercise[] = [];
   const usedIds = new Set<string>();
 
   for (const { muscle } of deficits) {
     if (picked.length >= count) break;
-    const candidate = pool.find((e) => e.primaryMuscle === muscle && !usedIds.has(e.id));
+    const candidate = rankedPool.find((e) => e.primaryMuscle === muscle && !usedIds.has(e.id));
     if (candidate) {
       picked.push(candidate);
       usedIds.add(candidate.id);
@@ -248,7 +311,7 @@ export function suggestBonusExercises(state: AppState, count: number, nowIso?: s
   }
 
   // Dobij do count, gdy deficytowych partii jest mniej niż miejsc w bonusie.
-  for (const e of pool) {
+  for (const e of rankedPool) {
     if (picked.length >= count) break;
     if (usedIds.has(e.id) || !e.primaryMuscle) continue;
     picked.push(e);

@@ -454,3 +454,20 @@ tak, by dało się naprawiać od zera z Sonnetem bez ponownej analizy.
 - **Zweryfikowane:** SVG zawiera dwie ścieżki (`path`) — solidną (dane) i przerywaną (projekcja,
   `stroke-dasharray="5 4"`, `opacity="0.5"`). 4 nowe testy w `tests/logic.test.ts` (w tym trend
   liniowy +5/tydzień ekstrapolowany poprawnie, odstęp = średni odstęp historii).
+
+---
+
+## 13. Backlog P3 — zgłoszenia Kamila (sesja 26.07.2026, wieczór II)
+
+Osiem zadań (P3-1…P3-8) + jedno opcjonalne (P3-9) rozpisane w **`POMYSLY.md`,
+sekcja „P3"** — z root cause'ami, numerami linii i kryteriami akceptacji:
+bug check-inu gotowości (Sen zaznacza Zakwasy), zwijany panel gotowości, +/− przy
+ciężarze w loggerze, wyjaśnienie „Plan vs Wykonane (7 dni)" (identyczne liczby to
+zbieżność danych, nie błąd), rozmiar pól z datą, rozwijana miniaturka talerzy przy
+ćwiczeniu, tryb skupienia (jedno ćwiczenie na ekran, suwak na ekranie wyboru dnia),
+kolorowe tagi partii i rozszerzenie bazy ćwiczeń do ~90 pozycji.
+
+⚠️ Przy rozszerzaniu bazy: `migrateState()` w ścieżce „aktualny schemat"
+(`seed.ts:270`) przykrywa seed tablicą `old.exercises`, więc **samo dopisanie
+ćwiczeń do `SEED_EXERCISES` nie dotrze do istniejącego stanu** — potrzebny jest
+merge biblioteki (P3-8 krok 1), nie bump `SCHEMA_VERSION`.

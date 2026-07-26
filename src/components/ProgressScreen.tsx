@@ -5,6 +5,7 @@ import type { Muscle } from "@/lib/types";
 import {
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
+  actualVolumeWindow,
   muscleRangesFor,
   STATUS_COLORS,
   STATUS_LABELS,
@@ -41,6 +42,10 @@ export function ProgressScreen() {
   const plannedVolumes = useMemo(() => weeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
   const actualVolumes = useMemo(() => actualWeeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
   const volumes = volumeView === "planned" ? plannedVolumes : actualVolumes;
+  // P3-3: kontekst okna "Wykonane (7 dni)" - tlumaczy, kiedy i dlaczego liczby
+  // pokrywaja sie z planem (zbieznosc danych, nie blad).
+  const actualWindow = useMemo(() => actualVolumeWindow(state), [state]);
+  const plannedByMuscle = useMemo(() => new Map(plannedVolumes.map((v) => [v.muscle, v.sets])), [plannedVolumes]);
   const bonusDay = state.days.find((d) => d.optional) ?? null;
 
   // P1-5: reczne nadpisanie zakresu min-max dla partii (Progres -> Objetosc).
@@ -112,21 +117,29 @@ export function ProgressScreen() {
   // P2-12: standardy silowe wzgledem masy ciala - ciekawostka, karta ukryta gdy brak danych.
   const strengthRatiosData = useMemo(() => strengthRatios(state), [state]);
 
+  // P3-8: baza urosla do ~90 pozycji - jeden przebieg po sesjach (Map exId->best)
+  // zamiast petli po kazdym cwiczeniu ze skanowaniem wszystkich sesji w srodku.
   const records = useMemo(() => {
-    return state.exercises
-      .filter((ex) => !ex.archived && !ex.isHold)
-      .map((ex) => {
-        let bestW = 0;
-        let bestE = 0;
-        for (const s of state.sessions) {
-          const entry = s.entries.find((e) => e.exerciseId === ex.id);
-          if (!entry) continue;
-          for (const set of entry.sets) {
-            if (!set.done) continue;
-            bestW = Math.max(bestW, set.weight);
-          }
-          bestE = Math.max(bestE, bestE1rm(ex, entry));
+    const exById = new Map(state.exercises.map((ex) => [ex.id, ex]));
+    const best = new Map<string, { bestW: number; bestE: number }>();
+    for (const s of state.sessions) {
+      for (const entry of s.entries) {
+        const ex = exById.get(entry.exerciseId);
+        if (!ex || ex.archived || ex.isHold) continue;
+        const acc = best.get(ex.id) ?? { bestW: 0, bestE: 0 };
+        for (const set of entry.sets) {
+          if (!set.done) continue;
+          acc.bestW = Math.max(acc.bestW, set.weight);
         }
+        acc.bestE = Math.max(acc.bestE, bestE1rm(ex, entry));
+        best.set(ex.id, acc);
+      }
+    }
+    // Kolejnosc jak w state.exercises (plan) - zachowanie identyczne jak przed zmiana.
+    return state.exercises
+      .filter((ex) => best.has(ex.id))
+      .map((ex) => {
+        const { bestW, bestE } = best.get(ex.id)!;
         return { ex, bestW, bestE: Math.round(bestE * 10) / 10 };
       })
       .filter((r) => r.bestW > 0);
@@ -213,6 +226,15 @@ export function ProgressScreen() {
               ))}
             </div>
           </div>
+          {volumeView === "actual" && (
+            <p className="text-[10px] text-muted-foreground">
+              {actualWindow.sessions === 0
+                ? "Brak treningów w tym oknie"
+                : `${actualWindow.sessions} ${
+                    actualWindow.sessions === 1 ? "trening" : actualWindow.sessions < 5 ? "treningi" : "treningów"
+                  } · ${fmtDateShort(actualWindow.fromIso)}–${fmtDateShort(actualWindow.toIso)}`}
+            </p>
+          )}
           {(() => {
             const maxTonnage = Math.max(1, ...volumes.map((v) => v.tonnage));
             return volumes.map((v) => {
@@ -233,6 +255,12 @@ export function ProgressScreen() {
             const range = ranges[v.muscle];
             const hasOverride = !!state.settings.muscleRanges?.[v.muscle];
             const pct = Math.min((v.sets / (range.max * 1.3)) * 100, 100);
+            // P3-3: w widoku "Wykonane" pokaz cien planu (marker + delta) -
+            // to odpowiedz na "czemu to samo co plan?": widac wprost, ze
+            // wartosci sa rowne albo o ile sie rozjezdzaja.
+            const planned = volumeView === "actual" ? plannedByMuscle.get(v.muscle) ?? 0 : null;
+            const delta = planned !== null ? +(v.sets - planned).toFixed(1) : 0;
+            const plannedPct = planned !== null ? Math.min((planned / (range.max * 1.3)) * 100, 100) : 0;
             return (
               <div key={v.muscle}>
                 <div className="flex items-center justify-between gap-2 text-xs">
@@ -269,14 +297,32 @@ export function ProgressScreen() {
                       </span>{" "}
                       / {range.min}–{range.max}
                       {hasOverride && <span className="ml-1 text-[9px] text-purple-300">wł.</span>}
+                      {planned !== null && (
+                        <span className="ml-1 text-[10px]">
+                          (plan {planned}
+                          {delta !== 0 && (
+                            <span className={delta > 0 ? "text-sky-400" : "text-amber-400"}>
+                              {delta > 0 ? `, +${delta}` : `, ${delta}`}
+                            </span>
+                          )}
+                          )
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="relative mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full transition-all"
                     style={{ width: `${pct}%`, backgroundColor: STATUS_COLORS[v.status] }}
                   />
+                  {planned !== null && (
+                    <div
+                      className="absolute top-0 h-full w-0.5 bg-foreground/60"
+                      style={{ left: `${plannedPct}%` }}
+                      aria-hidden
+                    />
+                  )}
                 </div>
               </div>
             );

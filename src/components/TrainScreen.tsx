@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   Minus,
   Plus,
@@ -10,6 +11,7 @@ import {
   AlertTriangle,
   X,
   Repeat,
+  Trash2,
 } from "lucide-react";
 import { useStore, type FinishSummary, type UndoSnapshot } from "@/lib/store";
 import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
@@ -38,8 +40,9 @@ import { gistBackup } from "@/lib/backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { RestTimer } from "@/components/Gym";
-import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
+import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 const DRAFT_KEY = "trening-app-draft";
@@ -51,7 +54,7 @@ interface Draft {
   entries: ExerciseLog[];
   mode: TrainingMode;
   /** Check-in gotowości (P2-4) — opcjonalny, wpisany PRZED startem dnia na ekranie wyboru. */
-  readiness?: { sleep: number; doms: number };
+  readiness?: { sleep?: number; doms?: number };
 }
 
 function loadDraft(): Draft | null {
@@ -112,6 +115,13 @@ function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
   return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
 }
 
+// P3-1: pusty obiekt (obie skale nietkniete) -> undefined, nie zapisujemy smiecia do sesji.
+function cleanReadiness(r: { sleep?: number; doms?: number } | null | undefined) {
+  if (!r || (r.sleep === undefined && r.doms === undefined)) return undefined;
+  return r;
+}
+
+
 export function TrainScreen() {
   const store = useStore();
   const { state } = store;
@@ -124,10 +134,31 @@ export function TrainScreen() {
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
+  // P3-8: filtr tekstowy w liscie kandydatow do zamiany (baza urosla do ~90 pozycji).
+  const [swapSearch, setSwapSearch] = useState("");
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
+  // P3-5: rozwijana miniaturka talerzy przy cwiczeniu - domyslnie zwinieta.
+  const [openPlates, setOpenPlates] = useState<Set<number>>(new Set());
   // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
   // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
-  const [readiness, setReadiness] = useState<{ sleep: number; doms: number } | null>(null);
+  const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
+  // P3-1: panel gotowosci domyslnie zwiniety - rozwijany recznie.
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  // P3-6: tryb skupienia - indeks aktualnie widocznego cwiczenia. W stanie
+  // (NIE w drafcie) - po restarcie apki w trakcie treningu wraca na pierwsze
+  // cwiczenie z niezaliczona seria (albo ostatnie, gdy wszystko zaliczone).
+  const [focusIdx, setFocusIdx] = useState(() => {
+    const d = loadDraft();
+    if (!d) return 0;
+    const idx = d.entries.findIndex((e) => e.sets.some((s) => !s.done));
+    return idx === -1 ? Math.max(0, d.entries.length - 1) : idx;
+  });
+  const focusAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
+    };
+  }, []);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -254,10 +285,13 @@ export function TrainScreen() {
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
-  // P1-9: rozgrzewka liczy sie wzgledem AKTYWNEGO sprzetu (profil siłowni, jesli
-  // ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego z ustawien.
-  const warmupBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
-  const warmupPlates = activeGymProfile?.plates ?? state.settings.plates;
+  // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
+  const layout = state.settings.loggerLayout ?? "list";
+  // P1-9/P3-5: rozgrzewka i talerze licza sie wzgledem AKTYWNEGO sprzetu (profil
+  // siłowni, jesli ustawiony — spojnie z sugestiami FEAT-1), inaczej domowego
+  // z ustawien.
+  const activeBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
+  const activePlates = activeGymProfile?.plates ?? state.settings.plates;
 
   function toggleWarmup(entryIdx: number) {
     setOpenWarmups((prev) => {
@@ -268,13 +302,28 @@ export function TrainScreen() {
     });
   }
 
-  // P2-4: pierwsze dotknięcie ustawia OBA pola (nietknięte = neutralne 3), żeby
-  // nie zapisywać połowicznego stanu. Niska gotowość -> jednorazowa sugestia.
-  // Efekt (toast) policzony PRZED setState, nie w jego updaterze — StrictMode
-  // (dev) wywołuje updatery dwa razy, co podwoiłoby toast (patrz finishSession).
+  function togglePlates(entryIdx: number) {
+    setOpenPlates((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryIdx)) next.delete(entryIdx);
+      else next.add(entryIdx);
+      return next;
+    });
+  }
+
+  // P3-1: kazde pole niezalezne - klikniecie Snu NIE dotyka Zakwasow (byl bug:
+  // dosypywalo domyslna trojke do drugiej skali). Toast tylko przy PRZEJSCIU
+  // w stan niskiej gotowosci (nie przy kazdym kliknieciu, gdy juz tam bylismy).
+  // Policzony PRZED setState — StrictMode (dev) wywoluje updatery dwa razy,
+  // co podwoiloby toast (patrz finishSession).
   function updateReadiness(patch: Partial<{ sleep: number; doms: number }>) {
-    const next = { sleep: readiness?.sleep ?? 3, doms: readiness?.doms ?? 3, ...patch };
-    if (next.sleep <= 2 || next.sleep + next.doms <= 4) {
+    const prev = readiness ?? {};
+    const next = { ...prev, ...patch };
+    const wasLow = (prev.sleep !== undefined && prev.sleep <= 2) ||
+      (prev.sleep !== undefined && prev.doms !== undefined && prev.sleep + prev.doms <= 4);
+    const isLow = (next.sleep !== undefined && next.sleep <= 2) ||
+      (next.sleep !== undefined && next.doms !== undefined && next.sleep + next.doms <= 4);
+    if (isLow && !wasLow) {
       toast("Słaba regeneracja", "Rozważ -1 serię w przysiadzie/MC, izolacje bez zmian.");
     }
     setReadiness(next);
@@ -305,8 +354,9 @@ export function TrainScreen() {
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: readiness ?? undefined });
+    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
     setReadiness(null);
+    setFocusIdx(0);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
@@ -346,7 +396,43 @@ export function TrainScreen() {
           toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10)}${suffix}`);
         }
       }
+
+      // P3-6: tryb skupienia - auto-przejscie do kolejnego cwiczenia, gdy ten
+      // klik zaliczyl WSZYSTKIE serie biezacego cwiczenia (nie tylko przy juz
+      // kompletnym). Nie z ostatniego cwiczenia (tam czeka "Zakoncz trening").
+      const sets = draft?.entries[entryIdx]?.sets ?? [];
+      const othersAlreadyDone = sets.length > 0 && sets.every((s, i) => i === setIdx || s.done);
+      const totalEntries = draft?.entries.length ?? 0;
+      if (layout === "focus" && entryIdx === focusIdx && othersAlreadyDone && entryIdx < totalEntries - 1) {
+        if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
+        const idxAtSchedule = entryIdx;
+        focusAdvanceTimer.current = setTimeout(() => {
+          focusAdvanceTimer.current = null;
+          setFocusIdx((cur) => (cur === idxAtSchedule ? cur + 1 : cur));
+        }, 900);
+      }
     }
+  }
+
+  // P3-2: stepper +/- przy ciezarze. Synchronizuje INNE jeszcze niezaliczone
+  // serie tego cwiczenia, ktore maja dokladnie ta sama wage co edytowana
+  // seria PRZED zmiana - jesli Kamil wczesniej recznie rozjechal ciezar
+  // konkretnej serii, ta seria przestaje sie synchronizowac (nie nadpisuje
+  // sie juz nic). Zaliczonych serii nigdy nie dotyka. entry.targetWeight
+  // (baza progresji) zostaje bez zmian - to tylko korekta wag serii w drafcie.
+  function setWeightWithSync(entryIdx: number, setIdx: number, weight: number) {
+    const w = Math.max(0, Math.round(weight * 100) / 100);
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      const sets = next.entries[entryIdx].sets;
+      const oldWeight = sets[setIdx].weight;
+      if (!sets[setIdx].done) sets[setIdx].weight = w;
+      for (let i = setIdx + 1; i < sets.length; i++) {
+        if (!sets[i].done && sets[i].weight === oldWeight) sets[i].weight = w;
+      }
+      return next;
+    });
   }
 
   function addSet(entryIdx: number) {
@@ -403,6 +489,7 @@ export function TrainScreen() {
       return next;
     });
     setSwapIdx(null);
+    setSwapSearch("");
   }
 
   function finish() {
@@ -617,6 +704,18 @@ export function TrainScreen() {
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
         </div>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+          <div>
+            <p className="text-xs font-medium">Tryb skupienia</p>
+            <p className="text-[10px] text-muted-foreground">
+              Jedno ćwiczenie na ekran zamiast listy ze scrollem.
+            </p>
+          </div>
+          <Switch
+            checked={layout === "focus"}
+            onCheckedChange={(v) => store.updateSettings({ loggerLayout: v ? "focus" : "list" })}
+          />
+        </div>
         {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
             {weeksSinceDeloadCount >= 6 && plateauCount >= 3
@@ -627,58 +726,69 @@ export function TrainScreen() {
           </div>
         )}
         <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-xs font-medium">Jak się dziś czujesz? (opcjonalnie)</p>
-          <div className="mt-2 space-y-2">
-            <div>
-              <p className="text-[10px] text-muted-foreground">Sen — 1 słabo, 5 świetnie</p>
-              <div className="mt-1 flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => updateReadiness({ sleep: n })}
-                    className={cn(
-                      "h-7 w-7 rounded-md border text-xs transition-colors",
-                      readiness?.sleep === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
+          <button
+            type="button"
+            onClick={() => setReadinessOpen((v) => !v)}
+            className="flex w-full items-center gap-1 text-left text-xs font-medium"
+          >
+            {readinessOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {readiness?.sleep === undefined && readiness?.doms === undefined
+              ? "Jak się dziś czujesz? (opcjonalnie)"
+              : `Gotowość: sen ${readiness?.sleep ?? "—"} · zakwasy ${readiness?.doms ?? "—"}`}
+          </button>
+          {readinessOpen && (
+            <div className="mt-2 space-y-2">
+              <div>
+                <p className="text-[10px] text-muted-foreground">Sen — 1 słabo, 5 świetnie</p>
+                <div className="mt-1 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => updateReadiness({ sleep: n })}
+                      className={cn(
+                        "h-7 w-7 rounded-md border text-xs transition-colors",
+                        readiness?.sleep === n
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground">Zakwasy — 1 mocne, 5 brak</p>
-              <div className="mt-1 flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => updateReadiness({ doms: n })}
-                    className={cn(
-                      "h-7 w-7 rounded-md border text-xs transition-colors",
-                      readiness?.doms === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
+              <div>
+                <p className="text-[10px] text-muted-foreground">Zakwasy — 1 mocne, 5 brak</p>
+                <div className="mt-1 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => updateReadiness({ doms: n })}
+                      className={cn(
+                        "h-7 w-7 rounded-md border text-xs transition-colors",
+                        readiness?.doms === n
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
+              {readiness && (
+                <button
+                  type="button"
+                  onClick={() => setReadiness(null)}
+                  className="text-[10px] text-muted-foreground underline underline-offset-2"
+                >
+                  Wyczyść
+                </button>
+              )}
             </div>
-            {readiness && (
-              <button
-                type="button"
-                onClick={() => setReadiness(null)}
-                className="text-[10px] text-muted-foreground underline underline-offset-2"
-              >
-                Wyczyść
-              </button>
-            )}
-          </div>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">Wybierz dzień treningowy:</p>
         {activeDays.map((day) => (
@@ -761,6 +871,362 @@ export function TrainScreen() {
     completed: false,
   });
 
+  // P3-6: karta jednego cwiczenia - funkcja (nie osobny plik/komponent), zeby
+  // uzyskac pelne wspoldzielenie kodu miedzy ukladem "list" (scroll, wszystkie
+  // karty) i "focus" (jedno cwiczenie na ekran) bez przekazywania dziesiatkow
+  // propsow - obie sciezki renderu dziela to samo domkniecie (draft, timer,
+  // swapIdx itd. zyja w TrainScreen). TS nie zweza `draft` przez granice
+  // deklaracji funkcji (mimo ze `draft` jest const) - stad lokalny guard.
+  function renderExerciseCard(ei: number) {
+    if (!draft) return null;
+    const entry = draft.entries[ei];
+    const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+    if (!ex) return null;
+    const hEx = exerciseForMode(ex, draft.mode);
+          const unitLabel = hEx.isHold ? "s" : "powt.";
+          const last = lastByExercise.get(ex.id) ?? null;
+          const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
+          const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
+          // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
+          // entry.targetWeight, ktory po korekcie steperem moze juz nie byc prawda);
+          // gdy wszystkie zaliczone, ostatnia seria.
+          const plateWeight =
+            ex.unit === "barbell"
+              ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
+              : null;
+          const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
+          // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
+          // (decyduje o widocznosci przycisku Zamien), swapCandidates to ta sama
+          // lista po filtrze tekstowym (swapSearch) i posortowana: historia
+          // Kamila najpierw, potem alfabetycznie.
+          const swapPool = ex.primaryMuscle
+            ? state.exercises.filter(
+                (e) =>
+                  !e.archived &&
+                  e.primaryMuscle === ex.primaryMuscle &&
+                  e.id !== ex.id &&
+                  !draft.entries.some((en) => en.exerciseId === e.id)
+              )
+            : [];
+          const swapCandidates = swapPool
+            .filter((e) => !swapSearch || normalizeSearch(e.name).includes(normalizeSearch(swapSearch)))
+            .sort((a, b) => {
+              const ha = lastByExercise.has(a.id) ? 0 : 1;
+              const hb = lastByExercise.has(b.id) ? 0 : 1;
+              return ha - hb || a.name.localeCompare(b.name, "pl");
+            });
+          return (
+            <Card key={entry.exerciseId}>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">{ex.name}</CardTitle>
+                  {swapPool.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSwapIdx(swapIdx === ei ? null : ei);
+                        setSwapSearch("");
+                      }}
+                      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Zamień ćwiczenie"
+                    >
+                      <Repeat size={15} />
+                    </button>
+                  )}
+                </div>
+                <MuscleTags exercise={ex} />
+                <CardDescription>
+                  {entry.sets.length}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
+                  {unitLabel} · cel {fmtKg(entry.targetWeight)}
+                  {hEx.perHand && " (na rękę)"} · RIR {hEx.rir}
+                </CardDescription>
+                {gymSuggestion !== null && (
+                  <div className="flex items-center justify-between gap-2 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-300">
+                    <span>
+                      {activeGymProfile!.name}: sugerowany {fmtKg(gymSuggestion)} (zamiast{" "}
+                      {fmtKg(entry.targetWeight)})
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-semibold underline underline-offset-2"
+                      onClick={() => applyGymSuggestion(ei, gymSuggestion)}
+                    >
+                      Użyj
+                    </button>
+                  </div>
+                )}
+                {swapIdx === ei && (
+                  <div className="space-y-1 rounded-md border border-border p-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Zamień na (ta sama partia, tylko na ten trening):
+                    </p>
+                    <Input
+                      autoFocus
+                      value={swapSearch}
+                      onChange={(e) => setSwapSearch(e.target.value)}
+                      placeholder="Szukaj ćwiczenia…"
+                      className="h-8 text-xs"
+                    />
+                    <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                      {swapCandidates.length === 0 ? (
+                        <p className="p-2 text-center text-[11px] text-muted-foreground">Brak wyników</p>
+                      ) : (
+                        swapCandidates.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => swapExercise(ei, c.id)}
+                            className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                          >
+                            {c.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+                {last && (
+                  <p className="text-xs text-muted-foreground">
+                    Ostatnio ({fmtDateShort(last.date)}
+                    {last.mode !== draft.mode ? ` (${MODE_BADGE[last.mode].short})` : ""}):{" "}
+                    {last.sets
+                      .map((s) => (hEx.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
+                      .join(" · ")}
+                  </p>
+                )}
+                {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
+                {warmupSteps.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => toggleWarmup(ei)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      {openWarmups.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      Rozgrzewka ({warmupSteps.length})
+                    </button>
+                    {openWarmups.has(ei) && (
+                      <div className="mt-1 space-y-1 rounded-md border border-border p-2">
+                        {warmupSteps.map((s, si) => {
+                          const plan = platePlan(s.weight, activeBar, activePlates);
+                          return (
+                            <div key={si} className="flex items-center justify-between text-[11px]">
+                              <span className="tabular-nums">
+                                {fmtKg(s.weight)} × {s.reps}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {platePlanForEntry && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => togglePlates(ei)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      {openPlates.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      {platePlanForEntry.ok ? (
+                        <>
+                          Talerze ·{" "}
+                          {platePlanForEntry.perSide.length > 0
+                            ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
+                            : "sam gryf"}
+                        </>
+                      ) : (
+                        <span className="text-amber-400">
+                          Talerze ·{" "}
+                          {platePlanForEntry.leftover > 0
+                            ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
+                            : "cel lżejszy niż gryf"}
+                        </span>
+                      )}
+                    </button>
+                    {openPlates.has(ei) && (
+                      <div className="mt-1 rounded-md border border-border p-2">
+                        <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {entry.sets.map((set, si) => {
+                  const best = personalBestsByExercise.get(ex.id);
+                  const recordKind = best ? isSetRecord(ex, set, best) : null;
+                  return (
+                  <div
+                    key={si}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md",
+                      recordKind && "ring-1 ring-amber-400/70"
+                    )}
+                  >
+                    <span className="w-4 shrink-0 text-xs text-muted-foreground">{si + 1}</span>
+                    <button
+                      type="button"
+                      disabled={set.done}
+                      onClick={() => setWeightWithSync(ei, si, set.weight - hEx.increment)}
+                      className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
+                      aria-label="Zmniejsz ciężar"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.25"
+                      className="h-9 w-16 px-1 text-center"
+                      value={set.weight === 0 ? "" : set.weight}
+                      placeholder="kg"
+                      onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
+                    />
+                    <button
+                      type="button"
+                      disabled={set.done}
+                      onClick={() => setWeightWithSync(ei, si, set.weight + hEx.increment)}
+                      className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
+                      aria-label="Zwiększ ciężar"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <span className="shrink-0 text-xs text-muted-foreground">×</span>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      className="h-9 w-14 px-1 text-center"
+                      value={set.reps === 0 ? "" : set.reps}
+                      placeholder={unitLabel}
+                      onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
+                    />
+                    {recordKind && (
+                      <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                        PR
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => updateSet(ei, si, { done: !set.done })}
+                      className={cn(
+                        "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors",
+                        set.done
+                          ? "border-green-500 bg-green-500/20 text-green-400"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                      aria-label={set.done ? "Odznacz serię" : "Zalicz serię"}
+                    >
+                      <Check size={16} />
+                    </button>
+                    {si >= setsForMode(ex, draft.mode) && (
+                      <button
+                        type="button"
+                        onClick={() => removeSet(ei, si)}
+                        className="flex h-9 w-7 shrink-0 items-center justify-center text-muted-foreground hover:text-destructive"
+                        aria-label="Usuń serię"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  );
+                })}
+                <Button variant="ghost" size="sm" className="mt-1 text-muted-foreground" onClick={() => addSet(ei)}>
+                  <Plus size={14} /> Dodaj serię
+                </Button>
+              </CardContent>
+            </Card>
+    );
+  }
+
+  if (layout === "focus") {
+    // ── Tryb skupienia (P3-6): jedno ćwiczenie na ekran ─────────────────────
+    return (
+      <div className="pb-16">
+        <div
+          className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
+          style={{
+            marginTop: "calc(env(safe-area-inset-top) * -1)",
+            paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold">{day?.short ?? "Trening"}</h1>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    backgroundColor: `${MODE_BADGE[draft.mode].color}33`,
+                    color: MODE_BADGE[draft.mode].color,
+                  }}
+                >
+                  {MODE_BADGE[draft.mode].label}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                ĆW. {focusIdx + 1}/{draft.entries.length}
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
+              <X size={15} /> Porzuć
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-3 p-4">
+          {renderExerciseCard(focusIdx)}
+          <div className="rounded-lg border border-border bg-card p-3">
+            <RestTimer variant="panel" seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={focusIdx === 0}
+              onClick={() => setFocusIdx((i) => Math.max(0, i - 1))}
+              aria-label="Poprzednie ćwiczenie"
+            >
+              <ChevronLeft size={18} />
+            </Button>
+            <div className="flex gap-1.5">
+              {draft.entries.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setFocusIdx(i)}
+                  className={cn("h-2 w-2 rounded-full transition-colors", i === focusIdx ? "bg-primary" : "bg-muted")}
+                  aria-label={`Ćwiczenie ${i + 1}`}
+                />
+              ))}
+            </div>
+            {focusIdx < draft.entries.length - 1 ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setFocusIdx((i) => Math.min(draft.entries.length - 1, i + 1))}
+                aria-label="Następne ćwiczenie"
+              >
+                <ChevronRight size={18} />
+              </Button>
+            ) : (
+              <Button size="sm" onClick={finish}>
+                Zakończ trening
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tryb listy (domyślny) ──────────────────────────────────────────────────
   return (
     <div className="pb-16">
       <div
@@ -796,187 +1262,7 @@ export function TrainScreen() {
       </div>
 
       <div className="space-y-3 p-4">
-        {draft.entries.map((entry, ei) => {
-          const ex = state.exercises.find((e) => e.id === entry.exerciseId);
-          if (!ex) return null;
-          const hEx = exerciseForMode(ex, draft.mode);
-          const unitLabel = hEx.isHold ? "s" : "powt.";
-          const last = lastByExercise.get(ex.id) ?? null;
-          const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
-          const warmupSteps = warmupPlan(ex, entry.targetWeight, warmupBar, warmupPlates);
-          const swapCandidates = ex.primaryMuscle
-            ? state.exercises.filter(
-                (e) =>
-                  !e.archived &&
-                  e.primaryMuscle === ex.primaryMuscle &&
-                  e.id !== ex.id &&
-                  !draft.entries.some((en) => en.exerciseId === e.id)
-              )
-            : [];
-          return (
-            <Card key={entry.exerciseId}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm">{ex.name}</CardTitle>
-                  {swapCandidates.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSwapIdx(swapIdx === ei ? null : ei)}
-                      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label="Zamień ćwiczenie"
-                    >
-                      <Repeat size={15} />
-                    </button>
-                  )}
-                </div>
-                <CardDescription>
-                  {entry.sets.length}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
-                  {unitLabel} · cel {fmtKg(entry.targetWeight)}
-                  {hEx.perHand && " (na rękę)"} · RIR {hEx.rir}
-                </CardDescription>
-                {gymSuggestion !== null && (
-                  <div className="flex items-center justify-between gap-2 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-300">
-                    <span>
-                      {activeGymProfile!.name}: sugerowany {fmtKg(gymSuggestion)} (zamiast{" "}
-                      {fmtKg(entry.targetWeight)})
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 font-semibold underline underline-offset-2"
-                      onClick={() => applyGymSuggestion(ei, gymSuggestion)}
-                    >
-                      Użyj
-                    </button>
-                  </div>
-                )}
-                {swapIdx === ei && (
-                  <div className="space-y-1 rounded-md border border-border p-2">
-                    <p className="text-[11px] text-muted-foreground">
-                      Zamień na (ta sama partia, tylko na ten trening):
-                    </p>
-                    {swapCandidates.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => swapExercise(ei, c.id)}
-                        className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
-                      >
-                        {c.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {last && (
-                  <p className="text-xs text-muted-foreground">
-                    Ostatnio ({fmtDateShort(last.date)}
-                    {last.mode !== draft.mode ? ` (${MODE_BADGE[last.mode].short})` : ""}):{" "}
-                    {last.sets
-                      .map((s) => (hEx.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
-                      .join(" · ")}
-                  </p>
-                )}
-                {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
-                {warmupSteps.length > 0 && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => toggleWarmup(ei)}
-                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                    >
-                      {openWarmups.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      Rozgrzewka ({warmupSteps.length})
-                    </button>
-                    {openWarmups.has(ei) && (
-                      <div className="mt-1 space-y-1 rounded-md border border-border p-2">
-                        {warmupSteps.map((s, si) => {
-                          const plan = platePlan(s.weight, warmupBar, warmupPlates);
-                          return (
-                            <div key={si} className="flex items-center justify-between text-[11px]">
-                              <span className="tabular-nums">
-                                {fmtKg(s.weight)} × {s.reps}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                        <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-1.5">
-                {entry.sets.map((set, si) => {
-                  const best = personalBestsByExercise.get(ex.id);
-                  const recordKind = best ? isSetRecord(ex, set, best) : null;
-                  return (
-                  <div
-                    key={si}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md",
-                      recordKind && "ring-1 ring-amber-400/70"
-                    )}
-                  >
-                    <span className="w-4 text-xs text-muted-foreground">{si + 1}</span>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.25"
-                      className="h-9 w-20 text-center"
-                      value={set.weight === 0 ? "" : set.weight}
-                      placeholder="kg"
-                      onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
-                    />
-                    <span className="text-xs text-muted-foreground">kg ×</span>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      className="h-9 w-16 text-center"
-                      value={set.reps === 0 ? "" : set.reps}
-                      placeholder={unitLabel}
-                      onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
-                    />
-                    <span className="w-8 text-xs text-muted-foreground">{unitLabel}</span>
-                    {recordKind && (
-                      <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
-                        PR
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => updateSet(ei, si, { done: !set.done })}
-                      className={cn(
-                        "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors",
-                        set.done
-                          ? "border-green-500 bg-green-500/20 text-green-400"
-                          : "border-border text-muted-foreground hover:bg-accent"
-                      )}
-                      aria-label={set.done ? "Odznacz serię" : "Zalicz serię"}
-                    >
-                      <Check size={16} />
-                    </button>
-                    {si >= setsForMode(ex, draft.mode) && (
-                      <button
-                        type="button"
-                        onClick={() => removeSet(ei, si)}
-                        className="flex h-9 w-7 items-center justify-center text-muted-foreground hover:text-destructive"
-                        aria-label="Usuń serię"
-                      >
-                        <Minus size={14} />
-                      </button>
-                    )}
-                  </div>
-                  );
-                })}
-                <Button variant="ghost" size="sm" className="mt-1 text-muted-foreground" onClick={() => addSet(ei)}>
-                  <Plus size={14} /> Dodaj serię
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {draft.entries.map((_, ei) => renderExerciseCard(ei))}
 
         <Button className="w-full" size="lg" onClick={finish}>
           Zakończ trening

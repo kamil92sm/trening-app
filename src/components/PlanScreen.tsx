@@ -4,13 +4,14 @@ import { useStore } from "@/lib/store";
 import type { Category, Exercise, Unit } from "@/lib/types";
 import { fmtKg } from "@/lib/logic";
 import { SEED_DAYS } from "@/lib/seed";
+import { MuscleTags } from "@/components/Gym";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
-import { uid, cn } from "@/lib/utils";
+import { uid, cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 const CATEGORIES: Category[] = [
@@ -35,6 +36,9 @@ export function PlanScreen() {
   const { state } = store;
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [addingTo, setAddingTo] = useState<string | null>(null);
+  // P3-8: baza urosla do ~90 pozycji - filtr kategorii + wyszukiwanie w bazie cwiczen.
+  const [baseCategory, setBaseCategory] = useState<Category | "all">("all");
+  const [baseSearch, setBaseSearch] = useState("");
 
   function openNew() {
     setEditor({
@@ -161,17 +165,22 @@ export function PlanScreen() {
                 if (!ex) return null;
                 return (
                   <div key={exId} className="flex items-center gap-1.5 text-xs">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate rounded p-1 text-left hover:bg-accent"
-                      onClick={() => openEdit(ex)}
-                    >
-                      {ex.name}{" "}
-                      <span className="text-muted-foreground">
-                        {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
-                        {fmtKg(state.targets[exId] ?? 0)}
-                      </span>
-                    </button>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="w-full truncate rounded p-1 text-left hover:bg-accent"
+                        onClick={() => openEdit(ex)}
+                      >
+                        {ex.name}{" "}
+                        <span className="text-muted-foreground">
+                          {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
+                          {fmtKg(state.targets[exId] ?? 0)}
+                        </span>
+                      </button>
+                      <div className="px-1">
+                        <MuscleTags exercise={ex} />
+                      </div>
+                    </div>
                     <button type="button" onClick={() => moveExercise(day.id, idx, -1)} className="p-1 text-muted-foreground disabled:opacity-30" disabled={idx === 0} aria-label="W górę">
                       <ArrowUp size={13} />
                     </button>
@@ -200,13 +209,22 @@ export function PlanScreen() {
                   <option value="" disabled>
                     Wybierz ćwiczenie…
                   </option>
-                  {state.exercises
-                    .filter((e) => !e.archived && !day.exerciseIds.includes(e.id))
-                    .map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.name}
-                      </option>
-                    ))}
+                  {/* P3-8: baza ~90 pozycji - pogrupowane po kategorii (optgroup) */}
+                  {CATEGORIES.map((cat) => {
+                    const options = state.exercises.filter(
+                      (e) => !e.archived && !day.exerciseIds.includes(e.id) && e.category === cat
+                    );
+                    if (options.length === 0) return null;
+                    return (
+                      <optgroup key={cat} label={cat}>
+                        {options.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </Select>
               ) : (
                 <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setAddingTo(day.id)}>
@@ -225,28 +243,67 @@ export function PlanScreen() {
           <Plus size={14} /> Nowe
         </Button>
       </div>
+      {/* P3-8: baza urosla do ~90 pozycji - filtr kategorii + wyszukiwanie */}
+      <Input
+        value={baseSearch}
+        onChange={(e) => setBaseSearch(e.target.value)}
+        placeholder="Szukaj ćwiczenia…"
+        className="h-9"
+      />
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => setBaseCategory("all")}
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+            baseCategory === "all"
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border text-muted-foreground hover:bg-accent"
+          )}
+        >
+          Wszystkie
+        </button>
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => setBaseCategory(cat)}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+              baseCategory === cat
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border text-muted-foreground hover:bg-accent"
+            )}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
       <Card>
         <CardContent className="divide-y divide-border/60 p-2">
-          {state.exercises.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 p-2 text-left text-xs hover:bg-accent",
-                ex.archived && "opacity-50"
-              )}
-              onClick={() => openEdit(ex)}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {ex.name}
-                {ex.archived && " (archiwum)"}
-              </span>
-              <span className="shrink-0 text-muted-foreground">
-                {ex.category} · {fmtKg(state.targets[ex.id] ?? 0)}
-              </span>
-              <Pencil size={12} className="shrink-0 text-muted-foreground" />
-            </button>
-          ))}
+          {state.exercises
+            .filter((ex) => baseCategory === "all" || ex.category === baseCategory)
+            .filter((ex) => !baseSearch || normalizeSearch(ex.name).includes(normalizeSearch(baseSearch)))
+            .map((ex) => (
+              <button
+                key={ex.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 p-2 text-left text-xs hover:bg-accent",
+                  ex.archived && "opacity-50"
+                )}
+                onClick={() => openEdit(ex)}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {ex.name}
+                  {ex.archived && " (archiwum)"}
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {ex.category} · {fmtKg(state.targets[ex.id] ?? 0)}
+                </span>
+                <Pencil size={12} className="shrink-0 text-muted-foreground" />
+              </button>
+            ))}
         </CardContent>
       </Card>
 
