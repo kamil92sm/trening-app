@@ -685,7 +685,7 @@ progresje ↑). `canvas.toBlob` → `navigator.share({ files: [new File(...)] })
 **Rozmiar:** M
 **WYCOFANE:** Kamil nie chce tej funkcji („nie jest mi potrzebna"). Usunięcie = zadanie P2-6.
 
-### [ ] P2-4. Check-in gotowości (autoregulacja)
+### [x] P2-4. Check-in gotowości (autoregulacja) (2026-07-26)
 **Weryfikacja Gemini:** uczciwie — „szokowanie CUN" to bro-science, ale sama
 autoregulacja (mniej serii przy słabym śnie/DOMS) jest zasadna. Wdrażamy lekko:
 **Spec:** przy starcie dnia opcjonalny mini-panel (pomiń = brak kary): sen 1–5,
@@ -693,6 +693,12 @@ zakwasy 1–5. Jeśli sen ≤ 2 lub suma ≤ 4 → toast-sugestia: „Słaba reg
 rozważ -1 serię w przysiadzie/MC, izolacje bez zmian". Zapisz odpowiedzi w
 `Session` (+= `readiness?: {sleep:number; doms:number}`) — dane pod przyszłe analizy.
 Bump wersji wg Zasad. **Rozmiar:** M
+**Wdrożone:** `Session.readiness?` — **BEZ bumpa wersji** (odstępstwo od tego zapisu spec: pole
+opcjonalne/samonaprawiające się nie wymaga bumpa wg Zasady 2, patrz P1-10 gdzie ustalono ten
+wzorzec). Panel „Jak się dziś czujesz?" na ekranie wyboru dnia (pigułki 1–5 dla obu skal,
+kierunek „wyżej = lepiej" dla obu), dotknięcie ustawia oba pola (nietknięte = neutralne 3),
+kasowane po starcie dnia. Toast przy niskiej gotowości liczony PRZED `setState` (nie w jego
+updaterze) — inaczej StrictMode w dev podwajał toast. Zweryfikowane w przeglądarce.
 
 ### [x] P2-5. Edycja sesji w historii (2026-07-26)
 **Mój pomysł** — literówka w ciężarze psuje rekordy i e1RM na zawsze. **Spec:**
