@@ -451,6 +451,56 @@ export function exerciseHistory(state: AppState, exId: string): HistoryPoint[] {
   return points;
 }
 
+export type StrengthLevel = "początkujący" | "średniozaawansowany" | "zaawansowany";
+
+export interface StrengthRatio {
+  exId: string;
+  name: string;
+  /** Najlepsze e1RM z całej historii ÷ najnowsza waga ciała. */
+  ratio: number;
+  level: StrengthLevel;
+  /** Progi × masy ciała (orientacyjne) — środkowy i górny sterują `level`, dolny tylko dla kontekstu w UI. */
+  thresholds: [number, number, number];
+}
+
+/**
+ * Orientacyjne standardy siłowe × masa ciała (P2-12), mężczyźni bez sprzętu
+ * wspomagającego — z ogólnie dostępnych tabel siłowych, NIE naukowa norma.
+ * Środkowy próg = wejście w „średniozaawansowany", górny = „zaawansowany"
+ * (dokładnie na progu -> wyższy poziom); dolny próg pokazywany w UI jako
+ * punkt odniesienia, nie steruje klasyfikacją.
+ */
+const STRENGTH_STANDARDS: Record<string, [number, number, number]> = {
+  bench_bb: [0.75, 1.0, 1.25],
+  squat: [1.0, 1.25, 1.5],
+  deadlift: [1.25, 1.5, 1.75],
+  ohp: [0.45, 0.6, 0.75],
+};
+
+/**
+ * Zestawia najlepsze e1RM (cała historia) z najnowszą wagą ciała dla kluczowych
+ * ćwiczeń wielostawowych. Pusta lista, gdy brak wpisu wagi (nie zgaduj masy
+ * ciała) — poszczególne ćwiczenia bez historii są po prostu pomijane.
+ */
+export function strengthRatios(state: AppState): StrengthRatio[] {
+  const bodyweight = [...state.body].sort((a, b) => b.date.localeCompare(a.date))[0]?.weight;
+  if (!bodyweight) return [];
+
+  const out: StrengthRatio[] = [];
+  for (const [exId, thresholds] of Object.entries(STRENGTH_STANDARDS)) {
+    const ex = state.exercises.find((e) => e.id === exId);
+    if (!ex) continue;
+    const history = exerciseHistory(state, exId);
+    if (history.length === 0) continue;
+    const bestE1rm = Math.max(...history.map((h) => h.e1rm));
+    const ratio = bestE1rm / bodyweight;
+    const [, mid, high] = thresholds;
+    const level: StrengthLevel = ratio >= high ? "zaawansowany" : ratio >= mid ? "średniozaawansowany" : "początkujący";
+    out.push({ exId, name: ex.name, ratio: Math.round(ratio * 100) / 100, level, thresholds });
+  }
+  return out;
+}
+
 // ── Tryb treningu (Siła / Hipertrofia) ─────────────────────────────────────
 // Podstawa naukowa i uzasadnienie każdej decyzji: POMYSLY.md P0-5.
 

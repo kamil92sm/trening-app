@@ -13,6 +13,7 @@ import {
   sessionVolume,
   sessionDuration,
   weeklyAdherence,
+  strengthRatios,
   mondayOf,
   fmtDateShort,
   fmtKg,
@@ -102,6 +103,9 @@ export function ProgressScreen() {
   // P2-11: konsekwencja - ukonczone treningi ostatnich 8 tygodni vs plan.
   const adherence = useMemo(() => weeklyAdherence(state), [state]);
   const completeWeeks = adherence.filter((w) => w.done >= w.planned).length;
+
+  // P2-12: standardy silowe wzgledem masy ciala - ciekawostka, karta ukryta gdy brak danych.
+  const strengthRatiosData = useMemo(() => strengthRatios(state), [state]);
 
   const records = useMemo(() => {
     return state.exercises
@@ -429,6 +433,30 @@ export function ProgressScreen() {
           )}
         </CardContent>
       </Card>
+
+      {/* Standardy siłowe */}
+      {strengthRatiosData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Standardy siłowe</CardTitle>
+            <CardDescription>e1RM względem masy ciała — orientacyjnie, mężczyźni bez sprzętu</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {strengthRatiosData.map((r) => (
+              <div key={r.exId} className="flex items-center justify-between text-xs">
+                <span>{r.name}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {r.ratio.toFixed(2)}× <span className="font-medium text-foreground">{r.level}</span>
+                </span>
+              </div>
+            ))}
+            <p className="pt-1 text-[10px] text-muted-foreground">
+              Progi orientacyjne z ogólnych tabel siłowych — nie uwzględniają wieku, wzrostu ani
+              dźwigni. Ciekawostka, nie ocena.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

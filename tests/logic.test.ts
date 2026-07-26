@@ -20,6 +20,7 @@ import {
   sessionDuration,
   nextDaySuggestion,
   weeklyAdherence,
+  strengthRatios,
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
@@ -566,6 +567,55 @@ check(
 );
 const emptyWeek = adherence.find((w) => w.week === "2026-06-29");
 check("weeklyAdherence: pusty tydzien -> done 0", emptyWeek !== undefined && emptyWeek.done === 0, emptyWeek);
+
+// P2-12: standardy silowe wzgledem masy ciala
+check("strengthRatios: brak wpisu wagi -> pusty wynik", strengthRatios(defaultState()).length === 0);
+
+const stRatiosBoundary = defaultState();
+stRatiosBoundary.body.push({ date: "2026-07-20", weight: 80 });
+stRatiosBoundary.sessions.push({
+  id: "sr1",
+  dayId: "mon",
+  date: "2026-07-20",
+  completed: true,
+  entries: [{ exerciseId: "bench_bb", targetWeight: 80, sets: [{ weight: 80, reps: 1, done: true }] }],
+});
+const boundaryRatio = strengthRatios(stRatiosBoundary).find((r) => r.exId === "bench_bb")!;
+check(
+  "strengthRatios: e1RM dokladnie 1.0x masy -> srednizaawansowany (nie poczatkujacy)",
+  boundaryRatio.level === "średniozaawansowany" && boundaryRatio.ratio === 1,
+  boundaryRatio
+);
+check(
+  "strengthRatios: cwiczenie bez historii (ohp) pominiete, nie w liscie",
+  strengthRatios(stRatiosBoundary).find((r) => r.exId === "ohp") === undefined
+);
+
+// e1RM = MAKSIMUM z calej historii, nie tylko najnowsza sesja
+const stRatiosMax = defaultState();
+stRatiosMax.body.push({ date: "2026-07-20", weight: 80 });
+stRatiosMax.sessions.push(
+  {
+    id: "srA",
+    dayId: "mon",
+    date: "2026-07-06",
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 100, sets: [{ weight: 100, reps: 1, done: true }] }],
+  },
+  {
+    id: "srB",
+    dayId: "mon",
+    date: "2026-07-20",
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 60, sets: [{ weight: 60, reps: 1, done: true }] }],
+  }
+);
+const maxRatio = strengthRatios(stRatiosMax).find((r) => r.exId === "bench_bb")!;
+check(
+  "strengthRatios: bierze MAKSIMUM z historii (100/80=1.25 zaawansowany), nie ostatnia sesje (60/80=0.75)",
+  maxRatio.ratio === 1.25 && maxRatio.level === "zaawansowany",
+  maxRatio
+);
 
 // INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni
 const stActual = defaultState();
