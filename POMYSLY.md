@@ -618,7 +618,7 @@ podsumowanie treningu („45 min · 7,6 t · 168 kg/min" w teście), Historia (c
 znanym `finishedAt`, brak dla starych/historii startowej), Progres (średnia z ostatnich 8
 tygodni pod wykresem tonażu). Zweryfikowane w przeglądarce na wszystkich trzech ekranach.
 
-### [ ] P1-11. Twarda walidacja importu + kopia bezpieczeństwa przed nadpisaniem
+### [x] P1-11. Twarda walidacja importu + kopia bezpieczeństwa przed nadpisaniem (2026-07-26)
 **Realne ryzyko:** `store.importJson` (`store.tsx:287`) sprawdza tylko, czy `parsed.sessions`
 jest tablicą — plik z połowicznie poprawnym kształtem (albo backup z innej apki, który ma pole
 `sessions`) przechodzi walidację i **nadpisuje cały stan bez odwrotu**. To jedyne miejsce w
@@ -648,6 +648,14 @@ polem `sessions` (ale bez `exercises`/`settings`) → komunikat; sesja bez `entr
 **Akceptacja:** import obcego pliku odbity z sensownym komunikatem, import poprawnego działa jak
 dziś, po imporcie/resecie da się wrócić do stanu sprzed operacji.
 **Rozmiar:** S/M
+**Wdrożone:** `validateBackup()` w nowym `src/lib/validate.ts` (6 testów), wołane w
+`store.importJson` przed `setState`. Kopia bezpieczeństwa: jeden slot
+(`trening-app-backup-auto`) nadpisywany przed importem i `resetAll`, nowa akcja
+`store.restoreAutoBackup()`. `MoreScreen.tsx`: `confirm()` przed importem pokazuje liczbę sesji
+w pliku vs obecnie, przycisk „Przywróć ostatnią kopię automatyczną" (z datą, aktywny tylko gdy
+slot istnieje). Zweryfikowane w przeglądarce end-to-end (Playwright): zły plik → czytelny
+komunikat błędu, dobry plik z mniejszą liczbą sesji → import po potwierdzeniu, przywrócenie
+kopii automatycznej cofa do stanu sprzed importu.
 
 ---
 
