@@ -1027,3 +1027,650 @@ współczynniki i etykiety dla wszystkich czterech ćwiczeń z historią.
   nietknięte (nauka: objętość i przerwy niezależne od trybu). 12 nowych testów,
   sanity-check na realnych danych Kamila (bench e1RM 54→42,5 kg, squat 82,3→62,5,
   deadlift 95,6→75) zweryfikowany manualnie w przeglądarce z identycznym wynikiem.
+
+---
+
+## P3 — zgłoszenia Kamila (sesja 26.07.2026, wieczór II)
+
+Osiem zadań ze screenów i rozmowy. Każde jest samowystarczalne: root cause (gdzie
+realnie leży problem, z numerami linii), spec i kryteria akceptacji. Obowiązują
+**„Zasady implementacji"** z góry pliku — czytaj je przed każdym zadaniem.
+
+**Prompt dla Sonneta (kopiuj-wklej, jedno zadanie na raz):**
+```
+Wdróż zadanie P3-1 z POMYSLY.md. Trzymaj się sekcji "Zasady implementacji"
+oraz "Wspólne pułapki P3". Po skończeniu odhacz zadanie w POMYSLY.md,
+uruchom npm test i npm run build, zrób commit.
+```
+
+**Kolejność wdrażania (zależności):** P3-1 → P3-4 → P3-3 → P3-7 → P3-2 → P3-5 →
+P3-8 → P3-6. Uzasadnienie: najpierw bugi (szybkie, izolowane), potem tagi partii
+(P3-7 daje `MUSCLE_COLORS`, którego używa też tryb skupienia), potem sterowanie
+ciężarem i talerze (P3-2, P3-5 — komponenty używane w obu układach loggera),
+potem baza ćwiczeń (P3-8 — dotyka migracji, chcesz mieć wcześniejsze zmiany już
+zacommitowane), a tryb skupienia (P3-6) na końcu, bo renderuje wszystko powyżej.
+
+### Wspólne pułapki P3 (przeczytaj RAZ, obowiązują we wszystkich zadaniach)
+
+1. **Draft sesji to jedno źródło prawdy.** `Draft` w `TrainScreen.tsx:48` żyje w
+   `localStorage` pod `trening-app-draft` i jest odtwarzany po restarcie apki.
+   Żadne zadanie z P3 nie ma prawa zmieniać kształtu `Draft` inaczej niż przez
+   **dodanie opcjonalnego pola** — `loadDraft()` (`:57`) nie waliduje kształtu, więc
+   pole wymagane wysadzi trening w trakcie po odświeżeniu strony.
+2. **UI nie dotyka `state.targets`.** Wszystko, co dzieje się w loggerze (zmiana
+   ciężaru, zamiana ćwiczenia, sugestia siłowni), zmienia TYLKO draft. Cele rusza
+   wyłącznie `finishSession` (`store.tsx:112`). To świadomy kontrakt — nie łam go.
+3. **`computeProgression` liczy z `entry.targetWeight`, nie z ciężarów serii**
+   (`logic.ts:278`). Ręczna zmiana ciężaru w serii NIE zmienia bazy progresji.
+   To dzisiejsze zachowanie — w P3-2 zostawiamy je bez zmian (patrz P3-9).
+4. **Nowe pole w `Settings` nie wymaga bumpa `SCHEMA_VERSION`** — merge z
+   `DEFAULT_SETTINGS` w `migrateState` (`seed.ts:276`) uzupełnia braki. Nowe
+   OPCJONALNE pole w istniejącym typie persystowanym też nie, o ile brak pola daje
+   poprawne zachowanie. Bump potrzebny dopiero, gdy stare dane stałyby się
+   niepoprawne.
+5. **Mobile-first, max-w-xl, iPhone.** Wiersz serii w loggerze mieści się dziś na
+   375 px na styk. Każdy nowy element w tym wierszu wymaga wyrzucenia czegoś innego
+   (patrz P3-2). Minimalny cel dotykowy: 36×36 px.
+6. Bez nowych zależności. Ikony wyłącznie z `lucide-react` (już w projekcie).
+
+---
+
+### [ ] P3-1. BUG: zaznaczenie Snu podświetla Zakwasy „3" + panel gotowości ma być domyślnie zwinięty
+
+**Objaw (screen Kamila):** klika „Sen 4", a apka od razu zaznacza „Zakwasy 3",
+których nie wybierał. Do sesji zapisuje się zmyślona wartość.
+
+**Root cause:** `updateReadiness()` w `src/components/TrainScreen.tsx:275-281`:
+```ts
+const next = { sleep: readiness?.sleep ?? 3, doms: readiness?.doms ?? 3, ...patch };
+```
+Typ `Session.readiness` (`types.ts:87`) wymaga OBU pól, więc kod dosypuje 3 jako
+„środek skali". Efekt: pierwszy klik zawsze ustawia drugą skalę na 3 i podświetla
+ją w UI (`:642`, `:662`). Dodatkowo psuje to warunek toastu `:277`
+(`next.sleep + next.doms <= 4` liczy zmyśloną trójkę).
+
+**Uwaga kontekstowa:** `readiness` jest dziś **danymi tylko do zapisu** — poza
+toastem nic ich nie czyta (sprawdzone: brak odczytów w Historii/Progresie). To nie
+jest powód, żeby ich nie naprawiać, ale nie ma potrzeby dorabiania konsumentów.
+
+**Pliki:** `src/lib/types.ts`, `src/components/TrainScreen.tsx`.
+
+**Spec:**
+1. `types.ts`: rozluźnij typ na `readiness?: { sleep?: number; doms?: number }`
+   (w `Session`). To **rozszerzenie** — stare sesje z obiema wartościami nadal są
+   poprawne, więc **BEZ bumpa `SCHEMA_VERSION`**.
+2. `TrainScreen.tsx`: ten sam typ w `Draft` (`:54`) i w stanie `readiness` (`:130`).
+3. `updateReadiness`: żadnych domyślnych trójek —
+   `const next = { ...(readiness ?? {}), ...patch };`.
+   Warunek toastu przepisz tak, żeby brakująca wartość NIE wywoływała sugestii:
+   ```ts
+   const lowSleep = next.sleep !== undefined && next.sleep <= 2;
+   const lowBoth = next.sleep !== undefined && next.doms !== undefined && next.sleep + next.doms <= 4;
+   if (lowSleep || lowBoth) toast(...);
+   ```
+   Toast ma polecieć **raz na przejście w stan niskiej gotowości**, nie przy każdym
+   kliknięciu — jeśli poprzedni stan już spełniał warunek, nie pokazuj drugi raz.
+4. Zapis do sesji: jeżeli obie wartości są `undefined`, zapisz `readiness: undefined`
+   (nie pusty obiekt) — `startDay` `:308` i `finish` `:438`.
+5. **Zwijany panel** (druga część zgłoszenia): cała karta „Jak się dziś czujesz?"
+   (`:629-682`) ma być domyślnie **zwinięta**. Wzorzec 1:1 z „Rozgrzewki" w loggerze
+   (`:879-908`): `useState(false)` + przycisk-nagłówek z `ChevronRight`/`ChevronDown`.
+   Nagłówek zwinięty pokazuje podsumowanie:
+   - nic nie wybrane → `Jak się dziś czujesz? (opcjonalnie)`
+   - wybrane → `Gotowość: sen 4 · zakwasy —` (myślnik dla braku).
+   Stan zwinięcia **lokalny w komponencie**, bez persystencji (po starcie dnia panel
+   znika i tak).
+
+**Kryteria akceptacji:**
+- Klik „Sen 4" → podświetlona wyłącznie czwórka w rzędzie Snu, rząd Zakwasów pusty.
+- Zakończenie treningu z samym snem → w `state.sessions[…].readiness` jest
+  `{ sleep: 4 }` bez klucza `doms`.
+- Panel po wejściu na Trening zwinięty; rozwinięcie i zwinięcie nie kasuje wyboru.
+- „Wyczyść" nadal działa (ustawia `null`) i zwija podsumowanie do wersji „opcjonalnie".
+- `npm test` i `npm run build` przechodzą.
+
+---
+
+### [ ] P3-2. Plus/minus przy ciężarze w loggerze (szybka korekta wagi)
+
+**Czego chce Kamil:** przy każdym ciężarze mały `−` i `+`, żeby nie wywoływać
+klawiatury iOS na zmianę 45 → 47,5 kg.
+
+**Pliki:** `src/components/TrainScreen.tsx` (wiersz serii `:911-972`), ewentualnie
+nowy `src/components/ui/stepper.tsx`.
+
+**Spec:**
+1. Krok = `hEx.increment` ćwiczenia (`hEx` = `exerciseForMode(ex, draft.mode)`, już
+   policzone w `:802`). Dla `bench_bb` to 2,5 kg, dla hantli 1–2 kg. **Nie** wprowadzaj
+   globalnego kroku 2,5 — hantle skaczą inaczej.
+2. `−` schodzi do minimum 0 (bez wartości ujemnych). Wynik zaokrąglaj:
+   `Math.round(v * 100) / 100` — inaczej 1.25 + 2.5 potrafi dać 3.7500000000000004.
+3. **Synchronizacja dalszych serii** (to jest zachowanie, którego się oczekuje w
+   praktyce): jeśli edytowana seria NIE jest zaliczona, a kolejne serie tego ćwiczenia
+   też nie są zaliczone **i mają dokładnie ten sam ciężar co przed zmianą** — zmień je
+   razem z nią. Gdy ciężary się już rozjechały (Kamil ręcznie ustawił inne), nie
+   nadpisuj niczego. Zaliczonych serii nie ruszaj NIGDY.
+   Zaimplementuj jako osobną funkcję obok `updateSet`:
+   ```ts
+   function setWeightWithSync(entryIdx: number, setIdx: number, weight: number)
+   ```
+   `updateSet` zostaw bez zmian (używa go m.in. logika rekordów i timera).
+4. **NIE zmieniaj `entry.targetWeight`** — to baza progresji (patrz „Wspólne
+   pułapki" pkt 3). Steppery zmieniają wyłącznie ciężary serii.
+5. Dla `isHold` (plank) ciężar = dodatkowe obciążenie — steppery działają tak samo
+   (krok `increment`, tam 5). Powtórzeń/sekund nie ruszamy w tym zadaniu.
+6. **Layout wiersza (krytyczne, 375 px).** Dziś wiersz to:
+   `[nr] [kg input w-20] "kg ×" [reps input w-16] [powt.] [PR] [✓] [− serii]`.
+   Po dołożeniu dwóch przycisków to się nie mieści. Docelowo:
+   ```
+   [nr w-4] [− h-9 w-7] [input w-16 text-center] [+ h-9 w-7] [× ] [input w-14] [PR] [✓ h-9 w-9] [usuń]
+   ```
+   - usuń tekstowe etykiety „kg" i „powt." (jednostka zostaje w `placeholder`),
+   - `−`/`+` jako `<button>` z ikoną `Minus`/`Plus` 14 px, `h-9 w-7`, `rounded-md`,
+     `border border-border`, `text-muted-foreground`, `active:bg-accent`,
+   - `aria-label`: „Zmniejsz ciężar" / „Zwiększ ciężar",
+   - przycisk usuwania serii (`:960-969`, ikona `Minus`) zamień na ikonę `Trash2`
+     — dwa różne `Minus` obok siebie w jednym wierszu to pomyłka na dotyku,
+   - cały wiersz `gap-1` zamiast `gap-2`.
+7. Sprawdź render przy 4+ seriach i przy włączonym PR-ringu (`:919`) — nic nie może
+   wychodzić poza kartę ani zawijać się do drugiej linii na 375 px.
+
+**Kryteria akceptacji:**
+- `+` na ćwiczeniu z `increment: 2.5` przy 45 kg daje 47,5; `−` przy 0 zostaje 0.
+- Zmiana ciężaru w serii 1 (niezaliczonej) przenosi się na serie 2–3, dopóki mają tę
+  samą wagę; po ręcznej zmianie serii 3 na inną wartość seria 3 przestaje się
+  synchronizować.
+- Zaliczona (zielona) seria nigdy nie zmienia ciężaru.
+- `entry.targetWeight` po sesji ze steppera jest niezmieniony (widać po komunikacie
+  progresji w podsumowaniu — liczy się od celu, nie od klikniętej wagi).
+- Wiersz mieści się na 375 px, brak zawijania.
+
+---
+
+### [ ] P3-3. „Plan" i „Wykonane (7 dni)" pokazują identyczne wartości — to NIE jest bug w kodzie
+
+**Zgłoszenie:** w Progresie oba przełączniki dają to samo, więc wygląda na zepsute.
+
+**Root cause — zweryfikowany empirycznie (26.07.2026):** przełącznik działa
+poprawnie (`ProgressScreen.tsx:41-43`, `logic.ts:126` i `:169`). Wartości są równe,
+bo **dane tak wyszły**. Okno „ostatnie 7 dni" (dziś + 6 wstecz) na dzień 26 lipca
+łapie dokładnie trzy sesje z historii startowej: 20, 22 i 24 lipca — po jednej z
+każdego dnia planu, wszystkie serie zaliczone, liczba serii identyczna jak
+`targetSets`. Wynik uruchomienia obu funkcji na świeżym stanie:
+
+| partia | plan | wykonane |
+|--------|------|----------|
+| Klatka | 9 | 9 |
+| Plecy | 9 | 9 |
+| Barki | 10,5 | 10,5 |
+| Nogi | 6 | 6 |
+| Pośladki | 8,5 | 8,5 |
+| Tył uda | 6,5 | 6,5 |
+| Łydki | 3 | 3 |
+| Biceps | 6 | 6 |
+| Triceps | 8 | 8 |
+| Brzuch | 7 | 7 |
+
+Czyli: „Wykonane" pokaże co innego dopiero, gdy Kamil opuści trening, doda serię,
+zrobi bonus albo minie tydzień bez treningu. **Nie „naprawiaj" liczb.** Zadanie
+polega na tym, żeby widok sam się tłumaczył i różnicę było widać na pierwszy rzut oka.
+
+**Pliki:** `src/components/ProgressScreen.tsx`, `src/lib/logic.ts`, `tests/logic.test.ts`.
+
+**Spec:**
+1. W widoku „Wykonane (7 dni)" dopisz pod nagłówkiem karty kontekst okna:
+   `3 treningi · 20–26 lip` (liczba ukończonych sesji w oknie + zakres dat).
+   Policz to nową, eksportowaną funkcją w `logic.ts`:
+   ```ts
+   export function actualVolumeWindow(state: AppState, nowIso?: string):
+     { sessions: number; fromIso: string; toIso: string }
+   ```
+   Ta sama arytmetyka okna co `actualWeeklyMuscleVolume` — **wydziel wyliczanie
+   granic okna do wspólnego helpera**, żeby nie rozjechały się w przyszłości.
+   Gdy `sessions === 0`, pokaż `brak treningów w tym oknie` zamiast zakresu dat.
+2. W widoku „Wykonane" dorysuj **cień planu**: pod paskiem realizacji cienka
+   kreska/znacznik na pozycji wartości z planu + w liczbach `9 (plan 9)`. Gdy
+   różnica jest niezerowa, pokaż deltę na kolorowo: `7 (plan 9, −2)`
+   (`text-amber-400` dla minusa, `text-sky-400` dla plusa). To jest właściwa
+   odpowiedź na „czemu to samo?" — widać wprost, że realizacja = plan.
+3. Znany drobiazg do naprawy przy okazji: granice okna liczone są przez
+   `toISOString()` (UTC), a `session.date` bywa zapisany w czasie lokalnym
+   (`new Date().toISOString()` w drafcie vs `"2026-07-06T18:00:00"` w historii
+   startowej). Po północy czasu lokalnego w strefie ujemnej okno mogłoby zjechać
+   o dobę. Policz `cutoff`/`now` z komponentów lokalnych
+   (`getFullYear/getMonth/getDate`), nie z `toISOString()`.
+4. Testy w `tests/logic.test.ts`:
+   - sesja z 2 zaliczonymi seriami zamiast 3 → „wykonane" < „plan" dla tej partii,
+   - sesja spoza okna (8 dni wstecz) nie jest liczona,
+   - `actualVolumeWindow` na historii startowej z `nowIso = 2026-07-26` zwraca
+     `{ sessions: 3, fromIso: "2026-07-20", toIso: "2026-07-26" }`.
+
+**Kryteria akceptacji:**
+- Przełączenie na „Wykonane (7 dni)" pokazuje liczbę sesji i zakres dat.
+- Przy identycznych liczbach widać `(plan 9)` — użytkownik rozumie, że to zgodność,
+  nie awaria.
+- Po świadomym opuszczeniu ćwiczenia w treningu wartości się rozjeżdżają i widać deltę.
+
+---
+
+### [ ] P3-4. Pola z datą mają inny rozmiar niż sąsiednie inputy (sekcja „Więcej")
+
+**Objaw:** w kartach „Waga ciała" i „Squash" kafelek z datą jest wyższy/szerszy niż
+sąsiednie pola i wygląda inaczej w każdej z tych dwóch kart.
+
+**Root cause — dwie niezależne przyczyny:**
+1. **Różne szerokości między kartami:** to zwykły flexbox. W „Wadze"
+   (`MoreScreen.tsx:201-212`) trzy pola bez klas szerokości dzielą wiersz po równo;
+   w „Squashu" (`:277-291`) sąsiedzi mają sztywne `w-20` i `w-28`, więc data dostaje
+   całą resztę. Stąd dwa różne rozmiary tego samego pola.
+2. **Inna wysokość niż reszta:** `input[type="date"]` w Safari iOS renderuje się
+   przez własny shadow DOM (`::-webkit-date-and-time-value`) z własnym paddingiem
+   i wyrównaniem — `h-10` z `ui/input.tsx:9` nie wystarcza, pole puchnie i tekst
+   jest wyśrodkowany inaczej niż w zwykłym inpucie.
+
+**Pliki:** `src/components/ui/input.tsx`, `src/index.css`, `src/components/MoreScreen.tsx`.
+
+**Spec:**
+1. W `ui/input.tsx` dodaj eksportowany komponent `DateInput` — cienka nakładka na
+   `Input` z ustalonymi klasami:
+   ```tsx
+   <Input type="date" className={cn("h-10 w-[9.5rem] shrink-0 appearance-none", className)} … />
+   ```
+   Żadnej nowej logiki — to ma być jedno miejsce prawdy o rozmiarze pola daty.
+2. W `src/index.css` (warstwa bazowa) dołóż reset shadow-partów WebKita:
+   ```css
+   input[type="date"] { -webkit-appearance: none; appearance: none; }
+   input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+   input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.5; }
+   ```
+3. Podmień oba wystąpienia (`MoreScreen.tsx:212` i `:291`) na `<DateInput>`.
+   W karcie „Waga ciała" dodaj `min-w-0` do dwóch pól liczbowych, żeby to data
+   dyktowała szerokość, a nie odwrotnie.
+4. Sprawdź, czy nie zostały inne surowe `type="date"` (dziś są dokładnie dwa).
+
+**Kryteria akceptacji:**
+- Oba pola daty mają identyczną szerokość i wysokość, równą wysokości sąsiednich
+  inputów i przycisków (`h-10`).
+- Karta „Waga ciała" nadal mieści `kg`, `pas cm`, datę i „Zapisz" w jednym wierszu
+  na 375 px (jeśli nie mieści — przełam wiersz na `flex-wrap`, nie zwężaj daty).
+
+---
+
+### [ ] P3-5. Rozwijana miniaturka sztangi (układ talerzy) przy każdym ćwiczeniu w loggerze
+
+**Czego chce Kamil:** przy ćwiczeniu w Treningu rozwijany panel z taką samą
+wizualizacją sztangi jak w „Więcej", pokazujący jakie talerze założyć. **Domyślnie
+zwinięty.**
+
+**Pliki:** `src/components/TrainScreen.tsx`, ewentualnie `src/components/Gym.tsx`.
+
+**Spec:**
+1. Komponent już istnieje: `PlateBar` z `src/components/Gym.tsx:9` (rysuje gryf +
+   talerze + podpis „Na stronę: 20 + 10"). Importuj go, **nie pisz drugiego**.
+2. Wzorzec zwijania: 1:1 jak „Rozgrzewka" (`TrainScreen.tsx:879-908`) — stan
+   `const [openPlates, setOpenPlates] = useState<Set<number>>(new Set())`, przycisk
+   z `ChevronRight`/`ChevronDown` i etykietą `Talerze`.
+3. Gryf i talerze bierz z **aktywnego profilu siłowni**: zmienne `warmupBar` i
+   `warmupPlates` są już policzone w `:259-260` (profil → fallback na domową).
+   Nazwy są mylące (powstały dla rozgrzewki) — zmień je na `activeBar`/`activePlates`
+   i popraw dwa istniejące użycia.
+4. **Ciężar do pokazania:** waga pierwszej NIEZALICZONEJ serii; gdy wszystkie
+   zaliczone — waga ostatniej serii. Nie `entry.targetWeight` (po korekcie
+   steppera z P3-2 pokazywałby nieprawdę).
+5. **Pokazuj tylko dla `ex.unit === "barbell"`.** Dla hantli/maszyny/wyciągu
+   układ talerzy nie ma sensu — sekcja ma się w ogóle nie renderować (jak
+   `warmupSteps.length > 0` dziś).
+6. Nagłówek zwinięty niech od razu niesie informację, żeby często nie trzeba było
+   rozwijać: `Talerze · 20 + 10 na stronę` (z `platePlan(...).perSide`), a przy
+   niemożliwym ciężarze `Talerze · brakuje 1,25 kg` w `text-amber-400`.
+7. `PlateBar` ma dziś `h-24` — w loggerze to dużo. Dodaj mu opcjonalny prop
+   `compact?: boolean` (wysokość `h-16`, mniejsze talerze), używany tylko tutaj;
+   „Więcej" zostaje bez zmian.
+
+**Kryteria akceptacji:**
+- Wejście w dzień: żaden panel talerzy nie jest rozwinięty.
+- Rozwinięcie przy przysiadzie 65 kg pokazuje `20 + 2,5` na stronę (gryf 20 kg).
+- Zmiana ciężaru serii steppera (P3-2) natychmiast zmienia układ talerzy.
+- Przy hantlach/maszynie sekcji nie ma w ogóle.
+- Przełączenie aktywnej siłowni w „Więcej" zmienia układ talerzy w loggerze.
+
+---
+
+### [ ] P3-6. Tryb skupienia — jedno ćwiczenie na ekran (przełącznik na ekranie wyboru dnia)
+
+**Czego chce Kamil (screen `IMG_3157`):** alternatywny układ loggera — jedno
+ćwiczenie na cały ekran, duże wiersze serii, duży timer przerwy z „uciekającym"
+paskiem, a po zaliczeniu ostatniej serii automatyczne przejście do kolejnego
+ćwiczenia. Obecny układ ze scrollem ma zostać — wybór **suwakiem na ekranie
+wyboru dnia**.
+
+**Pliki:** `src/lib/types.ts`, `src/components/TrainScreen.tsx`, `src/components/Gym.tsx`.
+
+**Spec:**
+1. `Settings.loggerLayout?: "list" | "focus"` (brak = `"list"`). Bez bumpa schematu
+   (pkt 4 wspólnych pułapek). Domyślną wartość dopisz do `DEFAULT_SETTINGS`
+   jawnie jako `"list"`.
+2. Przełącznik: `Switch` z `src/components/ui/switch.tsx`, na ekranie wyboru dnia,
+   w karcie pod „Cel tygodnia": tytuł `Tryb skupienia`, podpis
+   `Jedno ćwiczenie na ekran zamiast listy ze scrollem.` Zmiana zapisuje się przez
+   `store.updateSettings({ loggerLayout })` i działa **w trakcie trwającego treningu**
+   (draft jest wspólny) — nie blokuj przełącznika, gdy draft istnieje.
+3. **Architektura (najważniejsze):** tryb skupienia to **wyłącznie inny render tego
+   samego draftu**. Zero zmian w `Draft`, `updateSet`, `addSet`, `removeSet`,
+   `finish`, `undoFinish`, timerze i backupie. Wydziel z dzisiejszego renderu
+   loggera dwa komponenty w tym samym pliku:
+   - `ExerciseCard` — dzisiejsza karta (nagłówek, „Ostatnio", rozgrzewka, talerze,
+     wiersze serii), używana przez oba układy,
+   - `FocusLogger` — nawigacja + jedno `ExerciseCard` na ekran.
+   Wspólny stan (draft, timer) zostaje w `TrainScreen`. Bez duplikacji logiki.
+4. **Układ ekranu skupienia** (wzorowany na screenie, ale w naszym stylu):
+   - sticky nagłówek: `{dzień.short} · ĆW. {i+1}/{n}` + plakietka trybu tygodnia
+     (`MODE_BADGE`, już istnieje) + „Porzuć"; respektuj `env(safe-area-inset-top)`
+     (wzorzec `:766-772`),
+   - duża nazwa ćwiczenia + kolorowe tagi partii (P3-7),
+   - podpis `3×8–12 · cel 57,5 kg · RIR 2` (jak dziś w `CardDescription`),
+   - wiersze serii: zaliczone — zielona ramka i `Check`; pierwsza niezaliczona —
+     bursztynowa ramka i etykieta `TERAZ`; kolejne — wygaszone,
+   - pod seriami panel timera (pkt 5),
+   - stopka: `←` poprzednie, kropki postępu ćwiczeń, `→` następne; na ostatnim
+     ćwiczeniu zamiast `→` przycisk `Zakończ trening`.
+5. **Timer z paskiem:** rozszerz `RestTimer` (`Gym.tsx:80`) o
+   `variant?: "pill" | "panel"` (domyślnie `"pill"` — dzisiejszy wygląd).
+   `"panel"`: duże `mm:ss` (`text-4xl font-mono tabular-nums`), obok `/ 01:30`,
+   pod spodem pasek postępu `left / seconds` (kurczy się w miarę odliczania),
+   kolor `bg-amber-400` → `bg-red-500` gdy zostało ≤ 5 s.
+   **Bez `animate-pulse` i bez animowanego `opacity` na warstwie z `backdrop-blur`**
+   — patrz P0-6 (jank na iOS). Animuj wyłącznie `width` paska (`transition-all`).
+   W trybie skupienia pigułka timera (`:986-991`) ma się NIE renderować — panel ją
+   zastępuje.
+6. **Auto-przejście:** gdy zaliczona zostanie ostatnia niezaliczona seria bieżącego
+   ćwiczenia, po **900 ms** przeskocz na następne ćwiczenie. Warunki:
+   - nie przeskakuj, jeśli użytkownik w międzyczasie sam zmienił ćwiczenie
+     (porównaj indeks przed i po; użyj `useRef` na timeout i czyść go w cleanupie),
+   - z ostatniego ćwiczenia nie przeskakuj nigdzie — pokaż `Zakończ trening`,
+   - odznaczenie serii nie cofa przejścia (wracasz strzałką `←`).
+7. Indeks bieżącego ćwiczenia trzymaj w `useState`, **nie w drafcie** — po
+   restarcie apki w trakcie treningu wróć na pierwsze ćwiczenie z niezaliczoną serią
+   (policz przy montowaniu).
+8. **Klawiatura numeryczna z screena — świadomie POZA zakresem.** Natywna
+   klawiatura iOS (`inputMode="decimal"`) robi to samo, a własny keypad to ~150
+   linii, konflikt z autofocusem i utrata zaznaczania tekstu. Ze steppera z P3-2
+   i tak wynika, że klawiatura będzie potrzebna rzadko. Jeśli Kamil po użyciu
+   nadal będzie chciał keypad — osobne zadanie.
+
+**Kryteria akceptacji:**
+- Suwak wyłączony → logger wygląda i działa dokładnie jak dziś (regresja zerowa).
+- Suwak włączony → jedno ćwiczenie na ekran, brak scrolla do sąsiednich ćwiczeń.
+- Zaliczenie ostatniej serii → po ~1 s widać kolejne ćwiczenie; timer wystartował.
+- `←`/`→` chodzą po ćwiczeniach w obie strony, kropki pokazują postęp.
+- Porzucenie i wznowienie treningu (odświeżenie strony) nie gubi draftu.
+- Podsumowanie po treningu i progresja identyczne w obu układach.
+
+---
+
+### [ ] P3-7. Kolorowe tagi partii przy ćwiczeniach w Treningu
+
+**Czego chce Kamil:** przy każdym ćwiczeniu w loggerze widoczne, jakie partie
+pracują — kolorowe plakietki.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/TrainScreen.tsx`,
+`src/components/PlanScreen.tsx`, `tests/logic.test.ts` (niewymagane).
+
+**Spec:**
+1. W `logic.ts`, obok `STATUS_COLORS` (`:85`), dodaj **jedno źródło prawdy** o
+   kolorach partii:
+   ```ts
+   export const MUSCLE_COLORS: Record<Muscle, string> = {
+     Klatka: "#ef4444", Plecy: "#3b82f6", Barki: "#f59e0b", Nogi: "#22c55e",
+     Pośladki: "#ec4899", "Tył uda": "#14b8a6", Łydki: "#84cc16",
+     Biceps: "#a855f7", Triceps: "#f97316", Brzuch: "#eab308",
+   };
+   ```
+   (Kolory dobrane tak, żeby sąsiadujące partie się nie zlewały na ciemnym tle;
+   możesz je poprawić, ale trzymaj jeden zestaw dla całej apki.)
+2. Komponent `MuscleTag` (mały, lokalny w `TrainScreen.tsx` albo w `Gym.tsx` jeśli
+   używany też gdzie indziej):
+   - partia **główna**: wypełnienie `${color}33`, tekst w `color`, `font-semibold`,
+   - partia **wspomagająca**: ta sama paleta, ale `${color}1a`, tekst
+     `${color}` z `opacity-70` i sufiksem `½` (to odzwierciedla wagę ½ serii
+     w liczniku objętości — spójność z `weeklyMuscleVolume`),
+   - klasy: `rounded-full px-1.5 py-0.5 text-[9px] leading-none`.
+3. Renderuj tagi w nagłówku karty ćwiczenia w loggerze, pod nazwą, przed
+   `CardDescription`. Kolejność: główna, potem wspomagające w kolejności z
+   `secondaryMuscles`. Ćwiczenie bez `primaryMuscle` (może się zdarzyć przy
+   ćwiczeniach użytkownika) → brak tagów, bez pustego kontenera.
+4. Te same tagi dołóż na liście ćwiczeń w `PlanScreen` (przy nazwie w dniu) —
+   ten sam komponent, bez duplikatu stylów.
+5. W trybie skupienia (P3-6) tagi idą pod dużą nazwą ćwiczenia.
+
+**Kryteria akceptacji:**
+- Przy „Wyciskanie sztangi płasko" widać `Klatka`, `Triceps ½`, `Barki ½` w trzech
+  różnych kolorach.
+- Kolory są identyczne w Treningu i w Planie (jedno źródło).
+- Karta ćwiczenia nie urosła o więcej niż jeden wiersz na 375 px.
+
+---
+
+### [ ] P3-8. Rozszerzona baza ćwiczeń (~70 pozycji) + poprawka migracji, która ją w ogóle wpuści
+
+**Czego chce Kamil:** dużo więcej ćwiczeń w bazie, skategoryzowanych, żeby móc
+podmieniać ruchy (zajęty sprzęt, inna siłownia, urozmaicenie).
+
+**⚠️ NAJWAŻNIEJSZE — bez kroku 1 nowe ćwiczenia NIE dotrą do telefonu Kamila.**
+`migrateState()` w ścieżce „aktualny schemat" (`seed.ts:270-279`) robi
+`{ ...fresh, ...old }`, czyli **tablica `old.exercises` w całości przykrywa seed**.
+Kamil ma już `version === SCHEMA_VERSION`, więc dopisanie pozycji do
+`SEED_EXERCISES` samo z siebie da mu… nic. A bump `SCHEMA_VERSION` (ścieżka
+„stara wersja", `:292-299`) podmienia `exercises` na seed i **skasowałby ćwiczenia,
+które sam dodał**. Rozwiązaniem jest merge biblioteki, nie bump.
+
+**Pliki:** `src/lib/seed.ts`, `src/lib/logic.ts`, `src/components/TrainScreen.tsx`,
+`src/components/PlanScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec — krok 1: merge biblioteki ćwiczeń (rób to PIERWSZE, osobny commit).**
+1. W `seed.ts` dodaj:
+   ```ts
+   export function mergeExerciseLibrary(userExercises: Exercise[]): Exercise[]
+   ```
+   Reguły (kolejność ma znaczenie):
+   - ćwiczenie o ID istniejącym u użytkownika → **zostaje wersja użytkownika**
+     w całości (jego zakresy, `increment`, `note`, `archived`, `restSeconds`);
+     nie „dolewaj" pól z seeda,
+   - ćwiczenie z seeda o ID, którego user nie ma → dołóż `structuredClone` z seeda,
+   - ćwiczenia stworzone przez użytkownika (ID spoza seeda) → zostają nietknięte,
+   - kolejność wynikowa: najpierw pozycje użytkownika w jego kolejności, potem
+     nowe z seeda (stabilnie, bez sortowania).
+2. Wywołaj to w **obu** ścieżkach `migrateState` (`:272` i `:292`) oraz zadbaj,
+   by `targets` dostały wartości startowe dla nowych ID — obecne
+   `{ ...fresh.targets, ...(old.targets ?? {}) }` załatwia to samo z siebie, pod
+   warunkiem, że **każde nowe ćwiczenie ma wpis w `SEED_TARGETS`**.
+3. Operacja jest idempotentna i samonaprawiająca → **`SCHEMA_VERSION` zostaje 5**.
+4. Testy: user z własnym ćwiczeniem + zmodyfikowanym `bench_bb` (repMax 10)
+   przechodzi migrację → własne ćwiczenie jest, `bench_bb.repMax === 10`, a nowe
+   pozycje z seeda doszły z celami z `SEED_TARGETS`.
+
+**Spec — krok 2: ćwiczenia.** Dopisz do `SEED_EXERCISES` poniższe pozycje helperem
+`ex(id, name, category, unit, repMin, repMax, targetSets, increment, primary, secondary[], extra)`.
+Zasady:
+- **ID istniejących ćwiczeń są nietykalne** — nowe ID nie mogą kolidować z:
+  `bench_bb, hipthrust, row_bb, lateral, curl_bb, crunch, squat, deadlift,
+  incline_db, lunges, calf, plank, ohp, pulldown, rdl, bench_db, row_db, french,
+  face_pull, hammer_curl, pushdown, calf_seated, side_plank`.
+- **Żadne nowe ćwiczenie nie trafia do `SEED_DAYS`.** Plan 3-dniowy + bonus
+  zostaje bez zmian — to biblioteka do podmian, nie zmiana treningu.
+- **Pułapka `perHand`:** helper `ex()` ustawia `perHand = unit === "dumbbell"`
+  (`seed.ts:35`), co dla ćwiczeń trzymanych JEDNYM hantlem oburącz (goblet, russian
+  twist, kettlebell swing, pullover) zawyżyłoby tonaż ×2. Dla tych pozycji przekaż
+  jawnie `{ perHand: false }` w `extra` (oznaczone `perHand:false` w tabeli).
+- `rir` domyślnie 2 (helper); dla `isHold` ustaw `rir: 0` jak w `plank`.
+- `restSeconds`: 150–180 dla ciężkich wielostawowych, 90–120 dla reszty, 60 dla
+  izolacji i `isHold`.
+- Każdy `note` ma być krótkim cue technicznym po polsku (jak istniejące).
+- **Każde ID musi dostać wpis w `SEED_TARGETS`** (kolumna „cel"). Ćwiczenia
+  z masą ciała: `0` (to dodatkowe obciążenie, nie masa Kamila).
+
+**KLATKA**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `bench_incline_bb` | Wyciskanie sztangi skos góra | barbell | 6–10 | 3 | 2.5 | Klatka | Triceps, Barki | 35 |
+| `dip_chest` | Dipy na poręczach (tułów w przód) | bodyweight | 6–12 | 3 | 2.5 | Klatka | Triceps, Barki | 0 |
+| `pushup` | Pompki | bodyweight | 10–20 | 3 | 2.5 | Klatka | Triceps, Barki | 0 |
+| `fly_db` | Rozpiętki hantlami | dumbbell | 10–15 | 3 | 1 | Klatka | Barki | 10 |
+| `fly_cable` | Rozpiętki na wyciągu (brama) | cable | 10–15 | 3 | 2.5 | Klatka | Barki | 10 |
+| `press_machine` | Wyciskanie na maszynie | machine | 8–12 | 3 | 2.5 | Klatka | Triceps, Barki | 40 |
+| `pullover_db` | Pullover hantlem (`perHand:false`) | dumbbell | 10–12 | 3 | 2 | Klatka | Plecy | 20 |
+
+**PLECY**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `pullup` | Podciąganie nachwytem | bodyweight | 4–10 | 3 | 2.5 | Plecy | Biceps | 0 |
+| `chinup` | Podciąganie podchwytem | bodyweight | 5–10 | 3 | 2.5 | Plecy | Biceps | 0 |
+| `pulldown_neutral` | Ściąganie drążka chwytem neutralnym | machine | 8–12 | 3 | 2.5 | Plecy | Biceps | 45 |
+| `row_cable` | Wiosłowanie na wyciągu siedząc | cable | 8–12 | 3 | 2.5 | Plecy | Biceps | 45 |
+| `row_tbar` | Wiosłowanie T-bar | barbell | 8–10 | 3 | 2.5 | Plecy | Biceps | 40 |
+| `row_machine` | Wiosłowanie na maszynie | machine | 8–12 | 3 | 2.5 | Plecy | Biceps | 40 |
+| `row_db_bent` | Wiosłowanie hantlami w opadzie | dumbbell | 8–12 | 3 | 2 | Plecy | Biceps | 16 |
+| `rack_pull` | Martwy ciąg z podstawek | barbell | 5–8 | 3 | 5 | Plecy | Tył uda, Pośladki | 80 |
+| `pulldown_straight` | Ściąganie prostymi ramionami (wyciąg) | cable | 12–15 | 3 | 2.5 | Plecy | — | 25 |
+| `shrug_db` | Szrugsy z hantlami | dumbbell | 10–15 | 3 | 2 | Plecy | Barki | 22 |
+| `back_ext` | Hiperekstensje (wyprosty tułowia) | bodyweight | 10–15 | 3 | 2.5 | Tył uda | Plecy, Pośladki | 0 |
+
+**BARKI**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `ohp_db` | Wyciskanie hantli nad głowę | dumbbell | 8–12 | 3 | 2 | Barki | Triceps | 14 |
+| `arnold_press` | Wyciskanie Arnolda | dumbbell | 8–12 | 3 | 2 | Barki | Triceps | 12 |
+| `lateral_cable` | Wznosy bokiem na wyciągu | cable | 12–15 | 3 | 2.5 | Barki | — | 7.5 |
+| `rear_delt_db` | Odwrotne rozpiętki hantlami | dumbbell | 12–15 | 3 | 1 | Barki | Plecy | 7 |
+| `rear_delt_machine` | Odwrotny butterfly (maszyna) | machine | 12–15 | 3 | 2.5 | Barki | Plecy | 25 |
+| `upright_row` | Podciąganie sztangi wzdłuż tułowia | barbell | 10–12 | 3 | 2.5 | Barki | Biceps | 25 |
+| `front_raise_db` | Wznosy przodem hantli | dumbbell | 10–15 | 2 | 1 | Barki | — | 8 |
+| `shrug_bb` | Szrugsy ze sztangą | barbell | 10–15 | 3 | 2.5 | Plecy | Barki | 60 |
+
+**NOGI (czworogłowe / złożone)**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `front_squat` | Przysiad przedni | barbell | 5–8 | 3 | 2.5 | Nogi | Pośladki, Brzuch | 40 |
+| `goblet_squat` | Przysiad goblet (`perHand:false`) | dumbbell | 8–12 | 3 | 2 | Nogi | Pośladki | 20 |
+| `leg_press` | Suwnica (wypychanie nogami) | machine | 8–12 | 3 | 5 | Nogi | Pośladki | 120 |
+| `hack_squat` | Hack squat (maszyna) | machine | 8–12 | 3 | 5 | Nogi | Pośladki | 60 |
+| `leg_ext` | Prostowanie nóg (maszyna) | machine | 12–15 | 3 | 2.5 | Nogi | — | 35 |
+| `bulgarian_split` | Przysiad bułgarski | dumbbell | 8–12 | 3 | 2 | Nogi | Pośladki | 12 |
+| `step_up` | Wejścia na skrzynię | dumbbell | 10–12 | 3 | 2 | Nogi | Pośladki | 12 |
+
+**NOGI (tył uda / biodra)**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `leg_curl_lying` | Uginanie nóg leżąc | machine | 10–12 | 3 | 2.5 | Tył uda | Łydki | 30 |
+| `leg_curl_seated` | Uginanie nóg siedząc | machine | 10–15 | 3 | 2.5 | Tył uda | — | 35 |
+| `nordic_curl` | Nordic curl | bodyweight | 5–8 | 3 | 2.5 | Tył uda | Pośladki | 0 |
+| `good_morning` | Dzień dobry (good morning) | barbell | 8–12 | 3 | 2.5 | Tył uda | Plecy, Pośladki | 30 |
+| `rdl_bb` | RDL ze sztangą | barbell | 6–10 | 3 | 2.5 | Tył uda | Pośladki, Plecy | 60 |
+| `deadlift_sumo` | Martwy ciąg sumo | barbell | 5–6 | 2 | 2.5 | Tył uda | Nogi, Plecy, Pośladki | 70 |
+| `kb_swing` | Swing kettlebell (`perHand:false`) | dumbbell | 12–20 | 3 | 4 | Pośladki | Tył uda | 16 |
+
+**POŚLADKI**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `hipthrust_machine` | Hip thrust na maszynie | machine | 8–12 | 3 | 5 | Pośladki | Tył uda | 60 |
+| `glute_bridge` | Wyciskanie bioder z podłogi (sztanga) | barbell | 10–15 | 3 | 2.5 | Pośladki | Tył uda | 40 |
+| `cable_kickback` | Odwodzenie nogi w tył (wyciąg) | cable | 12–15 | 3 | 2.5 | Pośladki | Tył uda | 10 |
+| `abduction_machine` | Odwodzenie nóg (maszyna) | machine | 12–20 | 3 | 2.5 | Pośladki | — | 35 |
+
+**ŁYDKI**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `calf_press` | Wspięcia na palce na suwnicy | machine | 10–15 | 3 | 5 | Łydki | — | 80 |
+
+**BICEPS**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `curl_db` | Uginanie hantli stojąc | dumbbell | 10–12 | 3 | 1 | Biceps | — | 10 |
+| `curl_incline_db` | Uginanie hantli na skosie | dumbbell | 10–12 | 3 | 1 | Biceps | — | 8 |
+| `curl_preacher` | Uginanie na modlitewniku | barbell | 10–12 | 3 | 1.25 | Biceps | — | 15 |
+| `curl_cable` | Uginanie na wyciągu | cable | 10–15 | 3 | 2.5 | Biceps | — | 20 |
+| `curl_concentration` | Uginanie w podporze (koncentracja) | dumbbell | 10–12 | 2 | 1 | Biceps | — | 8 |
+| `curl_reverse` | Uginanie nachwytem (przedramiona) | barbell | 10–15 | 2 | 1.25 | Biceps | — | 15 |
+
+**TRICEPS**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `bench_close_bb` | Wyciskanie sztangi wąsko | barbell | 6–10 | 3 | 2.5 | Triceps | Klatka, Barki | 35 |
+| `dip_triceps` | Dipy na poręczach (tułów pionowo) | bodyweight | 6–12 | 3 | 2.5 | Triceps | Klatka, Barki | 0 |
+| `dip_bench` | Pompki na ławce | bodyweight | 10–15 | 3 | 2.5 | Triceps | Klatka | 0 |
+| `pushdown_rope` | Prostowanie ramion z liną | cable | 10–15 | 3 | 2.5 | Triceps | — | 20 |
+| `overhead_ext_cable` | Wyciskanie francuskie na wyciągu zza głowy | cable | 10–12 | 3 | 2.5 | Triceps | — | 20 |
+| `skullcrusher_db` | Wyciskanie francuskie hantlami leżąc | dumbbell | 10–12 | 3 | 1 | Triceps | — | 10 |
+| `kickback_db` | Prostowanie ramienia w opadzie | dumbbell | 12–15 | 2 | 1 | Triceps | — | 6 |
+
+**BRZUCH**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `hanging_leg_raise` | Unoszenie nóg w zwisie | bodyweight | 8–15 | 3 | 2.5 | Brzuch | — | 0 |
+| `leg_raise_lying` | Unoszenie nóg leżąc | bodyweight | 12–20 | 3 | 2.5 | Brzuch | — | 0 |
+| `ab_wheel` | Kółko do brzucha (rollout) | bodyweight | 8–15 | 3 | 2.5 | Brzuch | Plecy | 0 |
+| `woodchop_cable` | Drwal na wyciągu | cable | 12–15 | 3 | 2.5 | Brzuch | — | 15 |
+| `russian_twist` | Rosyjskie skręty (`perHand:false`) | dumbbell | 15–20 | 3 | 2 | Brzuch | — | 10 |
+| `dead_bug` | Dead bug | bodyweight | 10–15 | 3 | 2.5 | Brzuch | — | 0 |
+| `hollow_hold` | Hollow hold (`isHold`, 30 s, `rir:0`) | bodyweight | 30–30 | 3 | 5 | Brzuch | — | 0 |
+| `pallof_press` | Pallof press (antyrotacja) | cable | 10–12 | 3 | 2.5 | Brzuch | — | 10 |
+
+**INNE**
+| id | nazwa | unit | zakres | serie | incr | primary | secondary | cel |
+|----|-------|------|--------|-------|------|---------|-----------|-----|
+| `farmer_walk` | Spacer farmera (`isHold`, 40 s, `rir:0`) | dumbbell | 40–40 | 3 | 2 | Plecy | Brzuch, Barki | 24 |
+
+**Spec — krok 3: UI musi wytrzymać ~90 ćwiczeń.**
+1. **Zamiana ćwiczenia w loggerze** (`TrainScreen.tsx:807-815, :852-868`): lista
+   kandydatów filtrowana po `primaryMuscle` urośnie do kilkunastu pozycji.
+   - dodaj pole wyszukiwania (filtr `includes` po nazwie, bez znaków diakrytycznych:
+     `normalize("NFD").replace(/\p{Diacritic}/gu, "")`),
+   - sortuj: najpierw ćwiczenia z historią Kamila (są w `state.sessions`), potem
+     alfabetycznie,
+   - kontener `max-h-64 overflow-y-auto`.
+2. **Dodawanie ćwiczenia do dnia** (`PlanScreen.tsx`, `addingTo`): `<select>`
+   z 90 pozycjami jest bezużyteczny — pogrupuj przez `<optgroup label={kategoria}>`
+   (kolejność kategorii jak w `CATEGORIES`, `PlanScreen.tsx:16`).
+3. **Lista bazy ćwiczeń w Planie:** dodaj filtr po kategorii (rząd chipów) i pole
+   szukania. Zarchiwizowane nadal na końcu/wyszarzone jak dziś.
+4. **Dobór bonusu** (`suggestBonusExercises`, `logic.ts:228`): pula rośnie z ~5 do
+   ~90 pozycji, więc propozycje zrobią się losowe i mogą trafić w sprzęt, którego
+   Kamil nie ma. Wprowadź ranking kandydatów w obrębie deficytowej partii:
+   1. ćwiczenia, które Kamil już kiedykolwiek wykonał (są w `sessions`),
+   2. ćwiczenia z dnia bonusowego z seeda,
+   3. reszta biblioteki.
+   Test: przy deficycie „Barki" i historii z `lateral` propozycja zawiera `lateral`
+   przed `arnold_press`.
+5. **Wydajność:** `state.exercises.find(...)` w pętlach (`logic.ts:133`, `:188`,
+   `ProgressScreen.tsx:121-129`) robi się O(n·m). Zbuduj `Map<string, Exercise>`
+   raz na wywołanie funkcji i używaj jej w pętli. Zmiana czysto mechaniczna,
+   bez zmiany wyników — testy muszą przejść bez modyfikacji.
+
+**Kryteria akceptacji:**
+- Po `npm run build` i wgraniu na telefon (stan z `version: 5`, `historySeeded: true`)
+  nowe ćwiczenia są widoczne w Planie, a plan dnia, historia i cele bez zmian.
+- Ćwiczenie edytowane wcześniej przez użytkownika zachowuje jego wartości.
+- Żaden dzień w `SEED_DAYS` nie zmienił składu.
+- Objętość tygodniowa (Progres) pokazuje te same liczby co przed zmianą — nowe
+  ćwiczenia nie są w żadnym aktywnym dniu, więc nie mogą jej ruszyć. **To najlepszy
+  test regresji tego zadania.**
+- `npm test` zielone (w tym nowe testy merge'a i rankingu bonusu).
+
+---
+
+### [ ] P3-9. (OPCJONALNE, do decyzji Kamila) Progresja liczona od faktycznie użytego ciężaru
+
+**Kontekst:** `computeProgression` (`logic.ts:278`) przyjmuje `entry.targetWeight`
+jako bazę i **ignoruje ciężary wpisane w seriach**. Dziś to rzadko boli, bo ręczna
+zmiana wagi wymaga klawiatury. Po wdrożeniu P3-2 (steppery) i P3-8 (podmiany
+ćwiczeń) korekta w locie stanie się codziennością — a wtedy zrobienie 3×12 na
+ciężarze o 5 kg niższym niż cel podbije cel od tej WYŻSZEJ wartości.
+
+**Propozycja (jeśli Kamil to potwierdzi):** bazą progresji niech będzie najczęstszy
+ciężar wśród zaliczonych serii roboczych (moda; przy remisie — niższy), a
+`targetWeight` tylko fallbackiem, gdy brak zaliczonych serii. Do tego w podsumowaniu
+komunikat typu `Liczone od 60 kg (cel był 62,5 kg)`, gdy wartości się różnią.
+
+**Dlaczego nie robimy tego od ręki:** to zmiana semantyki silnika, która dotknie
+też `catchUpTargetsFromHistory` (`seed.ts:323`) i historię startową. Wymaga świadomej
+zgody Kamila i osobnego kompletu testów — nie doklejaj tego do P3-2.
