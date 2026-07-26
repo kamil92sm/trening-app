@@ -540,7 +540,7 @@ w rozwiniętej sesji „Edytuj" → dialog z edycją serii (weight/reps/done) �
 `store.updateSession(session)` (nowa akcja). UWAGA: NIE przeliczaj wstecz targets —
 tylko dane sesji. **Rozmiar:** M
 
-### [ ] P2-6. Usuń funkcję paragonu / „Udostępnij" (cofnięcie P2-3)
+### [x] P2-6. Usuń funkcję paragonu / „Udostępnij" (cofnięcie P2-3) (2026-07-26)
 **Zgłoszenie Kamila (2026-07-26 wieczór):** „nie chcę w ogóle opcji paragonu. Wywal ją, nie
 jest mi potrzebna." Cofamy P2-3 w całości.
 
