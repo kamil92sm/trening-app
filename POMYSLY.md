@@ -501,6 +501,123 @@ gdy autoBackup OFF. **Spec:** po `finishSession`, jeśli liczba sesji od `lastBa
 ≥ 6 (lub `lastBackup` pusty i sesji ≥ 6) → toast „Zrób backup — ostatni: X treningów
 temu" z guzikiem prowadzącym do Więcej. **Rozmiar:** S
 
+### [ ] P1-8. Rekord (PR) na żywo — w loggerze i w podsumowaniu
+**Skąd:** rekordy są dziś liczone TYLKO w Progresie (`ProgressScreen.tsx:63`, karta „Rekordy") —
+w trakcie treningu apka nie mówi ani słowa, gdy właśnie pobiłeś życiówkę. Najtańsza możliwa
+dawka motywacji: dane już są, brakuje sygnału w momencie, w którym ma znaczenie.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/TrainScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec — silnik:**
+- `personalBests(state, exId, excludeSessionId?): { weight: number; e1rm: number; holdSeconds: number }`
+  — maksimum po WSZYSTKICH ukończonych sesjach (`completed`), tylko serie `done`.
+  Dla `isHold` liczy się `reps` (sekundy) → `holdSeconds`; dla reszty `weight` i `e1rm` (Epley).
+  Brak historii → same zera (pierwsza seria NIE jest wtedy „rekordem" — patrz niżej).
+- `isSetRecord(ex, set, best): "weight" | "e1rm" | "hold" | null` — czysta funkcja porównująca
+  pojedynczą serię z rekordem. Zwraca `null`, gdy `best` jest zerowy (brak historii = brak PR,
+  żeby pierwszy trening nowego ćwiczenia nie świecił się na złoto przy każdej serii).
+  Priorytet, gdy pobite oba: `weight` > `e1rm` (cięższy ciężar to mocniejszy komunikat).
+
+**Spec — UI:**
+- Logger: `personalBests` policz RAZ na wejście do drafta (`useMemo` po `state.sessions`, jak
+  `lastByExercise` — nie licz per keystroke). Gdy zaznaczona (`done`) seria bije rekord: złota
+  ramka/plakietka „PR" przy wierszu serii + jednorazowy `toast("Rekord!", "<nazwa> — 62,5 kg × 8")`.
+  Odznaczenie serii cofa plakietkę (stan liczony z danych, nie zapamiętywany).
+- Podsumowanie treningu: nad listą progresji sekcja „🏆 Rekordy tej sesji" (nazwa + wynik),
+  ukryta gdy brak. Nie dubluj toastów z loggera.
+
+**Testy:** `personalBests` pomija serie `!done` i sesje `!completed`; `excludeSessionId` działa;
+`isSetRecord` → `null` przy pustej historii; hold porównuje sekundy, nie ciężar; priorytet
+`weight` nad `e1rm`.
+**Akceptacja:** pobicie ciężaru/e1RM w trakcie treningu widać natychmiast przy serii i w
+podsumowaniu; brak fałszywych PR na pierwszym treningu ćwiczenia; `npm test` + `npm run build` OK.
+**Rozmiar:** M
+
+### [ ] P1-9. Serie rozgrzewkowe — ramp-up z gotowym układem talerzy
+**Po co:** przy 65–80 kg w przysiadzie/MC rozgrzewka to 3–4 serie, których nikt nie liczy w
+głowie — a apka ma już cały aparat (`platePlan`, `nearestAchievable`, aktywny profil siłowni
+z FEAT-1). Wpisujesz się na ławkę i widzisz: „20 × 8 · 40 × 5 · 55 × 3 · 65 × 2" z talerzami
+na stronę. Zero nowych danych, czysta arytmetyka na tym, co już jest.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/TrainScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec — silnik:** `warmupPlan(ex, workWeight, bar, plates): { weight: number; reps: number }[]`
+- Tylko `ex.unit === "barbell"` i `!ex.isHold` — dla hantli/maszyn ramp jest trywialny i
+  zaśmieciłby UI (świadome ograniczenie v1, nie przeoczenie).
+- Kroki: pusty gryf × 8 (pomiń, gdy `bar >= 0.5 * workWeight`), potem 50% × 5, 70% × 3, 85% × 2.
+- Każdy krok przez `nearestAchievable(pct * workWeight, bar, plates)`; **nigdy** nie przekrocz
+  `workWeight`; usuń duplikaty i kroki niemonotoniczne (przy lekkich ciężarach 50% i 70% mogą
+  wpaść na ten sam osiągalny ciężar — wtedy jedna seria, nie dwie identyczne).
+- `workWeight <= bar` → `[]` (nie ma czego rozgrzewać sztangą).
+
+**Spec — UI:** w karcie ćwiczenia w loggerze zwijany wiersz „Rozgrzewka (4)" — po rozwinięciu
+lista kroków, każdy z rozpisaniem `platePlan` na stronę (jak `PlateBar` w `Gym.tsx`).
+**Serie rozgrzewkowe NIE są logowane** — nie wchodzą do `entry.sets`, tonażu, objętości ani
+progresji (to podpowiedź, nie dane). Gryf/talerze bierz z AKTYWNEGO profilu siłowni, jeśli
+ustawiony (spójnie z FEAT-1), inaczej z `settings`.
+
+**Testy:** ramp dla 100 kg/gryf 20 → monotoniczny, ostatni krok < 100, wszystkie osiągalne z
+talerzy; `workWeight = 20` (sam gryf) → `[]`; ćwiczenie nie-sztangowe → `[]`; deduplikacja przy
+lekkim ciężarze (np. 30 kg) nie zwraca dwóch identycznych kroków.
+**Akceptacja:** rozgrzewka widoczna przy ćwiczeniach ze sztangą, liczby zgadzają się z
+kalkulatorem talerzy, tonaż sesji bez zmian po rozwinięciu rozgrzewki.
+**Rozmiar:** M
+
+### [ ] P1-10. Czas trwania treningu i gęstość (tonaż/min)
+**Skąd:** `Session` ma tylko `date` (= moment STARTU, ustawiany w `startDay`), więc apka nie wie,
+czy trening trwał 45 minut czy dwie godziny. To jedna z niewielu metryk, których nie da się
+odtworzyć wstecz — im wcześniej zacznie się zbierać, tym lepiej.
+
+**Pliki:** `src/lib/types.ts`, `src/lib/store.tsx`, `src/components/TrainScreen.tsx`,
+`src/components/HistoryScreen.tsx`, `src/components/ProgressScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec:**
+- `Session += finishedAt?: string` (ISO). Ustawiane w `store.finishSession` (`store.tsx:119`)
+  na `new Date().toISOString()`. `date` zostaje momentem startu — nie zmieniaj jego semantyki.
+- **Bez bumpa `SCHEMA_VERSION`** — pole opcjonalne, którego brak (stare sesje, historia startowa)
+  daje poprawne zachowanie „czas nieznany". Zgodne z Zasadą 2 (pole samonaprawiające się).
+- `sessionDuration(session): number | null` w `logic.ts` — minuty, `null` gdy brak `finishedAt`
+  **albo gdy wynik > 240 min** (apka została otwarta na noc — lepiej „—" niż bzdura w statystyce).
+- UI: podsumowanie treningu („58 min · 2,1 t · 36 kg/min"), wiersz sesji w Historii (czas obok
+  daty), Progres — średni czas i gęstość z ostatnich 8 tygodni pod wykresem tonażu.
+  Gęstość = `sessionVolume / minuty`, ukryj gdy `duration === null`.
+
+**Testy:** `sessionDuration` liczy minuty poprawnie; brak `finishedAt` → `null`; 5 h → `null`.
+**Akceptacja:** nowo zakończony trening pokazuje czas, stare sesje pokazują „—" i nic się nie
+wysypuje; `npm test` + `npm run build` OK.
+**Rozmiar:** S
+
+### [ ] P1-11. Twarda walidacja importu + kopia bezpieczeństwa przed nadpisaniem
+**Realne ryzyko:** `store.importJson` (`store.tsx:287`) sprawdza tylko, czy `parsed.sessions`
+jest tablicą — plik z połowicznie poprawnym kształtem (albo backup z innej apki, który ma pole
+`sessions`) przechodzi walidację i **nadpisuje cały stan bez odwrotu**. To jedyne miejsce w
+apce, gdzie jedno kliknięcie może skasować całą historię. Cena naprawy: mała.
+
+**Pliki:** `src/lib/backup.ts` (albo nowy `src/lib/validate.ts`), `src/lib/store.tsx`,
+`src/components/MoreScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec:**
+- `validateBackup(parsed: unknown): string | null` — `null` = OK, inaczej komunikat po polsku
+  wskazujący KONKRETNY brak. Sprawdź: obiekt; `version` liczba; `exercises`/`days` tablice, w
+  których każdy element ma `id` i `name` (string); `targets` obiekt; `sessions` tablica, a każda
+  sesja ma `id`, `dayId`, `date` i tablicę `entries`; `body`/`squash` tablice; `settings` obiekt.
+  Nie waliduj pola po polu do końca świata — chodzi o odsianie „to nie jest backup tej apki",
+  nie o pełny schemat.
+- `importJson` woła `validateBackup` PRZED `setState`; przy błędzie zwraca jego komunikat.
+- **Kopia bezpieczeństwa:** przed nadpisaniem (import) ORAZ przed `resetAll` zapisz bieżący stan
+  do `localStorage` pod `trening-app-backup-auto` (jeden slot, nadpisywany). W „Więcej" → Backup
+  przycisk „Przywróć ostatnią kopię automatyczną" (aktywny tylko gdy slot istnieje, z datą).
+  To ma być ratunek po pomyłce, nie drugi system backupu — jeden slot wystarczy.
+- Potwierdzenie importu: `confirm()` z liczbą sesji w PLIKU vs liczbą sesji OBECNIE
+  („Zaimportować 12 sesji? Obecne 34 zostaną zastąpione."). Kamil ma zobaczyć, że traci więcej,
+  niż zyskuje, ZANIM kliknie.
+
+**Testy:** `validateBackup` — poprawny `defaultState()` → `null`; `{}` → komunikat; obcy JSON z
+polem `sessions` (ale bez `exercises`/`settings`) → komunikat; sesja bez `entries` → komunikat.
+**Akceptacja:** import obcego pliku odbity z sensownym komunikatem, import poprawnego działa jak
+dziś, po imporcie/resecie da się wrócić do stanu sprzed operacji.
+**Rozmiar:** S/M
+
 ---
 
 ## P2 — wisienki (gdy P0/P1 działają)
@@ -617,6 +734,143 @@ która najbardziej kuleje.
 
 ---
 
+## Nowa partia pomysłów (Opus 5, 2026-07-26 wieczór) — P2-8…P2-12
+
+Propozycje „level up" po wdrożeniu P2-7. Kolejność w sekcji = moja rekomendacja wartości do
+kosztu. **P2-8 (Deload) wymaga decyzji Kamila przed kodowaniem** — reszta jest zamknięta.
+
+### [ ] P2-8. Tryb tygodnia: DELOAD (trzeci przełącznik + nudge po zastoju)
+**Dlaczego to jest największy „level up" z tej listy:** apka umie już periodyzację falującą
+(P0-5: Siła ↔ Hipertrofia tydzień w tydzień) i umie WYKRYĆ zastój (P1-1 `detectPlateau`), ale
+nie ma jedynego narzędzia, które zastój faktycznie odkręca — lżejszego tygodnia. Dziś jedyną
+reakcją na spadek formy jest bursztynowy komunikat „odbuduj powtórzenia", czyli walka na tym
+samym ciężarze aż do skutku. Deload domyka pętlę: obciążenie → zmęczenie → **rozładowanie** →
+superkompensacja. To też domyka lukę „Auto-deload" z listy otwartych pomysłów w CLAUDE.md §10.
+
+**Spec — silnik (`logic.ts`, `types.ts`):**
+- `TrainingMode += "deload"` (trzecia wartość, `types.ts`). Przejrzyj WSZYSTKIE miejsca
+  porównujące `mode === "hypertrophy"` — muszą świadomie obsłużyć trzeci przypadek
+  (`store.finishSession`, `TrainScreen`, `exerciseForMode`, `targetForMode`), nie wpaść w
+  domyślny else.
+- `exerciseForMode(ex, "deload")` → bazowy (siłowy) zakres powtórzeń BEZ zmian, `rir: ex.rir + 2`
+  (masz zejść z ciężarem, nie z powtórzeniami — objętość spada przez ciężar i serie, nie przez
+  bicie rekordów w powtórzeniach).
+- `deloadTargetFor(state, ex)` → `round(0.65 × targets[ex.id])` do `ex.increment`. Baza to
+  ZAWSZE cel siłowy (`targets`), nawet gdy poprzedni tydzień był hipertroficzny — deload jest
+  odpoczynkiem od obu trybów. `targetForMode` dostaje trzecią gałąź.
+- Serie: w loggerze `max(2, ex.targetSets - 1)` (jeśli P0-8 zostanie wdrożone wcześniej, licz od
+  `targetSetsForMode`, nie od surowego `ex.targetSets`).
+- **Progresja WYŁĄCZONA:** `finishSession` przy `mode === "deload"` NIE zapisuje ani `targets`,
+  ani `hyperTargets` — cele zamrożone. Podsumowanie pokazuje „Deload — cele bez zmian, wracasz
+  do swoich ciężarów w przyszłym tygodniu." Bez tego deload rozwaliłby progresję (3 serie na
+  65% trafiłyby `repMax` i apka „awansowałaby" ciężar w dół albo w górę — oba wyniki błędne).
+- `weeksSinceDeload(state): number` — liczba pełnych tygodni (po `mondayOf`) od ostatniej sesji
+  z `mode === "deload"`; brak takiej sesji → liczy od pierwszej sesji w historii.
+
+**Spec — UI (`TrainScreen`):** trzeci kafelek w przełączniku „Cel tygodnia" (Siła · Hipertrofia ·
+Deload, kolor bursztynowy — spójnie ze statusem `deload` w podsumowaniu). Plakietka „Deload" w
+nagłówku loggera (jak dziś „Siła"/„Hipertrofia"), etykieta `(deload)` w wierszu „Ostatnio"
+(`lastByExercise` już rozróżnia tryby). **Nudge:** na ekranie wyboru dnia bursztynowy box, gdy
+`weeksSinceDeload(state) >= 6` LUB `detectPlateau` zwraca `true` dla ≥ 3 ćwiczeń: „6 tygodni bez
+lżejszego tygodnia i zastój w 3 ćwiczeniach — rozważ tydzień deloadu." Sugestia, nie automat
+(§11) — nie przełączaj trybu za użytkownika.
+
+**⚠️ DO USTALENIA Z KAMILEM PRZED KODEM:**
+1. **65% ciężaru** — czy tyle (klasyczny zakres to 50–70% roboczego)? Zbyt lekko = tydzień
+   zmarnowany, zbyt ciężko = nie ma rozładowania.
+2. **Minus jedna seria** — czy schodzimy też z objętością, czy tylko z ciężarem?
+3. Czy deload ma się liczyć do objętości tygodniowej w Progresie jak normalny tydzień (moja
+   rekomendacja: TAK, bo serie realnie wykonane — ale wtedy tydzień deloadu wygląda na „słaby",
+   co jest prawdą i tak ma być).
+
+**Testy:** `exerciseForMode(ex, "deload")` nie rusza zakresu, podnosi RIR o 2; `deloadTargetFor`
+liczy 65% i zaokrągla do `increment`; `finishSession` w deloadzie NIE zmienia `targets` ani
+`hyperTargets` (kluczowy test — to jest miejsce, gdzie błąd kosztuje wypracowaną progresję);
+`weeksSinceDeload` liczy tygodnie poprawnie i radzi sobie z brakiem deloadu w historii.
+**Akceptacja:** tydzień deloadu da się przeklikać bez tykania planu, cele po nim są dokładnie
+takie, jak przed nim, nudge pojawia się po 6 tygodniach; CLAUDE.md §5.7 dopisane o trzecim trybie.
+**Rozmiar:** M/L
+
+### [ ] P2-9. Cofnij zakończenie treningu (undo progresji)
+**Realne ryzyko:** `finishSession` (`store.tsx:119`) natychmiast nadpisuje `targets` /
+`hyperTargets`. Kliknięcie „Zakończ trening" o jedną serię za wcześnie (albo przez pomyłkę na
+pustym drafcie) zapisuje sesję I przesuwa cele. P2-5 pozwala edytować sesję w Historii, ale
+**świadomie nie przelicza celów wstecz** — czyli po pomyłce cele zostają złe i trzeba je poprawiać
+ręcznie w Planie, pamiętając poprzednie wartości. Undo rozwiązuje to jednym kliknięciem.
+
+**Pliki:** `src/lib/store.tsx`, `src/components/TrainScreen.tsx`.
+
+**Spec:** `finishSession` zwraca (obok `FinishSummary[]`) `undo: { sessionId, targets,
+hyperTargets }` — snapshot celów SPRZED zapisu (płytka kopia obu map) + id nowej sesji. Nowa
+akcja `store.undoFinishSession(undo)`: usuwa sesję o tym id i przywraca obie mapy w całości.
+Przycisk „Cofnij zakończenie" (wariant `ghost`, dyskretny) na ekranie podsumowania, obok
+„Zamknij". Snapshot trzymaj w stanie Reacta w `TrainScreen` — **nie persystuj**: undo działa
+dopóki widzisz podsumowanie, potem znika. To świadome ograniczenie zakresu (zero zmian schematu,
+zero nowych ścieżek migracji) i pokrywa 95% realnych pomyłek, bo są zauważane od razu.
+⚠️ Jeśli włączony auto-backup do Gista: undo musi też oznaczyć backup jako nieaktualny albo
+odpalić ponowny backup po cofnięciu, inaczej chmura zostanie ze stanem „po pomyłce".
+
+**Testy:** manualne (akcja store'a + UI, nie czysta logika) — opisz w commicie, co sprawdziłeś.
+**Akceptacja:** cofnięcie usuwa sesję z Historii i przywraca cele co do grosza; ponowne
+zakończenie tego samego treningu nie jest możliwe (draft już wyczyszczony — po undo wróć do
+ekranu wyboru dnia, nie do loggera).
+**Rozmiar:** M
+
+### [ ] P2-10. Podpowiedź następnego dnia w rotacji
+**Po co:** ekran wyboru dnia pokazuje 3–4 równorzędne kafelki i za każdym razem trzeba pomyśleć,
+co jest dziś. Apka wie to z historii. Mikro-usprawnienie, ale dotyka jedynego ekranu, przez który
+przechodzi się przed KAŻDYM treningiem.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/TrainScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec:** `nextDaySuggestion(state): string | null` — bierze ostatnią ukończoną sesję (bez dnia
+bonusowego), znajduje jej `dayId` w kolejności `state.days` (tylko dni aktywne, nie-opcjonalne)
+i zwraca następny z zawijaniem (fri → mon). Brak historii → pierwszy aktywny dzień. UI: na
+sugerowanym kafelku subtelna ramka w kolorze `accent` dnia + chip „następny w rotacji". Kafelki
+zostają klikalne wszystkie — to podpowiedź, nie blokada.
+**Testy:** po `mon` → `wed`; po `fri` → `mon` (zawijanie); brak sesji → pierwszy dzień; ostatnia
+sesja z dnia bonusowego jest pomijana (nie resetuje rotacji).
+**Rozmiar:** S
+
+### [ ] P2-11. Kalendarz konsekwencji (8 tygodni × dni + seria)
+**Po co:** wszystkie dzisiejsze wykresy pokazują CIĘŻARY. Żaden nie pokazuje najsilniejszego
+predyktora wyniku — czy w ogóle chodzisz na siłownię. Jeden rzut oka na 8 tygodni mówi więcej niż
+tonaż tygodniowy, bo pokazuje dziury.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/ProgressScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec:** `weeklyAdherence(state, weeks = 8): { week: string; done: number; planned: number }[]` —
+dla każdego z ostatnich `weeks` poniedziałków (`mondayOf`) liczy ukończone sesje vs liczbę
+aktywnych dni nie-opcjonalnych (dzień bonusowy liczy się do `done`, ale NIE podnosi `planned` —
+inaczej włączenie bonusu psułoby statystykę za tygodnie, w których go nie było). UI: siatka 8
+kolumn w karcie w Progresie, kropka pełna/pusta per dzień + podpis „5/6 tygodni z kompletem".
+Kolory: komplet = zielony, częściowo = bursztyn, zero = szary (NIE czerwony — to log treningowy,
+nie wyrzut sumienia).
+**Testy:** tydzień z 3/3 sesji → `done === planned`; tydzień pusty → `done === 0`; dzień bonusowy
+nie podbija `planned`; okno obejmuje dokładnie `weeks` tygodni wstecz.
+**Rozmiar:** S/M
+
+### [ ] P2-12. Standardy siłowe względem masy ciała
+**Po co:** `body` (waga) i e1RM leżą w tym samym stanie i nigdy się nie spotykają. Stosunek
+ciężaru do masy ciała to jedyny kontekst, który mówi „jesteś już mocny", gdy same kilogramy
+przestają robić wrażenie. Tanie, bo dane są.
+
+**Pliki:** `src/lib/logic.ts`, `src/components/ProgressScreen.tsx`, `tests/logic.test.ts`.
+
+**Spec:** `strengthRatios(state)` → dla `squat`, `deadlift`, `bench_bb`, `ohp`: najlepsze e1RM z
+historii ÷ **najnowsza** waga z `body`. Progi (× masy ciała, orientacyjne, mężczyźni, bez sprzętu):
+bench 0,75 / 1,0 / 1,25 · przysiad 1,0 / 1,25 / 1,5 · MC 1,25 / 1,5 / 1,75 · OHP 0,45 / 0,6 / 0,75
+→ etykiety „początkujący / średniozaawansowany / zaawansowany". Karta ukryta w całości, gdy brak
+wpisu wagi (nie zgaduj masy ciała) albo brak historii danego ćwiczenia.
+**Framowanie (§11 — to jest tu ważniejsze niż kod):** pod kartą obowiązkowo: „Progi orientacyjne
+z ogólnych tabel siłowych — nie uwzględniają wieku, wzrostu ani dźwigni. Ciekawostka, nie ocena."
+Bez emoji-medali i bez „awansów" — to ma być punkt odniesienia, nie grywalizacja.
+**Testy:** brak wagi → pusty wynik; progi klasyfikują poprawnie na granicy (dokładnie 1,0 × masy
+w benchu → średniozaawansowany, nie początkujący); e1RM brany jako maksimum z całej historii.
+**Rozmiar:** S
+
+---
+
 ## Odrzucone / niewykonalne (nie wdrażać, nie wracać do tematu)
 
 - **Wibracje timera** — `navigator.vibrate` nie istnieje na iOS Safari/PWA. Zamiennik:
@@ -627,6 +881,14 @@ która najbardziej kuleje.
   i odświeżania tokenów; Gist prostszy o rząd wielkości.
 - **Auto-przeliczanie ciężaru zamiennika z e1RM partii** (część pomysłu Gemini P1-3) —
   różne dźwignie/sprzęt = wynik byłby fikcją.
+- **Powiadomienie o końcu przerwy, gdy apka jest w tle** (Opus 5, 2026-07-26) — kuszące, ale
+  na iOS niewykonalne w tej architekturze. Web Push w PWA z ekranu głównego (iOS 16.4+) wymaga
+  **service workera I serwera push** — a deliverable to jeden sklejony `docs/index.html` bez SW,
+  hostowany na GitHub Pages (brak backendu). Lokalne powiadomienia „za 2 minuty" nie istnieją w
+  Safari (brak `TimestampTrigger`), a timery JS są dławione, gdy apka idzie w tło — więc nawet
+  `Notification` odpalone z żywej strony nie zadziała w scenariuszu, o który chodzi (scrollujesz
+  Instagram, apka śpi). Zostaje to, co jest: dźwięk + timer na ekranie + Wake Lock (P1-4), który
+  utrzymuje ekran włączony w trakcie treningu. Nie wracać bez zmiany architektury (SW + backend).
 
 ## Zrobione (kontekst)
 
