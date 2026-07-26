@@ -871,7 +871,7 @@ stanie Reacta. Po undo — jeśli auto-backup włączony — odpala ponowny back
 zostawała ze stanem sprzed cofnięcia. Zweryfikowane w przeglądarce end-to-end: 9 sesji/cel 45 →
 zakończenie → 10 sesji/cel 47,5 → cofnięcie → z powrotem 9 sesji/cel 45, ekran wyboru dnia.
 
-### [ ] P2-10. Podpowiedź następnego dnia w rotacji
+### [x] P2-10. Podpowiedź następnego dnia w rotacji (2026-07-26)
 **Po co:** ekran wyboru dnia pokazuje 3–4 równorzędne kafelki i za każdym razem trzeba pomyśleć,
 co jest dziś. Apka wie to z historii. Mikro-usprawnienie, ale dotyka jedynego ekranu, przez który
 przechodzi się przed KAŻDYM treningiem.
@@ -886,6 +886,10 @@ zostają klikalne wszystkie — to podpowiedź, nie blokada.
 **Testy:** po `mon` → `wed`; po `fri` → `mon` (zawijanie); brak sesji → pierwszy dzień; ostatnia
 sesja z dnia bonusowego jest pomijana (nie resetuje rotacji).
 **Rozmiar:** S
+**Wdrożone:** `nextDaySuggestion()` w `logic.ts` (5 testów). `TrainScreen.tsx`: sugerowany kafelek
+dostaje ramkę w kolorze własnego `accent` + chip „następny w rotacji", wszystkie kafelki nadal
+klikalne. Zweryfikowane w przeglądarce (domyślna historia kończy się na piątku → podpowiedź to
+poniedziałek).
 
 ### [ ] P2-11. Kalendarz konsekwencji (8 tygodni × dni + seria)
 **Po co:** wszystkie dzisiejsze wykresy pokazują CIĘŻARY. Żaden nie pokazuje najsilniejszego
