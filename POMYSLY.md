@@ -554,7 +554,7 @@ PRZED `finishSession` (na rekordach sprzed tej sesji), karta „🏆 Rekordy tej
 jeden, najlepszy wynik na ćwiczenie. Zweryfikowane w przeglądarce (Playwright): 50 kg × 5 na
 tle historii 40 kg × 8 poprawnie oznaczone jako PR na żywo i w podsumowaniu.
 
-### [ ] P1-9. Serie rozgrzewkowe — ramp-up z gotowym układem talerzy
+### [x] P1-9. Serie rozgrzewkowe — ramp-up z gotowym układem talerzy (2026-07-26)
 **Po co:** przy 65–80 kg w przysiadzie/MC rozgrzewka to 3–4 serie, których nikt nie liczy w
 głowie — a apka ma już cały aparat (`platePlan`, `nearestAchievable`, aktywny profil siłowni
 z FEAT-1). Wpisujesz się na ławkę i widzisz: „20 × 8 · 40 × 5 · 55 × 3 · 65 × 2" z talerzami
@@ -583,6 +583,11 @@ lekkim ciężarze (np. 30 kg) nie zwraca dwóch identycznych kroków.
 **Akceptacja:** rozgrzewka widoczna przy ćwiczeniach ze sztangą, liczby zgadzają się z
 kalkulatorem talerzy, tonaż sesji bez zmian po rozwinięciu rozgrzewki.
 **Rozmiar:** M
+**Wdrożone:** `warmupPlan()` w `logic.ts` (8 testów). `TrainScreen.tsx`: zwijany wiersz
+„Rozgrzewka (N)" w karcie ćwiczenia, gryf/talerze z aktywnego profilu siłowni (FEAT-1) albo
+domowe, każdy krok z rozpisaniem `platePlan` na stronę. Zweryfikowane w przeglądarce: dla
+celu 45 kg (gryf 20) rampa 20×8 → 22,5×5 → 32,5×3 → 37,5×2, wszystko ściśle rosnące i poniżej
+celu; serie rozgrzewkowe nie trafiają do `entry.sets`.
 
 ### [ ] P1-10. Czas trwania treningu i gęstość (tonaż/min)
 **Skąd:** `Session` ma tylko `date` (= moment STARTU, ustawiany w `startDay`), więc apka nie wie,
