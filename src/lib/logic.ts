@@ -727,3 +727,22 @@ export function mondayOf(iso: string): string {
   d.setDate(d.getDate() - shift);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Podpowiedź kolejnego dnia w rotacji planu (P2-10) — id dnia z `state.days`,
+ * NIE bonusowego. Bierze ostatnią ukończoną sesję spośród dni głównych
+ * (sesja z dnia bonusowego jest pomijana — nie resetuje rotacji) i zwraca
+ * następny dzień w kolejności planu, z zawijaniem (ostatni → pierwszy). Brak
+ * takiej historii → pierwszy dzień główny. `null` tylko gdy plan nie ma
+ * żadnego dnia głównego (nie powinno się zdarzyć w praktyce).
+ */
+export function nextDaySuggestion(state: AppState): string | null {
+  const rotation = state.days.filter((d) => !d.optional);
+  if (rotation.length === 0) return null;
+  const last = [...state.sessions]
+    .filter((s) => s.completed && rotation.some((d) => d.id === s.dayId))
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last) return rotation[0].id;
+  const idx = rotation.findIndex((d) => d.id === last.dayId);
+  return rotation[(idx + 1) % rotation.length].id;
+}

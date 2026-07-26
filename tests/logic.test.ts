@@ -18,6 +18,7 @@ import {
   suggestedWeightForProfile,
   warmupPlan,
   sessionDuration,
+  nextDaySuggestion,
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
@@ -514,6 +515,25 @@ check(
 check(
   "sessionDuration: finishedAt przed date -> null",
   sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T09:00:00.000Z")) === null
+);
+
+// P2-10: podpowiedz nastepnego dnia w rotacji
+check("nextDaySuggestion: brak historii -> pierwszy dzien (mon)", nextDaySuggestion(defaultState()) === "mon");
+const stRotMon = defaultState();
+stRotMon.sessions.push({ id: "r1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] });
+check("nextDaySuggestion: po mon -> wed", nextDaySuggestion(stRotMon) === "wed");
+const stRotFri = defaultState();
+stRotFri.sessions.push({ id: "r1", dayId: "fri", date: "2026-07-24", completed: true, entries: [] });
+check("nextDaySuggestion: po fri -> mon (zawijanie)", nextDaySuggestion(stRotFri) === "mon");
+const stRotBonus = defaultState();
+stRotBonus.sessions.push(
+  { id: "r1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] },
+  { id: "r2", dayId: "bonus", date: "2026-07-22", completed: true, entries: [] }
+);
+check(
+  "nextDaySuggestion: sesja bonusowa (pozniejsza) nie resetuje rotacji -> nadal wed",
+  nextDaySuggestion(stRotBonus) === "wed",
+  nextDaySuggestion(stRotBonus)
 );
 
 // INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni

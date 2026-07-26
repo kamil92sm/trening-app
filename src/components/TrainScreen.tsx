@@ -29,6 +29,7 @@ import {
   e1rm,
   warmupPlan,
   platePlan,
+  nextDaySuggestion,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -226,6 +227,8 @@ export function TrainScreen() {
   }, [state]);
 
   const activeDays = state.days.filter((d) => !d.optional || d.active);
+  // P2-10: podpowiedz, nie blokada - wszystkie kafelki zostaja klikalne.
+  const nextDayId = nextDaySuggestion(state);
   const activeGymProfile = (state.settings.gymProfiles ?? []).find(
     (p) => p.id === state.settings.activeGymProfileId
   ) ?? null;
@@ -634,14 +637,31 @@ export function TrainScreen() {
             <button
               type="button"
               onClick={() => startDay(day.id)}
-              className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent"
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent",
+                day.id !== nextDayId && "border-border"
+              )}
+              style={day.id === nextDayId ? { borderColor: day.accent ?? "#38bdf8" } : undefined}
             >
               <span
                 className="h-10 w-1.5 shrink-0 rounded-full"
                 style={{ backgroundColor: day.accent ?? "#38bdf8" }}
               />
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{day.name}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="block font-semibold">{day.name}</span>
+                  {day.id === nextDayId && (
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                      style={{
+                        backgroundColor: `${day.accent ?? "#38bdf8"}33`,
+                        color: day.accent ?? "#38bdf8",
+                      }}
+                    >
+                      następny w rotacji
+                    </span>
+                  )}
+                </span>
                 <span className="block text-xs text-muted-foreground">
                   {day.short} · {day.exerciseIds.length} ćwiczeń
                 </span>
