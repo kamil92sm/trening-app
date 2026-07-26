@@ -83,6 +83,8 @@ export interface Session {
   mode?: TrainingMode;
   /** Moment zakończenia (ISO) — `date` to moment STARTU. Brak = czas nieznany (stare sesje/historia startowa). */
   finishedAt?: string;
+  /** Check-in gotowości (opcjonalny, P2-4) — obie skale 1 (słabo) – 5 (świetnie/brak zakwasów). */
+  readiness?: { sleep: number; doms: number };
 }
 
 export interface BodyEntry {

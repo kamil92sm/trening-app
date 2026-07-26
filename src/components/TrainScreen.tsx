@@ -48,6 +48,8 @@ interface Draft {
   date: string;
   entries: ExerciseLog[];
   mode: TrainingMode;
+  /** Check-in gotowości (P2-4) — opcjonalny, wpisany PRZED startem dnia na ekranie wyboru. */
+  readiness?: { sleep: number; doms: number };
 }
 
 function loadDraft(): Draft | null {
@@ -107,6 +109,9 @@ export function TrainScreen() {
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
+  // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
+  // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
+  const [readiness, setReadiness] = useState<{ sleep: number; doms: number } | null>(null);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -238,6 +243,18 @@ export function TrainScreen() {
     });
   }
 
+  // P2-4: pierwsze dotknięcie ustawia OBA pola (nietknięte = neutralne 3), żeby
+  // nie zapisywać połowicznego stanu. Niska gotowość -> jednorazowa sugestia.
+  // Efekt (toast) policzony PRZED setState, nie w jego updaterze — StrictMode
+  // (dev) wywołuje updatery dwa razy, co podwoiłoby toast (patrz finishSession).
+  function updateReadiness(patch: Partial<{ sleep: number; doms: number }>) {
+    const next = { sleep: readiness?.sleep ?? 3, doms: readiness?.doms ?? 3, ...patch };
+    if (next.sleep <= 2 || next.sleep + next.doms <= 4) {
+      toast("Słaba regeneracja", "Rozważ -1 serię w przysiadzie/MC, izolacje bez zmian.");
+    }
+    setReadiness(next);
+  }
+
   // `overrideExerciseIds` — propozycja bonusu (P2-7): podmienia skład TYLKO
   // w tym drafcie, plan (state.days) zostaje nietknięty.
   function startDay(dayId: string, overrideExerciseIds?: string[]) {
@@ -263,7 +280,8 @@ export function TrainScreen() {
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries, mode });
+    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: readiness ?? undefined });
+    setReadiness(null);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
@@ -392,6 +410,7 @@ export function TrainScreen() {
       date: draft.date,
       entries: draft.entries,
       mode: draft.mode,
+      readiness: draft.readiness,
     });
     setSummary(results);
     // P1-10: "kopia" zapisanej sesji do podsumowania (czas trwania/gęstość) —
@@ -526,6 +545,60 @@ export function TrainScreen() {
           <p className="mt-1.5 text-[10px] text-muted-foreground">
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs font-medium">Jak się dziś czujesz? (opcjonalnie)</p>
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="text-[10px] text-muted-foreground">Sen — 1 słabo, 5 świetnie</p>
+              <div className="mt-1 flex gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => updateReadiness({ sleep: n })}
+                    className={cn(
+                      "h-7 w-7 rounded-md border text-xs transition-colors",
+                      readiness?.sleep === n
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground">Zakwasy — 1 mocne, 5 brak</p>
+              <div className="mt-1 flex gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => updateReadiness({ doms: n })}
+                    className={cn(
+                      "h-7 w-7 rounded-md border text-xs transition-colors",
+                      readiness?.doms === n
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {readiness && (
+              <button
+                type="button"
+                onClick={() => setReadiness(null)}
+                className="text-[10px] text-muted-foreground underline underline-offset-2"
+              >
+                Wyczyść
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">Wybierz dzień treningowy:</p>
         {activeDays.map((day) => (
