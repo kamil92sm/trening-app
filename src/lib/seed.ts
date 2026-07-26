@@ -145,6 +145,306 @@ export const SEED_EXERCISES: Exercise[] = [
     note: "Na stronę. Skosy + QL — core w płaszczyźnie, której deska nie łapie.",
     restSeconds: 60,
   }),
+
+  // ── P3-8: rozszerzona biblioteka cwiczen (do podmian, POZA planem 3-dniowym) ──
+
+  // KLATKA
+  ex("bench_incline_bb", "Wyciskanie sztangi skos góra", "Klatka", "barbell", 6, 10, 3, 2.5, "Klatka", ["Triceps", "Barki"], {
+    note: "Skos 30–45°. Sztanga schodzi do górnej części klatki, nie do szyi.",
+    restSeconds: 150,
+  }),
+  ex("dip_chest", "Dipy na poręczach (tułów w przód)", "Klatka", "bodyweight", 6, 12, 3, 2.5, "Klatka", ["Triceps", "Barki"], {
+    note: "Pochyl tułów do przodu, łokcie na zewnątrz — mocniej klatka niż triceps.",
+    restSeconds: 120,
+  }),
+  ex("pushup", "Pompki", "Klatka", "bodyweight", 10, 20, 3, 2.5, "Klatka", ["Triceps", "Barki"], {
+    note: "Ciało w jednej linii, pełny zakres — łokcie w dół, nie na boki.",
+    restSeconds: 90,
+  }),
+  ex("fly_db", "Rozpiętki hantlami", "Klatka", "dumbbell", 10, 15, 3, 1, "Klatka", ["Barki"], {
+    note: "Lekkie zgięcie łokci przez cały ruch. Rozciągnięcie na dole, bez odbicia.",
+    restSeconds: 90,
+  }),
+  ex("fly_cable", "Rozpiętki na wyciągu (brama)", "Klatka", "cable", 10, 15, 3, 2.5, "Klatka", ["Barki"], {
+    note: "Łuk ruchu do środka, ściśnij klatkę na końcu.",
+    restSeconds: 90,
+  }),
+  ex("press_machine", "Wyciskanie na maszynie", "Klatka", "machine", 8, 12, 3, 2.5, "Klatka", ["Triceps", "Barki"], {
+    note: "Ustaw siedzisko tak, by uchwyty były na wysokości klatki.",
+    restSeconds: 120,
+  }),
+  ex("pullover_db", "Pullover hantlem", "Klatka", "dumbbell", 10, 12, 3, 2, "Klatka", ["Plecy"], {
+    perHand: false,
+    note: "Jeden hantel oburącz, biodra nisko. Rozciąga klatkę i najszersze.",
+    restSeconds: 90,
+  }),
+
+  // PLECY
+  ex("pullup", "Podciąganie nachwytem", "Plecy", "bodyweight", 4, 10, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Pełny zakres — od wyprostu ramion do brody nad drążkiem.",
+    restSeconds: 150,
+  }),
+  ex("chinup", "Podciąganie podchwytem", "Plecy", "bodyweight", 5, 10, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Węższy chwyt, dłonie do siebie — mocniej biceps niż nachwyt.",
+    restSeconds: 150,
+  }),
+  ex("pulldown_neutral", "Ściąganie drążka chwytem neutralnym", "Plecy", "machine", 8, 12, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Uchwyty równoległe — łagodniejsze dla barków niż nachwyt szeroki.",
+    restSeconds: 120,
+  }),
+  ex("row_cable", "Wiosłowanie na wyciągu siedząc", "Plecy", "cable", 8, 12, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Plecy proste, ciągnij do brzucha, łopatki ściągnięte na końcu.",
+    restSeconds: 120,
+  }),
+  ex("row_tbar", "Wiosłowanie T-bar", "Plecy", "barbell", 8, 10, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Tułów pod kątem ok. 45°, ciągnij do mostka.",
+    restSeconds: 150,
+  }),
+  ex("row_machine", "Wiosłowanie na maszynie", "Plecy", "machine", 8, 12, 3, 2.5, "Plecy", ["Biceps"], {
+    note: "Klatka oparta o poduszkę, ciągnij łokciami do tyłu.",
+    restSeconds: 120,
+  }),
+  ex("row_db_bent", "Wiosłowanie hantlami w opadzie", "Plecy", "dumbbell", 8, 12, 3, 2, "Plecy", ["Biceps"], {
+    note: "Plecy proste, opad w biodrach. Ciągnij oboma hantlami razem.",
+    restSeconds: 120,
+  }),
+  ex("rack_pull", "Martwy ciąg z podstawek", "Plecy", "barbell", 5, 8, 3, 5, "Plecy", ["Tył uda", "Pośladki"], {
+    note: "Sztanga od wysokości kolan — mniejszy zakres, większy ciężar niż MC klasyczny.",
+    restSeconds: 180,
+  }),
+  ex("pulldown_straight", "Ściąganie prostymi ramionami (wyciąg)", "Plecy", "cable", 12, 15, 3, 2.5, "Plecy", [], {
+    note: "Ramiona proste, ruch tylko w barkach — izolacja najszerszych.",
+    restSeconds: 90,
+  }),
+  ex("shrug_db", "Szrugsy z hantlami", "Plecy", "dumbbell", 10, 15, 3, 2, "Plecy", ["Barki"], {
+    note: "Unoś barki prosto w górę, bez kręcenia ramionami.",
+    restSeconds: 90,
+  }),
+  ex("back_ext", "Hiperekstensje (wyprosty tułowia)", "Plecy", "bodyweight", 10, 15, 3, 2.5, "Tył uda", ["Plecy", "Pośladki"], {
+    note: "Prosty kręgosłup, ruch z bioder — nie przeprostowuj na górze.",
+    restSeconds: 90,
+  }),
+
+  // BARKI
+  ex("ohp_db", "Wyciskanie hantli nad głowę", "Barki", "dumbbell", 8, 12, 3, 2, "Barki", ["Triceps"], {
+    note: "Stabilny tors, hantle nad głową w linii uszu.",
+    restSeconds: 120,
+  }),
+  ex("arnold_press", "Wyciskanie Arnolda", "Barki", "dumbbell", 8, 12, 3, 2, "Barki", ["Triceps"], {
+    note: "Rotacja nadgarstków od dłoni do siebie na starcie do na zewnątrz na górze.",
+    restSeconds: 120,
+  }),
+  ex("lateral_cable", "Wznosy bokiem na wyciągu", "Barki", "cable", 12, 15, 3, 2.5, "Barki", [], {
+    note: "Stały opór przez cały zakres — inaczej niż hantle. Bez zarzucania.",
+    restSeconds: 90,
+  }),
+  ex("rear_delt_db", "Odwrotne rozpiętki hantlami", "Barki", "dumbbell", 12, 15, 3, 1, "Barki", ["Plecy"], {
+    note: "Opad w biodrach, łokcie lekko ugięte — prowadź w tył, nie w górę.",
+    restSeconds: 90,
+  }),
+  ex("rear_delt_machine", "Odwrotny butterfly (maszyna)", "Barki", "machine", 12, 15, 3, 2.5, "Barki", ["Plecy"], {
+    note: "Klatka oparta, ramiona prowadzą ruch w tył na wysokości barków.",
+    restSeconds: 90,
+  }),
+  ex("upright_row", "Podciąganie sztangi wzdłuż tułowia", "Barki", "barbell", 10, 12, 3, 2.5, "Barki", ["Biceps"], {
+    note: "Łokcie wyżej niż nadgarstki, sztanga blisko ciała.",
+    restSeconds: 90,
+  }),
+  ex("front_raise_db", "Wznosy przodem hantli", "Barki", "dumbbell", 10, 15, 2, 1, "Barki", [], {
+    note: "Unoś do wysokości oczu, bez bujania tułowiem.",
+    restSeconds: 90,
+  }),
+  ex("shrug_bb", "Szrugsy ze sztangą", "Barki", "barbell", 10, 15, 3, 2.5, "Plecy", ["Barki"], {
+    note: "Chwyt na szerokość barków, unoś barki prosto w górę.",
+    restSeconds: 90,
+  }),
+
+  // NOGI (czworogłowe / złożone)
+  ex("front_squat", "Przysiad przedni", "Nogi", "barbell", 5, 8, 3, 2.5, "Nogi", ["Pośladki", "Brzuch"], {
+    note: "Sztanga na barkach przednich, łokcie wysoko — tors pionowo.",
+    restSeconds: 180,
+  }),
+  ex("goblet_squat", "Przysiad goblet", "Nogi", "dumbbell", 8, 12, 3, 2, "Nogi", ["Pośladki"], {
+    perHand: false,
+    note: "Hantel trzymany oburącz przy klatce. Głęboki przysiad, łokcie między kolanami.",
+    restSeconds: 120,
+  }),
+  ex("leg_press", "Suwnica (wypychanie nogami)", "Nogi", "machine", 8, 12, 3, 5, "Nogi", ["Pośladki"], {
+    note: "Stopy na szerokość barków, nie blokuj kolan na górze.",
+    restSeconds: 150,
+  }),
+  ex("hack_squat", "Hack squat (maszyna)", "Nogi", "machine", 8, 12, 3, 5, "Nogi", ["Pośladki"], {
+    note: "Plecy przyklejone do oparcia, głęboki zakres.",
+    restSeconds: 150,
+  }),
+  ex("leg_ext", "Prostowanie nóg (maszyna)", "Nogi", "machine", 12, 15, 3, 2.5, "Nogi", [], {
+    note: "Pauza na górze, kontrolowany powrót — izolacja czworogłowych.",
+    restSeconds: 90,
+  }),
+  ex("bulgarian_split", "Przysiad bułgarski", "Nogi", "dumbbell", 8, 12, 3, 2, "Nogi", ["Pośladki"], {
+    note: "Tylna stopa na podwyższeniu, ciężar na przedniej nodze.",
+    restSeconds: 120,
+  }),
+  ex("step_up", "Wejścia na skrzynię", "Nogi", "dumbbell", 10, 12, 3, 2, "Nogi", ["Pośladki"], {
+    note: "Cały ciężar na nodze wchodzącej, nie odbijaj się drugą nogą.",
+    restSeconds: 120,
+  }),
+
+  // NOGI (tył uda / biodra)
+  ex("leg_curl_lying", "Uginanie nóg leżąc", "Nogi", "machine", 10, 12, 3, 2.5, "Tył uda", ["Łydki"], {
+    note: "Biodra przyklejone do ławki, pełny zakres bez odbicia.",
+    restSeconds: 90,
+  }),
+  ex("leg_curl_seated", "Uginanie nóg siedząc", "Nogi", "machine", 10, 15, 3, 2.5, "Tył uda", [], {
+    note: "Pauza w dolnej pozycji zgięcia, kontrolowany powrót.",
+    restSeconds: 90,
+  }),
+  ex("nordic_curl", "Nordic curl", "Nogi", "bodyweight", 5, 8, 3, 2.5, "Tył uda", ["Pośladki"], {
+    note: "Kostki zablokowane, opadaj powoli do przodu — hamuj tyłem uda.",
+    restSeconds: 120,
+  }),
+  ex("good_morning", "Dzień dobry (good morning)", "Nogi", "barbell", 8, 12, 3, 2.5, "Tył uda", ["Plecy", "Pośladki"], {
+    note: "Lekkie zgięcie kolan, opad w biodrach z prostym kręgosłupem.",
+    restSeconds: 150,
+  }),
+  ex("rdl_bb", "RDL ze sztangą", "Nogi", "barbell", 6, 10, 3, 2.5, "Tył uda", ["Pośladki", "Plecy"], {
+    note: "Sztanga blisko nóg, biodra w tył, kolana prawie proste.",
+    restSeconds: 150,
+  }),
+  ex("deadlift_sumo", "Martwy ciąg sumo", "Nogi", "barbell", 5, 6, 2, 2.5, "Tył uda", ["Nogi", "Plecy", "Pośladki"], {
+    note: "Szeroki rozstaw stóp, kolana w linii palców — krótsza droga sztangi niż klasyk.",
+    restSeconds: 180,
+  }),
+  ex("kb_swing", "Swing kettlebell", "Nogi", "dumbbell", 12, 20, 3, 4, "Pośladki", ["Tył uda"], {
+    perHand: false,
+    note: "Ruch z bioder (hip hinge), nie z rąk — kettlebell/hantel oburącz.",
+    restSeconds: 90,
+  }),
+
+  // POŚLADKI
+  ex("hipthrust_machine", "Hip thrust na maszynie", "Pośladki", "machine", 8, 12, 3, 5, "Pośladki", ["Tył uda"], {
+    note: "Pełne wypchnięcie bioder, pauza na górze.",
+    restSeconds: 150,
+  }),
+  ex("glute_bridge", "Wyciskanie bioder z podłogi (sztanga)", "Pośladki", "barbell", 10, 15, 3, 2.5, "Pośladki", ["Tył uda"], {
+    note: "Barki na podłodze (nie na ławce) — krótszy zakres niż hip thrust.",
+    restSeconds: 90,
+  }),
+  ex("cable_kickback", "Odwodzenie nogi w tył (wyciąg)", "Pośladki", "cable", 12, 15, 3, 2.5, "Pośladki", ["Tył uda"], {
+    note: "Lekkie pochylenie tułowia, prowadź nogę w tył i górę bez bujania.",
+    restSeconds: 90,
+  }),
+  ex("abduction_machine", "Odwodzenie nóg (maszyna)", "Pośladki", "machine", 12, 20, 3, 2.5, "Pośladki", [], {
+    note: "Tors nieruchomy, odwodzenie tylko w biodrach.",
+    restSeconds: 90,
+  }),
+
+  // ŁYDKI
+  ex("calf_press", "Wspięcia na palce na suwnicy", "Łydki", "machine", 10, 15, 3, 5, "Łydki", [], {
+    note: "Pełny zakres na suwnicy, pauza w górnej pozycji.",
+    restSeconds: 90,
+  }),
+
+  // BICEPS
+  ex("curl_db", "Uginanie hantli stojąc", "Biceps", "dumbbell", 10, 12, 3, 1, "Biceps", [], {
+    note: "Łokcie przy tułowiu, bez bujania ciałem.",
+    restSeconds: 90,
+  }),
+  ex("curl_incline_db", "Uginanie hantli na skosie", "Biceps", "dumbbell", 10, 12, 3, 1, "Biceps", [], {
+    note: "Siedzisko na skosie, ramiona z tyłu — pełne rozciągnięcie bicepsa.",
+    restSeconds: 90,
+  }),
+  ex("curl_preacher", "Uginanie na modlitewniku", "Biceps", "barbell", 10, 12, 3, 1.25, "Biceps", [], {
+    note: "Pachy oparte na poduszce — eliminuje bujanie, izolacja bicepsa.",
+    restSeconds: 90,
+  }),
+  ex("curl_cable", "Uginanie na wyciągu", "Biceps", "cable", 10, 15, 3, 2.5, "Biceps", [], {
+    note: "Stały opór przez cały zakres, łokcie nieruchome.",
+    restSeconds: 90,
+  }),
+  ex("curl_concentration", "Uginanie w podporze (koncentracja)", "Biceps", "dumbbell", 10, 12, 2, 1, "Biceps", [], {
+    note: "Łokieć oparty o wewnętrzną stronę uda — pełna izolacja.",
+    restSeconds: 90,
+  }),
+  ex("curl_reverse", "Uginanie nachwytem (przedramiona)", "Biceps", "barbell", 10, 15, 2, 1.25, "Biceps", [], {
+    note: "Chwyt grzbietem dłoni do góry — mocniej przedramiona i brachioradialis.",
+    restSeconds: 90,
+  }),
+
+  // TRICEPS
+  ex("bench_close_bb", "Wyciskanie sztangi wąsko", "Triceps", "barbell", 6, 10, 3, 2.5, "Triceps", ["Klatka", "Barki"], {
+    note: "Chwyt na szerokość barków, łokcie blisko tułowia.",
+    restSeconds: 150,
+  }),
+  ex("dip_triceps", "Dipy na poręczach (tułów pionowo)", "Triceps", "bodyweight", 6, 12, 3, 2.5, "Triceps", ["Klatka", "Barki"], {
+    note: "Tors pionowo, łokcie blisko ciała — mocniej triceps niż klatka.",
+    restSeconds: 120,
+  }),
+  ex("dip_bench", "Pompki na ławce", "Triceps", "bodyweight", 10, 15, 3, 2.5, "Triceps", ["Klatka"], {
+    note: "Dłonie na krawędzi ławki za sobą, biodra blisko ławki.",
+    restSeconds: 90,
+  }),
+  ex("pushdown_rope", "Prostowanie ramion z liną", "Triceps", "cable", 10, 15, 3, 2.5, "Triceps", [], {
+    note: "Rozchyl końce liny na dole, łokcie przy tułowiu.",
+    restSeconds: 90,
+  }),
+  ex("overhead_ext_cable", "Wyciskanie francuskie na wyciągu zza głowy", "Triceps", "cable", 10, 12, 3, 2.5, "Triceps", [], {
+    note: "Łokcie wysoko i nieruchomo, ruch tylko w przedramionach.",
+    restSeconds: 90,
+  }),
+  ex("skullcrusher_db", "Wyciskanie francuskie hantlami leżąc", "Triceps", "dumbbell", 10, 12, 3, 1, "Triceps", [], {
+    note: "Łokcie stabilne nad klatką, hantle schodzą przy skroniach.",
+    restSeconds: 90,
+  }),
+  ex("kickback_db", "Prostowanie ramienia w opadzie", "Triceps", "dumbbell", 12, 15, 2, 1, "Triceps", [], {
+    note: "Ramię równolegle do podłogi, prostuj tylko przedramię.",
+    restSeconds: 90,
+  }),
+
+  // BRZUCH
+  ex("hanging_leg_raise", "Unoszenie nóg w zwisie", "Brzuch", "bodyweight", 8, 15, 3, 2.5, "Brzuch", [], {
+    note: "Unoś nogi kontrolowanym ruchem, bez huśtania się na drążku.",
+    restSeconds: 90,
+  }),
+  ex("leg_raise_lying", "Unoszenie nóg leżąc", "Brzuch", "bodyweight", 12, 20, 3, 2.5, "Brzuch", [], {
+    note: "Dolny plecy przyklejone do podłogi przez cały ruch.",
+    restSeconds: 90,
+  }),
+  ex("ab_wheel", "Kółko do brzucha (rollout)", "Brzuch", "bodyweight", 8, 15, 3, 2.5, "Brzuch", ["Plecy"], {
+    note: "Wyjeżdżaj tak daleko, jak utrzymasz spięty brzuch bez zapadania pleców.",
+    restSeconds: 90,
+  }),
+  ex("woodchop_cable", "Drwal na wyciągu", "Brzuch", "cable", 12, 15, 3, 2.5, "Brzuch", [], {
+    note: "Ruch po przekątnej od góry do dołu (i odwrotnie), rotacja z bioder.",
+    restSeconds: 90,
+  }),
+  ex("russian_twist", "Rosyjskie skręty", "Brzuch", "dumbbell", 15, 20, 3, 2, "Brzuch", [], {
+    perHand: false,
+    note: "Tułów odchylony, stopy nad podłogą (opcjonalnie) — skręty z biodrami stabilnymi.",
+    restSeconds: 90,
+  }),
+  ex("dead_bug", "Dead bug", "Brzuch", "bodyweight", 10, 15, 3, 2.5, "Brzuch", [], {
+    note: "Dolny plecy przyklejony do maty przez cały ruch, wolne tempo.",
+    restSeconds: 90,
+  }),
+  ex("hollow_hold", "Hollow hold", "Brzuch", "bodyweight", 30, 30, 3, 5, "Brzuch", [], {
+    isHold: true,
+    rir: 0,
+    note: "Dolny plecy przyklejony do podłogi, ręce i nogi uniesione — napięty brzuch.",
+    restSeconds: 60,
+  }),
+  ex("pallof_press", "Pallof press (antyrotacja)", "Brzuch", "cable", 10, 12, 3, 2.5, "Brzuch", [], {
+    note: "Wypychaj ramiona przed siebie, opieraj się rotacji tułowia.",
+    restSeconds: 90,
+  }),
+
+  // INNE
+  ex("farmer_walk", "Spacer farmera", "Inne", "dumbbell", 40, 40, 3, 2, "Plecy", ["Brzuch", "Barki"], {
+    isHold: true,
+    rir: 0,
+    note: "Barki w tył, brzuch spięty — idź krótkim, szybkim krokiem.",
+    restSeconds: 90,
+  }),
 ];
 
 export const SEED_DAYS: WorkoutDay[] = [
@@ -204,6 +504,74 @@ export const SEED_TARGETS: Record<string, number> = {
   pushdown: 20,
   calf_seated: 30,
   side_plank: 0,
+  // P3-8: rozszerzona biblioteka cwiczen
+  bench_incline_bb: 35,
+  dip_chest: 0,
+  pushup: 0,
+  fly_db: 10,
+  fly_cable: 10,
+  press_machine: 40,
+  pullover_db: 20,
+  pullup: 0,
+  chinup: 0,
+  pulldown_neutral: 45,
+  row_cable: 45,
+  row_tbar: 40,
+  row_machine: 40,
+  row_db_bent: 16,
+  rack_pull: 80,
+  pulldown_straight: 25,
+  shrug_db: 22,
+  back_ext: 0,
+  ohp_db: 14,
+  arnold_press: 12,
+  lateral_cable: 7.5,
+  rear_delt_db: 7,
+  rear_delt_machine: 25,
+  upright_row: 25,
+  front_raise_db: 8,
+  shrug_bb: 60,
+  front_squat: 40,
+  goblet_squat: 20,
+  leg_press: 120,
+  hack_squat: 60,
+  leg_ext: 35,
+  bulgarian_split: 12,
+  step_up: 12,
+  leg_curl_lying: 30,
+  leg_curl_seated: 35,
+  nordic_curl: 0,
+  good_morning: 30,
+  rdl_bb: 60,
+  deadlift_sumo: 70,
+  kb_swing: 16,
+  hipthrust_machine: 60,
+  glute_bridge: 40,
+  cable_kickback: 10,
+  abduction_machine: 35,
+  calf_press: 80,
+  curl_db: 10,
+  curl_incline_db: 8,
+  curl_preacher: 15,
+  curl_cable: 20,
+  curl_concentration: 8,
+  curl_reverse: 15,
+  bench_close_bb: 35,
+  dip_triceps: 0,
+  dip_bench: 0,
+  pushdown_rope: 20,
+  overhead_ext_cable: 20,
+  skullcrusher_db: 10,
+  kickback_db: 6,
+  hanging_leg_raise: 0,
+  leg_raise_lying: 0,
+  ab_wheel: 0,
+  woodchop_cable: 15,
+  russian_twist: 10,
+  dead_bug: 0,
+  hollow_hold: 0,
+  pallof_press: 10,
+  farmer_walk: 24,
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -259,8 +627,31 @@ export function mergeHistoricalSessions(existing: Session[]): Session[] {
 }
 
 /**
- * Migracja: przy zmianie wersji schematu podmienia plan (exercises/days/targets)
- * na aktualny seed, ale ZACHOWUJE sessions, body, squash i settings.
+ * Merguje bazę ćwiczeń użytkownika z seedem (P3-8): ćwiczenie o ID istniejącym
+ * u użytkownika ZOSTAJE jego wersją w całości (zakresy, increment, note,
+ * archived, restSeconds — nic nie "dolewamy" z seeda); ćwiczenie z seeda o ID,
+ * którego user nie ma, dochodzi (structuredClone); ćwiczenia stworzone przez
+ * użytkownika (ID spoza seeda) zostają nietknięte. Kolejność: najpierw user
+ * w jego kolejności, potem nowe z seeda — stabilnie, bez sortowania.
+ *
+ * Bez tego samo dopisanie pozycji do SEED_EXERCISES nie dotarłoby do istniejącego
+ * stanu — `migrateState` w ścieżce "aktualny schemat" przykrywa seed tablicą
+ * `old.exercises` w całości (patrz niżej). Operacja jest idempotentna i
+ * samonaprawiająca, więc NIE wymaga bumpa SCHEMA_VERSION.
+ */
+export function mergeExerciseLibrary(userExercises: Exercise[]): Exercise[] {
+  const userIds = new Set(userExercises.map((e) => e.id));
+  const merged = [...userExercises];
+  for (const seedEx of SEED_EXERCISES) {
+    if (!userIds.has(seedEx.id)) merged.push(structuredClone(seedEx));
+  }
+  return merged;
+}
+
+/**
+ * Migracja: przy zmianie wersji schematu podmienia plan (days/targets)
+ * na aktualny seed, ale ZACHOWUJE sessions, body, squash, settings oraz bazę
+ * ćwiczeń użytkownika (merge z seedem, patrz mergeExerciseLibrary).
  */
 export function migrateState(raw: unknown): AppState {
   const fresh = defaultState();
@@ -268,11 +659,13 @@ export function migrateState(raw: unknown): AppState {
   const old = raw as Partial<AppState>;
 
   if (old.version === SCHEMA_VERSION && Array.isArray(old.exercises) && Array.isArray(old.days)) {
-    // Aktualny schemat — dołóż tylko ewentualne braki w settings.
+    // Aktualny schemat — dołóż tylko ewentualne braki w settings + nowe
+    // ćwiczenia z seeda, których user jeszcze nie ma (P3-8).
     return applyOneTimeSeeds({
       ...fresh,
       ...old,
       version: SCHEMA_VERSION,
+      exercises: mergeExerciseLibrary(old.exercises as Exercise[]),
       settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
       targets: { ...fresh.targets, ...(old.targets ?? {}) },
     } as AppState);
@@ -291,6 +684,7 @@ export function migrateState(raw: unknown): AppState {
 
   return applyOneTimeSeeds({
     ...fresh,
+    exercises: Array.isArray(old.exercises) ? mergeExerciseLibrary(old.exercises as Exercise[]) : fresh.exercises,
     targets,
     sessions: Array.isArray(old.sessions) ? old.sessions : [],
     body: Array.isArray(old.body) ? old.body : [],

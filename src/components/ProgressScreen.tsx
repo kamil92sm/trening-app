@@ -117,21 +117,29 @@ export function ProgressScreen() {
   // P2-12: standardy silowe wzgledem masy ciala - ciekawostka, karta ukryta gdy brak danych.
   const strengthRatiosData = useMemo(() => strengthRatios(state), [state]);
 
+  // P3-8: baza urosla do ~90 pozycji - jeden przebieg po sesjach (Map exId->best)
+  // zamiast petli po kazdym cwiczeniu ze skanowaniem wszystkich sesji w srodku.
   const records = useMemo(() => {
-    return state.exercises
-      .filter((ex) => !ex.archived && !ex.isHold)
-      .map((ex) => {
-        let bestW = 0;
-        let bestE = 0;
-        for (const s of state.sessions) {
-          const entry = s.entries.find((e) => e.exerciseId === ex.id);
-          if (!entry) continue;
-          for (const set of entry.sets) {
-            if (!set.done) continue;
-            bestW = Math.max(bestW, set.weight);
-          }
-          bestE = Math.max(bestE, bestE1rm(ex, entry));
+    const exById = new Map(state.exercises.map((ex) => [ex.id, ex]));
+    const best = new Map<string, { bestW: number; bestE: number }>();
+    for (const s of state.sessions) {
+      for (const entry of s.entries) {
+        const ex = exById.get(entry.exerciseId);
+        if (!ex || ex.archived || ex.isHold) continue;
+        const acc = best.get(ex.id) ?? { bestW: 0, bestE: 0 };
+        for (const set of entry.sets) {
+          if (!set.done) continue;
+          acc.bestW = Math.max(acc.bestW, set.weight);
         }
+        acc.bestE = Math.max(acc.bestE, bestE1rm(ex, entry));
+        best.set(ex.id, acc);
+      }
+    }
+    // Kolejnosc jak w state.exercises (plan) - zachowanie identyczne jak przed zmiana.
+    return state.exercises
+      .filter((ex) => best.has(ex.id))
+      .map((ex) => {
+        const { bestW, bestE } = best.get(ex.id)!;
         return { ex, bestW, bestE: Math.round(bestE * 10) / 10 };
       })
       .filter((r) => r.bestW > 0);

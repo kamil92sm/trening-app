@@ -39,6 +39,7 @@ import {
   SEED_TARGETS,
   migrateState,
   computeRestoredDayPlan,
+  mergeExerciseLibrary,
   SCHEMA_VERSION,
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
@@ -782,17 +783,51 @@ check(
   bonusPick[0]?.id === "calf_seated",
   bonusPick
 );
+// P3-8: baza urosla do ~90 pozycji - pula poza dniami glownymi jest teraz duza
+// (5 bonus 2.0 + 67 nowych), wiec count=10 dobija sie w calosci, bez dupli.
 const bonusPool = suggestBonusExercises(stBonus, 10, "2026-07-26");
 const mainIds = new Set(SEED_DAYS.filter((d) => !d.optional).flatMap((d) => d.exerciseIds));
 check(
-  "suggestBonusExercises: dobija do puli poza dniami głownymi, bez duplikatow (5 cwiczen bonus 2.0)",
-  bonusPool.length === 5 && new Set(bonusPool.map((e) => e.id)).size === 5,
+  "suggestBonusExercises: dobija do puli poza dniami głownymi, bez duplikatow (10 z rozszerzonej bazy)",
+  bonusPool.length === 10 && new Set(bonusPool.map((e) => e.id)).size === 10,
   bonusPool.map((e) => e.id)
 );
 check(
   "suggestBonusExercises: zaden pick nie pochodzi z dnia głownego",
   bonusPool.every((e) => !mainIds.has(e.id)),
   bonusPool.map((e) => e.id)
+);
+
+// P3-8: ranking kandydatow w obrebie tej samej deficytowej partii - historia
+// Kamila (lateral_cable) wygrywa z cwiczeniem nigdy niewykonanym (arnold_press).
+const stRank = defaultState();
+stRank.sessions.push({
+  id: "rank-week",
+  dayId: "mon",
+  date: "2026-07-24",
+  completed: true,
+  entries: [
+    { exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }, { weight: 45, reps: 8, done: true }, { weight: 45, reps: 8, done: true }] },
+    { exerciseId: "row_bb", targetWeight: 60, sets: [{ weight: 60, reps: 8, done: true }, { weight: 60, reps: 8, done: true }, { weight: 60, reps: 8, done: true }] },
+    { exerciseId: "curl_bb", targetWeight: 17.5, sets: [{ weight: 17.5, reps: 12, done: true }, { weight: 17.5, reps: 12, done: true }] },
+    { exerciseId: "crunch", targetWeight: 37.5, sets: [{ weight: 37.5, reps: 15, done: true }, { weight: 37.5, reps: 15, done: true }, { weight: 37.5, reps: 15, done: true }] },
+    // "lateral" (dzien glowny, Barki) celowo pominiete -> deficyt na Barki;
+    // "lateral_cable" (spoza planu, tez Barki) zalogowane -> jest juz w historii.
+    { exerciseId: "lateral_cable", targetWeight: 7.5, sets: [{ weight: 7.5, reps: 15, done: true }, { weight: 7.5, reps: 15, done: true }, { weight: 7.5, reps: 15, done: true }] },
+  ],
+});
+// count=30 (nie 1) - w tym scenariuszu prawie kazda partia jest deficytowa
+// (zalogowano tylko 5 cwiczen), wiec przy count=1 wygralby inny, wiekszy
+// deficyt niz Barki, a przy count=10 (jeden pick/partie) arnold_press
+// jeszcze by sie nie pojawil. Sprawdzamy KOLEJNOSC w wyniku: lateral_cable
+// (historia) przed arnold_press (nigdy niewykonane) dla tej samej partii (Barki).
+const rankPick = suggestBonusExercises(stRank, 30, "2026-07-26");
+const lateralCableIdx = rankPick.findIndex((e) => e.id === "lateral_cable");
+const arnoldPressIdx = rankPick.findIndex((e) => e.id === "arnold_press");
+check(
+  "suggestBonusExercises: ranking - cwiczenie z historii (lateral_cable) wygrywa z nigdy niewykonanym (arnold_press) dla tej samej partii",
+  lateralCableIdx !== -1 && arnoldPressIdx !== -1 && lateralCableIdx < arnoldPressIdx,
+  rankPick.map((e) => e.id)
 );
 
 // FEAT-2: projekcja trendu na wykresie postepu
@@ -980,6 +1015,68 @@ check(
 const stNoSeedDay = defaultState();
 const untouched = computeRestoredDayPlan(stNoSeedDay, "nieistniejacy-dzien");
 check("computeRestoredDayPlan: dzien spoza seeda -> stan bez zmian", untouched === stNoSeedDay);
+
+// P3-8: merge biblioteki cwiczen - user zmodyfikowal bench_bb (repMax 10) i ma
+// wlasne cwiczenie ("moje_cw") spoza seeda -> oba zostaja, brakujace z seeda dochodza.
+const userExercisesForMerge = SEED_EXERCISES.map((e) =>
+  e.id === "bench_bb" ? { ...e, repMax: 10 } : e
+).concat([
+  {
+    id: "moje_cw",
+    name: "Moje cwiczenie",
+    category: "Inne",
+    unit: "machine",
+    perHand: false,
+    isHold: false,
+    repMin: 8,
+    repMax: 12,
+    targetSets: 3,
+    increment: 2.5,
+    rir: 2,
+  },
+]);
+// symulacja: user NIE ma jeszcze nowych P3-8 cwiczen (usuwamy je z jego listy)
+const oldSeedIds = new Set(SEED_EXERCISES.map((e) => e.id));
+const userWithoutNewLibrary = userExercisesForMerge.filter(
+  (e) => e.id === "moje_cw" || oldSeedIds.has(e.id)
+);
+const mergedLibrary = mergeExerciseLibrary(userWithoutNewLibrary);
+check(
+  "mergeExerciseLibrary: wlasne cwiczenie uzytkownika zostaje",
+  mergedLibrary.some((e) => e.id === "moje_cw")
+);
+check(
+  "mergeExerciseLibrary: zmodyfikowany bench_bb (repMax 10) NIE wraca do seeda",
+  mergedLibrary.find((e) => e.id === "bench_bb")?.repMax === 10
+);
+check(
+  "mergeExerciseLibrary: nowe cwiczenia z seeda (P3-8) doszly",
+  mergedLibrary.some((e) => e.id === "arnold_press") && mergedLibrary.some((e) => e.id === "leg_curl_lying")
+);
+check(
+  "mergeExerciseLibrary: total = user + brakujace z seeda, bez duplikatow",
+  mergedLibrary.length === SEED_EXERCISES.length + 1 &&
+    new Set(mergedLibrary.map((e) => e.id)).size === mergedLibrary.length
+);
+const stMigrated = migrateState({
+  version: SCHEMA_VERSION,
+  exercises: userWithoutNewLibrary,
+  days: SEED_DAYS,
+  targets: SEED_TARGETS,
+  sessions: [],
+  body: [],
+  squash: [],
+  settings: {},
+});
+check(
+  "migrateState: nowe cwiczenia P3-8 dostaly cel z SEED_TARGETS po migracji",
+  stMigrated.targets.arnold_press === SEED_TARGETS.arnold_press
+);
+check(
+  "migrateState: objetosc tygodniowa bez zmian (nowe cwiczenia poza aktywnymi dniami)",
+  weeklyMuscleVolume(stMigrated, "hypertrophy").find((v) => v.muscle === "Klatka")!.sets ===
+    weeklyMuscleVolume(defaultState(), "hypertrophy").find((v) => v.muscle === "Klatka")!.sets
+);
 
 // P1-11: walidacja pliku backupu
 check("validateBackup: poprawny defaultState() -> null", validateBackup(defaultState()) === null);

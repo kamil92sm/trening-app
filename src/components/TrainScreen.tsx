@@ -40,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
-import { cn } from "@/lib/utils";
+import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 const DRAFT_KEY = "trening-app-draft";
@@ -119,6 +119,7 @@ function cleanReadiness(r: { sleep?: number; doms?: number } | null | undefined)
   return r;
 }
 
+
 export function TrainScreen() {
   const store = useStore();
   const { state } = store;
@@ -131,6 +132,8 @@ export function TrainScreen() {
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
+  // P3-8: filtr tekstowy w liscie kandydatow do zamiany (baza urosla do ~90 pozycji).
+  const [swapSearch, setSwapSearch] = useState("");
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
   // P3-5: rozwijana miniaturka talerzy przy cwiczeniu - domyslnie zwinieta.
   const [openPlates, setOpenPlates] = useState<Set<number>>(new Set());
@@ -451,6 +454,7 @@ export function TrainScreen() {
       return next;
     });
     setSwapIdx(null);
+    setSwapSearch("");
   }
 
   function finish() {
@@ -871,7 +875,11 @@ export function TrainScreen() {
               ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
               : null;
           const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
-          const swapCandidates = ex.primaryMuscle
+          // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
+          // (decyduje o widocznosci przycisku Zamien), swapCandidates to ta sama
+          // lista po filtrze tekstowym (swapSearch) i posortowana: historia
+          // Kamila najpierw, potem alfabetycznie.
+          const swapPool = ex.primaryMuscle
             ? state.exercises.filter(
                 (e) =>
                   !e.archived &&
@@ -880,15 +888,25 @@ export function TrainScreen() {
                   !draft.entries.some((en) => en.exerciseId === e.id)
               )
             : [];
+          const swapCandidates = swapPool
+            .filter((e) => !swapSearch || normalizeSearch(e.name).includes(normalizeSearch(swapSearch)))
+            .sort((a, b) => {
+              const ha = lastByExercise.has(a.id) ? 0 : 1;
+              const hb = lastByExercise.has(b.id) ? 0 : 1;
+              return ha - hb || a.name.localeCompare(b.name, "pl");
+            });
           return (
             <Card key={entry.exerciseId}>
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-sm">{ex.name}</CardTitle>
-                  {swapCandidates.length > 0 && (
+                  {swapPool.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setSwapIdx(swapIdx === ei ? null : ei)}
+                      onClick={() => {
+                        setSwapIdx(swapIdx === ei ? null : ei);
+                        setSwapSearch("");
+                      }}
                       className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       aria-label="Zamień ćwiczenie"
                     >
@@ -922,16 +940,29 @@ export function TrainScreen() {
                     <p className="text-[11px] text-muted-foreground">
                       Zamień na (ta sama partia, tylko na ten trening):
                     </p>
-                    {swapCandidates.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => swapExercise(ei, c.id)}
-                        className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
-                      >
-                        {c.name}
-                      </button>
-                    ))}
+                    <Input
+                      autoFocus
+                      value={swapSearch}
+                      onChange={(e) => setSwapSearch(e.target.value)}
+                      placeholder="Szukaj ćwiczenia…"
+                      className="h-8 text-xs"
+                    />
+                    <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                      {swapCandidates.length === 0 ? (
+                        <p className="p-2 text-center text-[11px] text-muted-foreground">Brak wyników</p>
+                      ) : (
+                        swapCandidates.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => swapExercise(ei, c.id)}
+                            className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                          >
+                            {c.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
                 )}
                 {last && (

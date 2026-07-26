@@ -142,11 +142,13 @@ function volumeStatus(
 export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertrophy"): MuscleVolume[] {
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
+  const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
   for (const day of state.days) {
     if (day.optional && !day.active) continue;
     for (const exId of day.exerciseIds) {
-      const ex = state.exercises.find((e) => e.id === exId);
+      const ex = exById.get(exId);
       if (!ex || ex.archived) continue;
       const sets = ex.targetSets;
       const target = state.targets[ex.id] ?? 0;
@@ -207,6 +209,8 @@ export function actualWeeklyMuscleVolume(
 ): MuscleVolume[] {
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
+  const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
   const { cutoffStr, nowStr } = volumeWindowBounds(nowIso);
 
@@ -215,7 +219,7 @@ export function actualWeeklyMuscleVolume(
     const d = session.date.slice(0, 10);
     if (d < cutoffStr || d > nowStr) continue;
     for (const entry of session.entries) {
-      const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+      const ex = exById.get(entry.exerciseId);
       if (!ex || ex.archived) continue;
       const doneSets = entry.sets.filter((s) => s.done).length;
       if (doneSets === 0) continue;
@@ -273,6 +277,11 @@ export function actualVolumeWindow(
  * obecne w aktywnych dniach GŁÓWNYCH (nie dubluje ruchów, które i tak są w
  * tygodniu) i zarchiwizowane. Wynik ma znaczenie tylko jako propozycja do
  * drafta sesji (patrz TrainScreen) — nie rusza planu ani progresji.
+ *
+ * P3-8: przy ~90 ćwiczeniach w bibliotece kandydaci w obrębie tej samej
+ * deficytowej partii są rankowani, żeby propozycja nie trafiła w sprzęt,
+ * którego Kamil nie ma: (0) ćwiczenia, które kiedykolwiek wykonał (są
+ * w historii sesji), (1) ćwiczenia z dnia bonusowego, (2) reszta biblioteki.
  */
 export function suggestBonusExercises(state: AppState, count: number, nowIso?: string): Exercise[] {
   const goal = state.settings.volumeGoal ?? "hypertrophy";
@@ -284,12 +293,17 @@ export function suggestBonusExercises(state: AppState, count: number, nowIso?: s
   const mainExerciseIds = new Set(state.days.filter((d) => !d.optional).flatMap((d) => d.exerciseIds));
   const pool = state.exercises.filter((e) => !e.archived && !mainExerciseIds.has(e.id));
 
+  const historyIds = new Set(state.sessions.flatMap((s) => s.entries.map((e) => e.exerciseId)));
+  const bonusDayIds = new Set(state.days.find((d) => d.optional)?.exerciseIds ?? []);
+  const rank = (e: Exercise) => (historyIds.has(e.id) ? 0 : bonusDayIds.has(e.id) ? 1 : 2);
+  const rankedPool = [...pool].sort((a, b) => rank(a) - rank(b));
+
   const picked: Exercise[] = [];
   const usedIds = new Set<string>();
 
   for (const { muscle } of deficits) {
     if (picked.length >= count) break;
-    const candidate = pool.find((e) => e.primaryMuscle === muscle && !usedIds.has(e.id));
+    const candidate = rankedPool.find((e) => e.primaryMuscle === muscle && !usedIds.has(e.id));
     if (candidate) {
       picked.push(candidate);
       usedIds.add(candidate.id);
@@ -297,7 +311,7 @@ export function suggestBonusExercises(state: AppState, count: number, nowIso?: s
   }
 
   // Dobij do count, gdy deficytowych partii jest mniej niż miejsc w bonusie.
-  for (const e of pool) {
+  for (const e of rankedPool) {
     if (picked.length >= count) break;
     if (usedIds.has(e.id) || !e.primaryMuscle) continue;
     picked.push(e);

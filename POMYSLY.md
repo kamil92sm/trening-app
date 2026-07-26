@@ -1451,7 +1451,7 @@ pracują — kolorowe plakietki.
 
 ---
 
-### [ ] P3-8. Rozszerzona baza ćwiczeń (~70 pozycji) + poprawka migracji, która ją w ogóle wpuści
+### [x] P3-8. Rozszerzona baza ćwiczeń (~70 pozycji) + poprawka migracji, która ją w ogóle wpuści (2026-07-26)
 
 **Czego chce Kamil:** dużo więcej ćwiczeń w bazie, skategoryzowanych, żeby móc
 podmieniać ruchy (zajęty sprzęt, inna siłownia, urozmaicenie).
