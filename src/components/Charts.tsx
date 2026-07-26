@@ -14,6 +14,7 @@ function niceTicks(min: number, max: number, count = 4): number[] {
 export function LineChart({
   data,
   data2,
+  projection,
   height = 170,
   color = "#38bdf8",
   color2 = "#f59e0b",
@@ -23,6 +24,8 @@ export function LineChart({
   data: Point[];
   /** Opcjonalny drugi szereg — rysowany w tej samej skali osi Y co data */
   data2?: Point[];
+  /** Opcjonalna przerywana projekcja/trend — od ostatniego punktu `data` dalej, ten sam kolor, styl przerywany */
+  projection?: Point[];
   height?: number;
   color?: string;
   color2?: string;
@@ -40,7 +43,7 @@ export function LineChart({
     );
   }
 
-  const all = data2 ? [...data, ...data2] : data;
+  const all = [...data, ...(data2 ?? []), ...(projection ?? [])];
   const xs = all.map((d) => d.x);
   const ys = all.map((d) => d.y);
   const minX = Math.min(...xs);
@@ -59,6 +62,11 @@ export function LineChart({
     pts.map((d, i) => `${i === 0 ? "M" : "L"}${px(d.x).toFixed(1)},${py(d.y).toFixed(1)}`).join(" ");
   const path = toPath(data);
   const path2 = data2 && data2.length > 0 ? toPath(data2) : null;
+  // Projekcja startuje OD ostatniego realnego punktu, żeby przerywana linia łączyła się bez przerwy.
+  const projPath =
+    projection && projection.length > 0 && data.length > 0
+      ? toPath([data[data.length - 1], ...projection])
+      : null;
   const ticks = niceTicks(minY, maxY, 3);
 
   return (
@@ -97,6 +105,21 @@ export function LineChart({
       )}
       {data2?.map((d, i) => (
         <circle key={i} cx={px(d.x)} cy={py(d.y)} r={3} fill={color2} />
+      ))}
+      {projPath && (
+        <path
+          d={projPath}
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeDasharray="5 4"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={0.5}
+        />
+      )}
+      {projection?.map((d, i) => (
+        <circle key={`proj-${i}`} cx={px(d.x)} cy={py(d.y)} r={2.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.6} />
       ))}
     </svg>
   );

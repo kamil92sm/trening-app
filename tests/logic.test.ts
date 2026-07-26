@@ -6,12 +6,15 @@ import {
   e1rm,
   platePlan,
   weeklyMuscleVolume,
+  actualWeeklyMuscleVolume,
   lastEntry,
   detectPlateau,
   achievableWeights,
   nearestAchievable,
   snapToStep,
   suggestedWeightForProfile,
+  projectHistory,
+  type HistoryPoint,
 } from "../src/lib/logic";
 import { defaultState, SEED_EXERCISES, SEED_DAYS, migrateState, SCHEMA_VERSION } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
@@ -364,6 +367,78 @@ check(
   suggestedWeightForProfile(bench, 40, altGym) === null,
   suggestedWeightForProfile(bench, 40, altGym)
 );
+
+// INFO-1a: druga metryka objetosci - faktycznie wykonane serie z ostatnich 7 dni
+const stActual = defaultState();
+stActual.sessions.push(
+  {
+    id: "a1",
+    dayId: "mon",
+    date: "2026-07-24",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_bb",
+        targetWeight: 45,
+        sets: [
+          { weight: 45, reps: 8, done: true },
+          { weight: 45, reps: 8, done: true },
+          { weight: 45, reps: 8, done: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: "a2",
+    dayId: "mon",
+    date: "2026-07-10",
+    completed: true,
+    entries: [
+      { exerciseId: "bench_bb", targetWeight: 42.5, sets: [{ weight: 42.5, reps: 8, done: true }] },
+    ],
+  }
+);
+const actual = actualWeeklyMuscleVolume(stActual, "hypertrophy", "2026-07-26");
+check(
+  "actualWeeklyMuscleVolume: liczy tylko sesje z ostatnich 7 dni (poza-oknem pominieta)",
+  actual.find((v) => v.muscle === "Klatka")!.sets === 3,
+  actual.find((v) => v.muscle === "Klatka")
+);
+check(
+  "actualWeeklyMuscleVolume: partia wspomagajaca liczy 0.5x (Triceps z bench_bb)",
+  actual.find((v) => v.muscle === "Triceps")!.sets === 1.5,
+  actual.find((v) => v.muscle === "Triceps")
+);
+check(
+  "actualWeeklyMuscleVolume: brak logow w oknie -> 0 (Nogi)",
+  actual.find((v) => v.muscle === "Nogi")!.sets === 0
+);
+
+// INFO-1b: cel objetosci (sila/hipertrofia) zmienia progi statusu
+const volHiper = weeklyMuscleVolume(defaultState(), "hypertrophy").find((v) => v.muscle === "Klatka")!;
+check("weeklyMuscleVolume: Klatka 9 serii + cel hipertrofia -> low", volHiper.status === "low", volHiper);
+const volSila = weeklyMuscleVolume(defaultState(), "strength").find((v) => v.muscle === "Klatka")!;
+check("weeklyMuscleVolume: Klatka 9 serii + cel sila -> ok", volSila.status === "ok", volSila);
+
+// FEAT-2: projekcja trendu na wykresie postepu
+const trendHistory: HistoryPoint[] = [
+  { date: "2026-07-06", e1rm: 100, topWeight: 90, topReps: 5 },
+  { date: "2026-07-13", e1rm: 105, topWeight: 95, topReps: 5 },
+  { date: "2026-07-20", e1rm: 110, topWeight: 100, topReps: 5 },
+];
+const proj = projectHistory(trendHistory, 3);
+check("projectHistory: 3 punkty projekcji", proj.length === 3, proj);
+check(
+  "projectHistory: ekstrapoluje trend +5/tydzien",
+  proj[0].e1rm === 115 && proj[1].e1rm === 120 && proj[2].e1rm === 125,
+  proj
+);
+check(
+  "projectHistory: odstep = sredni odstep historii (7 dni)",
+  proj[0].date.slice(0, 10) === "2026-07-27",
+  proj[0].date
+);
+check("projectHistory: <2 punkty historii -> brak projekcji", projectHistory([trendHistory[0]], 3).length === 0);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

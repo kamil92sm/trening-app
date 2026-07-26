@@ -380,24 +380,48 @@ tak, by dało się naprawiać od zera z Sonnetem bez ponownej analizy.
   **To NIE naprawia samego problemu z tokenem Kamila** — musi wygenerować nowy fine-grained token
   na GitHubie (patrz „Rozwiązanie dla Kamila" wyżej); trim/komunikat to zabezpieczenie na przyszłość.
 
-### INFO-1 — Słupki „Objętość tygodniowa": skąd te bursztynowe (low)
-- **Logika (`weeklyMuscleVolume`, `logic.ts:74`):** liczy **serie robocze zaplanowane / tydzień
+### INFO-1 — ✅ WDROŻONE (26.07.2026) — Słupki „Objętość tygodniowa": skąd te bursztynowe (low)
+- **Logika (`weeklyMuscleVolume`, `logic.ts`):** liczy **serie robocze zaplanowane / tydzień
   z aktywnych dni planu** — NIE z historii treningów. Partia główna = `targetSets` serii,
-  wspomagająca = `×0,5`. Każdy aktywny dzień = 1×/tydzień. Zakresy: `MUSCLE_RANGES` (`logic.ts:25`)
-  są **hipertroficzne** (duże partie 10–20, małe 8–16). Status: `<min` = bursztyn `low`.
-- **Dlaczego dużo bursztynu:** plan 3-dniowy pod SIŁĘ daje mało serii/partię (np. Klatka =
-  bench 3 + incline_db 3 + bench_db 3 = 9 serii < 10 → `low`). To **oczekiwane i uczciwe** —
-  patrz §11: objętość poniżej optimum pokazujemy wprost jako naturalny efekt planu pod siłę.
-- **Historia NIE jest brana pod uwagę** — metryka mówi „ile planujesz", nie „ile zrobiłeś".
-- **Pomysły (opcjonalne):** (a) druga metryka z faktycznie wykonanych serii z `sessions` za
-  ostatni tydzień; (b) suwak „cel: siła / hipertrofia" zmieniający `MUSCLE_RANGES`, żeby przy
-  profilu siłowym plan świecił się na zielono.
+  wspomagająca = `×0,5`. Każdy aktywny dzień = 1×/tydzień. Zakresy domyślne (hipertroficzne,
+  `MUSCLE_RANGES_HYPERTROPHY`) — duże partie 10–20, małe 8–16. Status: `<min` = bursztyn `low`.
+  Plan 3-dniowy pod SIŁĘ daje mało serii/partię (np. Klatka = 9 < 10 → `low`) — to oczekiwane
+  i uczciwe (§11), NIE błąd.
+- **(a) Druga metryka — wykonane serie z ostatnich 7 dni:** nowa `actualWeeklyMuscleVolume(state,
+  goal, nowIso?)` w `logic.ts` — liczy z **faktycznie ukończonych `sessions`** w oknie 7 dni
+  (dziś + 6 wstecz), tylko zaliczone (`done`) serie, ta sama waga partia główna/wspomagająca.
+  `ProgressScreen.tsx` dostał przełącznik **Plan / Wykonane (7 dni)** nad listą partii —
+  przełącza `volumes` między `weeklyMuscleVolume` (plan) a `actualWeeklyMuscleVolume` (realia).
+  Widok jest lokalny (nie persystowany) — domyślnie zawsze startuje na „Plan".
+- **(b) Cel: Siła / Hipertrofia:** nowy typ `VolumeGoal` (`"strength" | "hypertrophy"`),
+  `Settings.volumeGoal?` (persystowane, domyślnie hipertrofia — brak zmiany dla obecnych
+  użytkowników). `MUSCLE_RANGES_STRENGTH` (duże 5–12, małe 5–10) obok istniejącego
+  `MUSCLE_RANGES_HYPERTROPHY` (`MUSCLE_RANGES` zostaje jako alias hipertrofii dla wstecznej
+  zgodności), wybór przez `muscleRangesFor(goal)`. `weeklyMuscleVolume`/`actualWeeklyMuscleVolume`
+  przyjmują `goal` jako opcjonalny param (domyślnie hipertrofia — wywołania bez tego argumentu,
+  w tym istniejące testy, działają bez zmian). Przełącznik **Cel: Siła / Cel: Hipertrofia** obok
+  Plan/Wykonane w `ProgressScreen.tsx`, zapisuje przez `store.updateSettings({volumeGoal})`.
+  **Świadomie NIE wymuszone na zielono wszędzie** — zakresy siłowe są niższe, ale realistyczne;
+  partie z faktycznie niskim bezpośrednim udziałem (np. Łydki bez dnia bonusowego: 3 serie <
+  min 5) nadal pokazują `low` nawet w trybie siłowym. To zamierzone (uczciwe framowanie, §11).
+- **Zweryfikowane:** plan Kamila (3 dni, bonus wyłączony) w trybie siła: 9/10 partii `ok`
+  (zielone), tylko Łydki `low` — kontrastuje z hipertrofią, gdzie 8/10 partii jest `low`.
+  3 nowe testy w `tests/logic.test.ts`.
 
-### FEAT-2 — Wykres liniowy urywa się na ostatnim treningu; brak estymacji w przód
-- **Stan:** `exerciseHistory` (`logic.ts:219`) zwraca tylko punkty z realnych sesji, `LineChart`
-  (`src/components/Charts.tsx`) rysuje je 1:1 — stąd koniec na ostatnim treningu.
-- **Pomysł — linia trendu / projekcja:** policzyć nachylenie z ostatnich N punktów (regresja
-  liniowa po e1RM albo tempo progresji = `increment` na trafiony cykl) i dorysować **przerywaną
-  projekcję** na 2–4 treningi w przód. Oznaczyć wyraźnie jako prognozę (inny kolor/dash), nie
-  mylić z danymi. Trzymać uczciwe framowanie — to szacunek przy założeniu utrzymania progresji.
-- **Miejsce:** nowa funkcja `projectHistory(points, ex)` w `logic.ts` + tryb `projected` w `LineChart`.
+### FEAT-2 — ✅ WDROŻONE (26.07.2026) — Wykres liniowy urywa się na ostatnim treningu; brak estymacji w przód
+- **Fix:** nowa funkcja `projectHistory(history: HistoryPoint[], count = 3)` w `logic.ts` —
+  regresja liniowa (najmniejsze kwadraty) e1RM po ostatnich do 6 punktach historii, odstęp
+  między projektowanymi punktami = średni odstęp między sesjami tego ćwiczenia (cała historia).
+  Zwraca `[]` gdy historia < 2 punkty (za mało danych na trend). Przy zastoju/spadku formy trend
+  to odzwierciedla (płasko/w dół) — bez sztucznego podkręcania w górę, zgodnie z §11.
+- **`LineChart`** (`Charts.tsx`) dostał opcjonalny prop `projection?: Point[]` — rysowany jako
+  **przerywana linia** (`strokeDasharray="5 4"`, `opacity=0.5`, ten sam kolor co `data`) startująca
+  OD ostatniego realnego punktu (żeby się wizualnie łączyła), z pustymi kółkami zamiast pełnych.
+  Domena osi Y/X automatycznie rozszerza się o punkty projekcji.
+- **`ProgressScreen.tsx`**: `projectHistory(history, 3)` → `projectionData` → `LineChart
+  projection={projectionData}`, plus podpis pod wykresem gdy projekcja istnieje: „Przerywana
+  linia: szacunek na kolejne treningi przy utrzymaniu dotychczasowego tempa — nie prognoza,
+  ekstrapolacja trendu."
+- **Zweryfikowane:** SVG zawiera dwie ścieżki (`path`) — solidną (dane) i przerywaną (projekcja,
+  `stroke-dasharray="5 4"`, `opacity="0.5"`). 4 nowe testy w `tests/logic.test.ts` (w tym trend
+  liniowy +5/tydzień ekstrapolowany poprawnie, odstęp = średni odstęp historii).

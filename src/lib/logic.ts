@@ -23,7 +23,10 @@ export const MUSCLES: Muscle[] = [
   "Brzuch",
 ];
 
-export const MUSCLE_RANGES: Record<Muscle, { min: number; max: number }> = {
+export type VolumeGoal = "strength" | "hypertrophy";
+
+/** Zakresy hipertroficzne (domyślne) — jak dotąd. */
+export const MUSCLE_RANGES_HYPERTROPHY: Record<Muscle, { min: number; max: number }> = {
   Klatka: { min: 10, max: 20 },
   Plecy: { min: 10, max: 20 },
   Barki: { min: 10, max: 20 },
@@ -35,6 +38,33 @@ export const MUSCLE_RANGES: Record<Muscle, { min: number; max: number }> = {
   Triceps: { min: 8, max: 16 },
   Brzuch: { min: 8, max: 16 },
 };
+
+/**
+ * Zakresy pod cel siłowy — niższe, bo program siłowy (mało powtórzeń, ciężkie
+ * wielostawowe) potrzebuje mniej serii/tydzień niż hipertrofia. Nie są dobrane
+ * tak, żeby "na siłę" wszystko świeciło się zielono — partie z realnie niskim
+ * bezpośrednim udziałem (np. ramiona/łydki bez włączonego dnia bonusowego)
+ * nadal pokażą "poniżej optimum", zgodnie z uczciwym framowaniem apki.
+ */
+export const MUSCLE_RANGES_STRENGTH: Record<Muscle, { min: number; max: number }> = {
+  Klatka: { min: 5, max: 12 },
+  Plecy: { min: 5, max: 12 },
+  Barki: { min: 5, max: 12 },
+  Nogi: { min: 5, max: 12 },
+  Pośladki: { min: 5, max: 12 },
+  "Tył uda": { min: 5, max: 10 },
+  Łydki: { min: 5, max: 10 },
+  Biceps: { min: 5, max: 10 },
+  Triceps: { min: 5, max: 10 },
+  Brzuch: { min: 5, max: 10 },
+};
+
+/** Zachowane dla wstecznej zgodności — zakresy hipertroficzne (domyślny cel). */
+export const MUSCLE_RANGES = MUSCLE_RANGES_HYPERTROPHY;
+
+export function muscleRangesFor(goal: VolumeGoal): Record<Muscle, { min: number; max: number }> {
+  return goal === "strength" ? MUSCLE_RANGES_STRENGTH : MUSCLE_RANGES_HYPERTROPHY;
+}
 
 export type VolumeStatus = "low" | "ok" | "high" | "veryhigh";
 
@@ -60,8 +90,8 @@ export interface MuscleVolume {
   status: VolumeStatus;
 }
 
-function volumeStatus(sets: number, muscle: Muscle): VolumeStatus {
-  const r = MUSCLE_RANGES[muscle];
+function volumeStatus(sets: number, muscle: Muscle, goal: VolumeGoal = "hypertrophy"): VolumeStatus {
+  const r = muscleRangesFor(goal)[muscle];
   if (sets < r.min) return "low";
   if (sets <= r.max) return "ok";
   if (sets <= 1.3 * r.max) return "high";
@@ -69,10 +99,12 @@ function volumeStatus(sets: number, muscle: Muscle): VolumeStatus {
 }
 
 /**
- * Serie robocze / tydzień per partia. Partia główna = 1 seria, wspomagająca = 1/2.
- * Liczy z aktywnych dni (dzień optional tylko gdy active); każdy dzień = 1x/tydzień.
+ * Serie robocze / tydzień per partia — Z PLANU (ile jest ZAPLANOWANE, nie ile
+ * faktycznie wykonano). Partia główna = 1 seria, wspomagająca = 1/2. Liczy z
+ * aktywnych dni (dzień optional tylko gdy active); każdy dzień = 1x/tydzień.
+ * `goal` decyduje o progach statusu (patrz MUSCLE_RANGES_STRENGTH/_HYPERTROPHY).
  */
-export function weeklyMuscleVolume(state: AppState): MuscleVolume[] {
+export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertrophy"): MuscleVolume[] {
   const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
   for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
 
@@ -105,7 +137,61 @@ export function weeklyMuscleVolume(state: AppState): MuscleVolume[] {
       sets: +a.sets.toFixed(1),
       direct: a.direct,
       tonnage: Math.round(a.tonnage),
-      status: volumeStatus(a.sets, muscle),
+      status: volumeStatus(a.sets, muscle, goal),
+    };
+  });
+}
+
+/**
+ * Serie robocze W OSTATNICH 7 DNIACH — z faktycznie zalogowanych (ukończonych)
+ * sesji, nie z planu. Ta sama waga partia główna/wspomagająca jak wyżej.
+ * `nowIso` opcjonalny (testowalność) — domyślnie bieżąca data urządzenia.
+ */
+export function actualWeeklyMuscleVolume(
+  state: AppState,
+  goal: VolumeGoal = "hypertrophy",
+  nowIso?: string
+): MuscleVolume[] {
+  const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
+  for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+
+  const now = nowIso ? new Date(nowIso) : new Date();
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 6); // okno 7 dni: dzis + 6 wstecz
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const nowStr = now.toISOString().slice(0, 10);
+
+  for (const session of state.sessions) {
+    if (!session.completed) continue;
+    const d = session.date.slice(0, 10);
+    if (d < cutoffStr || d > nowStr) continue;
+    for (const entry of session.entries) {
+      const ex = state.exercises.find((e) => e.id === entry.exerciseId);
+      if (!ex || ex.archived) continue;
+      const doneSets = entry.sets.filter((s) => s.done).length;
+      if (doneSets === 0) continue;
+      const tonnage = entryVolume(ex, entry);
+      if (ex.primaryMuscle) {
+        const a = acc.get(ex.primaryMuscle)!;
+        a.sets += doneSets;
+        a.direct += doneSets;
+        a.tonnage += tonnage;
+      }
+      for (const m of ex.secondaryMuscles ?? []) {
+        const a = acc.get(m)!;
+        a.sets += doneSets * 0.5;
+      }
+    }
+  }
+
+  return MUSCLES.map((muscle) => {
+    const a = acc.get(muscle)!;
+    return {
+      muscle,
+      sets: +a.sets.toFixed(1),
+      direct: a.direct,
+      tonnage: Math.round(a.tonnage),
+      status: volumeStatus(a.sets, muscle, goal),
     };
   });
 }
@@ -237,6 +323,50 @@ export function exerciseHistory(state: AppState, exId: string): HistoryPoint[] {
     });
   }
   return points;
+}
+
+/**
+ * Przerywana projekcja `count` kolejnych wystąpień ćwiczenia — regresja
+ * liniowa (metoda najmniejszych kwadratów) e1RM po ostatnich punktach
+ * historii, ekstrapolowana z odstępem = średni odstęp między sesjami tego
+ * ćwiczenia. To SZACUNEK przy założeniu utrzymania dotychczasowego tempa —
+ * nie predykcja. Przy zastoju/spadku forma trendu to odzwierciedla (płasko/w
+ * dół), zgodnie z uczciwym framowaniem apki — nie podkręcamy sztucznie w górę.
+ * `topWeight`/`topReps` w wyniku są nieużywane (0) — projekcja liczy się tylko
+ * po `e1rm`.
+ */
+export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint[] {
+  if (history.length < 2) return [];
+  const n = history.length;
+  const recent = history.slice(-Math.min(6, n));
+  const m = recent.length;
+
+  const xMean = (m - 1) / 2;
+  const yMean = recent.reduce((s, p) => s + p.e1rm, 0) / m;
+  let num = 0;
+  let den = 0;
+  recent.forEach((p, i) => {
+    num += (i - xMean) * (p.e1rm - yMean);
+    den += (i - xMean) ** 2;
+  });
+  const slope = den === 0 ? 0 : num / den;
+
+  const firstTime = new Date(history[0].date).getTime();
+  const lastPoint = history[n - 1];
+  const lastTime = new Date(lastPoint.date).getTime();
+  const avgIntervalMs = n > 1 ? (lastTime - firstTime) / (n - 1) : 7 * 86400000;
+
+  const out: HistoryPoint[] = [];
+  for (let i = 1; i <= count; i++) {
+    const e1 = Math.max(0, Math.round((lastPoint.e1rm + slope * i) * 10) / 10);
+    out.push({
+      date: new Date(lastTime + avgIntervalMs * i).toISOString(),
+      e1rm: e1,
+      topWeight: 0,
+      topReps: 0,
+    });
+  }
+  return out;
 }
 
 export interface LastEntry {

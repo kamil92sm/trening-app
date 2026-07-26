@@ -2,10 +2,12 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import {
   weeklyMuscleVolume,
-  MUSCLE_RANGES,
+  actualWeeklyMuscleVolume,
+  muscleRangesFor,
   STATUS_COLORS,
   STATUS_LABELS,
   exerciseHistory,
+  projectHistory,
   sessionVolume,
   mondayOf,
   fmtDateShort,
@@ -13,16 +15,23 @@ import {
   bestE1rm,
   e1rm,
   detectPlateau,
+  type VolumeGoal,
 } from "@/lib/logic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
+import { cn } from "@/lib/utils";
 
 export function ProgressScreen() {
-  const { state, setDayActive } = useStore();
+  const { state, setDayActive, updateSettings } = useStore();
 
-  const volumes = useMemo(() => weeklyMuscleVolume(state), [state]);
+  const volumeGoal: VolumeGoal = state.settings.volumeGoal ?? "hypertrophy";
+  const [volumeView, setVolumeView] = useState<"planned" | "actual">("planned");
+  const ranges = muscleRangesFor(volumeGoal);
+  const plannedVolumes = useMemo(() => weeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
+  const actualVolumes = useMemo(() => actualWeeklyMuscleVolume(state, volumeGoal), [state, volumeGoal]);
+  const volumes = volumeView === "planned" ? plannedVolumes : actualVolumes;
   const bonusDay = state.days.find((d) => d.optional) ?? null;
 
   const exercisesWithHistory = state.exercises.filter(
@@ -36,6 +45,8 @@ export function ProgressScreen() {
 
   const history = selected ? exerciseHistory(state, selected.id) : [];
   const chartData = history.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
+  const projection = useMemo(() => projectHistory(history, 3), [history]);
+  const projectionData = projection.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
 
   const weeklyTonnage = useMemo(() => {
     const byWeek = new Map<string, number>();
@@ -77,11 +88,46 @@ export function ProgressScreen() {
       <Card>
         <CardHeader>
           <CardTitle>Objętość tygodniowa</CardTitle>
-          <CardDescription>Serie robocze na partię (główna = 1, wspomagająca = ½)</CardDescription>
+          <CardDescription>
+            Serie robocze na partię (główna = 1, wspomagająca = ½) ·{" "}
+            {volumeView === "planned" ? "z planu" : "wykonane w ostatnich 7 dniach"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 pb-1">
+            <div className="flex overflow-hidden rounded-md border border-border text-[11px]">
+              {(["planned", "actual"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setVolumeView(view)}
+                  className={cn(
+                    "px-2.5 py-1.5 transition-colors",
+                    volumeView === view ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {view === "planned" ? "Plan" : "Wykonane (7 dni)"}
+                </button>
+              ))}
+            </div>
+            <div className="flex overflow-hidden rounded-md border border-border text-[11px]">
+              {(["strength", "hypertrophy"] as const).map((goal) => (
+                <button
+                  key={goal}
+                  type="button"
+                  onClick={() => updateSettings({ volumeGoal: goal })}
+                  className={cn(
+                    "px-2.5 py-1.5 transition-colors",
+                    volumeGoal === goal ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {goal === "strength" ? "Cel: Siła" : "Cel: Hipertrofia"}
+                </button>
+              ))}
+            </div>
+          </div>
           {volumes.map((v) => {
-            const range = MUSCLE_RANGES[v.muscle];
+            const range = ranges[v.muscle];
             const pct = Math.min((v.sets / (range.max * 1.3)) * 100, 100);
             return (
               <div key={v.muscle}>
@@ -145,9 +191,16 @@ export function ProgressScreen() {
           </Select>
           <LineChart
             data={chartData}
+            projection={projectionData}
             formatY={(y) => `${Math.round(y)}`}
             formatX={(x) => fmtDateShort(new Date(x).toISOString())}
           />
+          {projectionData.length > 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              Przerywana linia: szacunek na kolejne treningi przy utrzymaniu dotychczasowego tempa
+              — nie prognoza, ekstrapolacja trendu.
+            </p>
+          )}
           {selected && history.length > 0 && (
             <p className="text-xs text-muted-foreground">
               Ostatnio: {fmtKg(history[history.length - 1].topWeight)} ×{" "}

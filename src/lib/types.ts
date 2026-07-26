@@ -119,6 +119,8 @@ export interface Settings {
   gymProfiles?: GymProfile[];
   /** ID aktywnego profilu z gymProfiles; brak/undefined = siłownia domowa. */
   activeGymProfileId?: string;
+  /** Cel objętości — decyduje o zakresach serii/partię w Progresie. Brak = hipertrofia (domyślnie). */
+  volumeGoal?: "strength" | "hypertrophy";
 }
 
 export interface AppState {
