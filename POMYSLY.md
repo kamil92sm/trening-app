@@ -840,7 +840,7 @@ liczy 65% i zaokrągla do `increment`; `finishSession` w deloadzie NIE zmienia `
 takie, jak przed nim, nudge pojawia się po 6 tygodniach; CLAUDE.md §5.7 dopisane o trzecim trybie.
 **Rozmiar:** M/L
 
-### [ ] P2-9. Cofnij zakończenie treningu (undo progresji)
+### [x] P2-9. Cofnij zakończenie treningu (undo progresji) (2026-07-26)
 **Realne ryzyko:** `finishSession` (`store.tsx:119`) natychmiast nadpisuje `targets` /
 `hyperTargets`. Kliknięcie „Zakończ trening" o jedną serię za wcześnie (albo przez pomyłkę na
 pustym drafcie) zapisuje sesję I przesuwa cele. P2-5 pozwala edytować sesję w Historii, ale
@@ -864,6 +864,12 @@ odpalić ponowny backup po cofnięciu, inaczej chmura zostanie ze stanem „po p
 zakończenie tego samego treningu nie jest możliwe (draft już wyczyszczony — po undo wróć do
 ekranu wyboru dnia, nie do loggera).
 **Rozmiar:** M
+**Wdrożone:** `finishSession` zwraca `FinishResult { summaries, undo }` (`undo.sessionId` i snapshot
+obu map celów, generowane PRZED `mutate` jak `finishedAt`). `store.undoFinishSession(undo)` usuwa
+sesję i przywraca mapy. Przycisk „Cofnij zakończenie" (ghost) w podsumowaniu, snapshot tylko w
+stanie Reacta. Po undo — jeśli auto-backup włączony — odpala ponowny backup, żeby chmura nie
+zostawała ze stanem sprzed cofnięcia. Zweryfikowane w przeglądarce end-to-end: 9 sesji/cel 45 →
+zakończenie → 10 sesji/cel 47,5 → cofnięcie → z powrotem 9 sesji/cel 45, ekran wyboru dnia.
 
 ### [ ] P2-10. Podpowiedź następnego dnia w rotacji
 **Po co:** ekran wyboru dnia pokazuje 3–4 równorzędne kafelki i za każdym razem trzeba pomyśleć,
