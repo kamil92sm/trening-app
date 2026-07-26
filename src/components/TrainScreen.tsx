@@ -159,6 +159,8 @@ export function TrainScreen() {
       if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
     };
   }, []);
+  // Zmiana pauzuje/resetuje RestTimer (panel) - patrz efekt nizej przy focusIdx.
+  const [exerciseStopKey, setExerciseStopKey] = useState(0);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -292,6 +294,20 @@ export function TrainScreen() {
   // z ustawien.
   const activeBar = activeGymProfile?.barWeight ?? state.settings.barWeight;
   const activePlates = activeGymProfile?.plates ?? state.settings.plates;
+
+  // Tryb skupienia: przy przejsciu na inne cwiczenie (auto-przejscie po zaliczeniu
+  // ostatniej serii ALBO reczna nawigacja strzalkami/kropkami) timer przerwy ma
+  // sie ZATRZYMAC i zresetowac do pelnej dlugosci NOWEGO cwiczenia - czas na
+  // zmiane sprzetu/ciezaru to nie odpoczynek, wiec odliczanie nie ma lecieć w
+  // tle podczas przejscia. Startuje na nowo dopiero gdy zaliczysz pierwsza serie
+  // (albo recznie przez Start w panelu).
+  useEffect(() => {
+    if (!draft || layout !== "focus") return;
+    const entry = draft.entries[focusIdx];
+    const ex = entry ? state.exercises.find((e) => e.id === entry.exerciseId) : undefined;
+    setTimerSeconds(ex?.restSeconds ?? state.settings.restSeconds);
+    setExerciseStopKey((k) => k + 1);
+  }, [focusIdx, layout]);
 
   function toggleWarmup(entryIdx: number) {
     setOpenWarmups((prev) => {
@@ -1191,7 +1207,13 @@ export function TrainScreen() {
         <div className="space-y-3 p-4">
           {renderExerciseCard(focusIdx)}
           <div className="rounded-lg border border-border bg-card p-3">
-            <RestTimer variant="panel" seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
+            <RestTimer
+              variant="panel"
+              seconds={timerSeconds}
+              sound={state.settings.sound}
+              autostartKey={timerKey}
+              stopKey={exerciseStopKey}
+            />
           </div>
           <div className="flex items-center justify-between gap-2">
             <Button

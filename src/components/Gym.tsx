@@ -116,12 +116,17 @@ export function RestTimer({
   seconds,
   sound,
   autostartKey,
+  stopKey,
   variant = "pill",
 }: {
   seconds: number;
   sound: boolean;
   /** zmiana wartości restartuje odliczanie (np. po odhaczeniu serii) */
   autostartKey?: number;
+  /** Zmiana wartości ZATRZYMUJE i resetuje do pełnej długości (bez auto-startu) —
+   * używane przy przejściu na inne ćwiczenie w trybie skupienia: czas na ogarnięcie
+   * sprzętu/ciężaru nie jest odpoczynkiem, więc odliczanie nie ma lecieć w tle. */
+  stopKey?: number;
   /** P3-6: "pill" (domyślnie, jak dziś - pływająca pigułka) albo "panel" (duże cyfry
    * + pasek postępu, tryb skupienia). */
   variant?: "pill" | "panel";
@@ -136,6 +141,13 @@ export function RestTimer({
     setRunning(true);
     beeped.current = false;
   }, [autostartKey, seconds]);
+
+  useEffect(() => {
+    if (stopKey === undefined) return;
+    setRunning(false);
+    setLeft(seconds);
+    beeped.current = false;
+  }, [stopKey]);
 
   useEffect(() => {
     if (!running) return;
