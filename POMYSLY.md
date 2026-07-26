@@ -667,11 +667,15 @@ kopii automatycznej cofa do stanu sprzed importu.
 zmapowanych na `Muscle`), fill wg `STATUS_COLORS[status]` z `weeklyMuscleVolume`.
 Umieść nad listą w karcie Objętość; lista zostaje (dostępność). **Rozmiar:** M/L
 
-### [ ] P2-2. Korelacja squash ↔ siła
+### [x] P2-2. Korelacja squash ↔ siła (2026-07-26)
 **Weryfikacja Gemini:** ograniczona wartość naukowa przy n=1 i 1 meczu/tydz., ale tania:
 **Spec:** `LineChart` += `markers?: number[]` (timestampy) — pionowe kreski;
 w Progresie, dla wykresu ćwiczenia, pokaż kreski w dniach squasha ±1 dzień przed sesją.
 Wniosek zostaw człowiekowi (bez automatycznych "%"). **Rozmiar:** S/M
+**Wdrożone:** `LineChart` dostał `markers?: number[]` (fioletowa przerywana kreska, filtrowana
+do domeny X wykresu). `ProgressScreen.tsx`: wszystkie daty squasha jako markery na wykresie
+„Postęp ćwiczenia" + podpis wyjaśniający, gdy któryś marker wypada w widocznym oknie. Bez zmian
+silnika i testów (czysty UI). Zweryfikowane w przeglądarce.
 
 ### [x] P2-3. Paragon treningowy (obrazek do rolki) (2026-07-26; WYCOFANE 2026-07-26 wieczór na prośbę Kamila — patrz P2-6, nie wracać)
 **Weryfikacja Gemini:** wykonalne BEZ html-to-image (nie dodawaj zależności!) —
