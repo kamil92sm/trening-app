@@ -34,6 +34,18 @@ export interface FinishSummary {
   result: ProgressionResult;
 }
 
+/** Snapshot celów SPRZED zapisu sesji — pozwala cofnąć finishSession (P2-9). */
+export interface UndoSnapshot {
+  sessionId: string;
+  targets: Record<string, number>;
+  hyperTargets: Record<string, number>;
+}
+
+export interface FinishResult {
+  summaries: FinishSummary[];
+  undo: UndoSnapshot;
+}
+
 /** Jeden slot, nadpisywany przed każdym importem/resetem — ratunek po pomyłce, nie drugi backup. */
 export const AUTO_BACKUP_KEY = "trening-app-backup-auto";
 
@@ -64,7 +76,8 @@ interface Store {
   state: AppState;
   setDayActive(dayId: string, active: boolean): void;
   setTarget(exerciseId: string, weight: number): void;
-  finishSession(session: Omit<Session, "id" | "completed">): FinishSummary[];
+  finishSession(session: Omit<Session, "id" | "completed">): FinishResult;
+  undoFinishSession(undo: UndoSnapshot): void;
   deleteSession(sessionId: string): void;
   updateSession(session: Session): void;
   addBody(entry: BodyEntry): void;
@@ -162,8 +175,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const modeEx = exerciseForMode(ex, mode);
           summaries.push({ exercise: ex, result: computeProgression(modeEx, entry.targetWeight, entry.sets) });
         }
+        // P2-9: id i snapshot celów SPRZED zapisu — wygenerowane tutaj (nie w
+        // mutate) z tego samego powodu co finishedAt: updater musi być czysty.
+        const sessionId = uid();
+        const undo: UndoSnapshot = {
+          sessionId,
+          targets: { ...state.targets },
+          hyperTargets: { ...(state.hyperTargets ?? {}) },
+        };
         mutate((d) => {
-          const session: Session = { ...sessionData, id: uid(), completed: true, finishedAt };
+          const session: Session = { ...sessionData, id: sessionId, completed: true, finishedAt };
           d.sessions.push(session);
           for (const s of summaries) {
             if (mode === "hypertrophy") {
@@ -175,7 +196,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return d;
         });
-        return summaries;
+        return { summaries, undo };
+      },
+
+      undoFinishSession(undo) {
+        mutate((d) => {
+          d.sessions = d.sessions.filter((s) => s.id !== undo.sessionId);
+          d.targets = { ...undo.targets };
+          d.hyperTargets = { ...undo.hyperTargets };
+          return d;
+        });
       },
 
       deleteSession(sessionId) {

@@ -11,7 +11,7 @@ import {
   X,
   Repeat,
 } from "lucide-react";
-import { useStore, type FinishSummary } from "@/lib/store";
+import { useStore, type FinishSummary, type UndoSnapshot } from "@/lib/store";
 import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
@@ -105,6 +105,7 @@ export function TrainScreen() {
   const [summary, setSummary] = useState<FinishSummary[] | null>(null);
   const [sessionRecords, setSessionRecords] = useState<RecordHit[]>([]);
   const [summarySession, setSummarySession] = useState<Session | null>(null);
+  const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot | null>(null);
   const [timerKey, setTimerKey] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
@@ -412,7 +413,8 @@ export function TrainScreen() {
       mode: draft.mode,
       readiness: draft.readiness,
     });
-    setSummary(results);
+    setSummary(results.summaries);
+    setUndoSnapshot(results.undo);
     // P1-10: "kopia" zapisanej sesji do podsumowania (czas trwania/gęstość) —
     // store.finishSession nie zwraca pełnej sesji, tylko podsumowania progresji;
     // date/entries są identyczne z tym, co właśnie zapisano, finishedAt to ten
@@ -438,6 +440,25 @@ export function TrainScreen() {
 
   function cancel() {
     if (confirm("Porzucić ten trening? Wpisane serie przepadną.")) setDraft(null);
+  }
+
+  // P2-9: cofniecie zakonczenia - usuwa wlasnie zapisana sesje i przywraca
+  // cele (targets/hyperTargets) do stanu SPRZED finishSession. Snapshot zyje
+  // tylko w stanie Reacta (nie persystowany) - dziala dopoki widac podsumowanie.
+  function undoFinish() {
+    if (!undoSnapshot) return;
+    if (!confirm("Cofnąć zakończenie treningu? Sesja zniknie z Historii, cele wrócą do poprzednich wartości."))
+      return;
+    store.undoFinishSession(undoSnapshot);
+    setSummary(null);
+    setUndoSnapshot(null);
+    setSessionRecords([]);
+    setSummarySession(null);
+    if (state.settings.autoBackup && state.settings.gistToken) {
+      // Chmura ma juz stan "po pomylce" z auto-backupu po finishSession -
+      // odswiez ja, zeby nie zostala rozjechana z lokalnym stanem po cofnieciu.
+      pendingBackup.current = true;
+    }
   }
 
   // ── Podsumowanie po treningu ─────────────────────────────────────────────
@@ -505,9 +526,16 @@ export function TrainScreen() {
             </CardContent>
           </Card>
         ))}
-        <Button className="w-full" size="lg" onClick={() => setSummary(null)}>
-          Zamknij
-        </Button>
+        <div className="flex gap-2">
+          <Button className="flex-1" size="lg" onClick={() => setSummary(null)}>
+            Zamknij
+          </Button>
+          {undoSnapshot && (
+            <Button variant="ghost" size="lg" onClick={undoFinish}>
+              Cofnij zakończenie
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
