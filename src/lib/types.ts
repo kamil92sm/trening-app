@@ -112,6 +112,8 @@ export interface AppState {
   version: number;
   /** Czy historia startowa (tygodnie 2–4 spoza apki) została już dołożona — jednorazowo. */
   historySeeded?: boolean;
+  /** Czy cele zostały już dogonione do progresji wynikającej z historii sesji — jednorazowo. */
+  historyTargetsSeeded?: boolean;
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;

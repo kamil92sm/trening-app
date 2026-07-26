@@ -336,7 +336,7 @@ export function MoreScreen() {
               type="password"
               placeholder="ghp_… lub github_pat_…"
               value={state.settings.gistToken ?? ""}
-              onChange={(e) => store.updateSettings({ gistToken: e.target.value || undefined })}
+              onChange={(e) => store.updateSettings({ gistToken: e.target.value.trim() || undefined })}
             />
           </div>
           <div>

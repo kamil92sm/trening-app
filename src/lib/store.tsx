@@ -246,9 +246,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       resetAll() {
-        // "Wyzeruj wszystko" ma naprawdę czyścić historię — ustawiamy flagę
-        // historySeeded, żeby dosiew startowych sesji NIE wstrzyknął ich z powrotem.
-        setState({ ...defaultState(), historySeeded: true });
+        // "Wyzeruj wszystko" ma naprawdę czyścić historię — ustawiamy flagi
+        // historySeeded/historyTargetsSeeded, żeby jednorazowe dosiewy NIE
+        // wstrzyknęły z powrotem historii ani nie przeliczyły celów.
+        setState({ ...defaultState(), historySeeded: true, historyTargetsSeeded: true });
       },
     };
   }, [state]);

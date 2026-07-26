@@ -85,9 +85,11 @@ src/
 - **`ExerciseLog`**: `exerciseId, targetWeight, sets[], note?`
 - **`Session`**: `id, dayId, date(ISO), entries[], completed`
 - **`BodyEntry`**: `date(YYYY-MM-DD), weight, waist?` — `waist` (cm) do wykresu rekompozycji
-- **`AppState`**: `version, exercises[], days[], targets(exId→kg), sessions[], body[], squash[], settings, historySeeded?`
+- **`AppState`**: `version, exercises[], days[], targets(exId→kg), sessions[], body[], squash[], settings, historySeeded?, historyTargetsSeeded?`
   - `settings`: `name, barWeight, plates[], restSeconds, sound, gistToken?, gistId?, autoBackup?, lastBackup?`
   - `historySeeded?`: flaga jednorazowego dosiewu historii startowej (`history-seed.ts`)
+  - `historyTargetsSeeded?`: flaga jednorazowego doganiania `targets` do progresji z historii
+    sesji (`seed.ts: catchUpTargetsFromHistory`) — patrz §12 BUG-1
 
 **localStorage key: `trening-app-v2`.** Schemat wersjonowany przez `SCHEMA_VERSION` (aktualnie **5**).
 Wersje po 2: v3 = bonus 2.0 + zachowanie `targets` w migracji; v4 = `BodyEntry.waist`;
@@ -262,3 +264,111 @@ Otwarte pomysły (nie zrobione):
   pierwszej wersji — deliverable to `docs/index.html` z builda.
 - Seed (ID ćwiczeń, dni, cele) został odtworzony **1:1 z oryginalnego bundla** — ID muszą
   zostać stabilne, bo historia w localStorage odwołuje się do nich.
+
+---
+
+## 12. Backlog — zgłoszenia Kamila (sesja 26.07.2026)
+
+Sześć spraw ze screenów. Każda ma: **root cause**, **plik/linię**, **co zrobić**. Opisane
+tak, by dało się naprawiać od zera z Sonnetem bez ponownej analizy.
+
+### BUG-1 — ✅ NAPRAWIONE (26.07.2026) — Cele nie zaprogresowały mimo trafionego górnego zakresu (Wiosłowanie 60×8×8×8, Martwy 77,5×7×7)
+- **To NIE jest błąd `computeProgression`.** Reguła podwójnej progresji działa poprawnie
+  (`src/lib/logic.ts:129`). Problem: **historia startowa jest wstrzykiwana bezpośrednio jako
+  `Session[]`** (`src/lib/history-seed.ts`) i **nigdy nie przechodzi przez `finishSession()`**
+  (`src/lib/store.tsx:112`), a tylko `finishSession` przelicza progresję i zapisuje
+  `d.targets[id] = nextWeight` (`store.tsx:120,126`). Dlatego `Ostatnio` pokazuje dane z
+  dosiewu (np. `row_bb` 60×8×8×8 z `hist-w4-mon`), ale `targets["row_bb"]` = wartość z seeda (60).
+- **Efekt dla Kamila:** pierwszy REALNY trening zakończony w apce policzy progresję normalnie
+  (Wiosłowanie 3×8 → 62,5; Martwy 7≥6 → 80). Czyli apka „dogoni się" po pierwszym prawdziwym
+  zapisie. Ale wizualnie teraz wygląda na zacięte.
+- **Decyzja Kamila:** opcja (A), BEZ WYJĄTKU dla martwego ciągu — potraktować wszystkie ćwiczenia
+  identycznie (77,5×7×7 przy `repMax=6` liczy się jak każde inne trafienie górnego zakresu → bump).
+- **Fix wdrożony:** nowa funkcja `catchUpTargetsFromHistory()` w `src/lib/seed.ts` — dla każdego
+  ćwiczenia znajduje najświeższą ukończoną sesję z zaliczoną serią, liczy `computeProgression()`
+  na jej `targetWeight`/`sets` i **podnosi** `targets[id]` TYLKO gdy wynik jest WYŻSZY niż obecny
+  cel (nigdy nie obniża — chroni ręcznie skalibrowane cele, np. `bench_db` zostaje na 17,5 kg mimo
+  że czysta progresja z kroku 2 kg dałaby 17). Uruchamiane jednorazowo przez nową flagę
+  `historyTargetsSeeded` (types.ts) w `applyOneTimeSeeds()` (`seedHistoryOnce` + `catchUpTargetsOnce`),
+  podpięte we wszystkich trzech ścieżkach `migrateState()` — działa więc też dla Kamila na telefonie
+  (stan już ma `historySeeded=true`, ale `historyTargetsSeeded` jest nowe i jeszcze nie ustawione,
+  więc doliczy się przy pierwszym wczytaniu po aktualizacji). `resetAll()` w `store.tsx` ustawia obie
+  flagi na `true`, żeby „Wyzeruj wszystko" nie doliczyło celów z historii, której już nie ma.
+- **Zweryfikowane** (świeży stan, `sessionCount=9` po dosiewie historii):
+  `row_bb: 60→62,5`, `deadlift: 77,5→80`, `bench_db: 17,5` (bez zmian — ochrona przed obniżką),
+  `bench_bb/hipthrust/rdl/plank/curl_bb/squat/ohp`: bez zmian (już zgodne). Potwierdzone też w UI
+  (ekran Trening → Środa → „Martwy ciąg klasyczny … cel 80 kg").
+
+### BUG-2 — ✅ NAPRAWIONE (26.07.2026) — Pole „Przyrost (kg)" (i „Cel") nie da się wyczyścić / wpisać przecinka
+- **Root cause:** inputy są `type="number"` sterowane liczbą z `parseFloat(e.target.value) || 0`.
+  Skasowanie pola → `parseFloat("") = NaN` → `|| 0` → wskakuje `0`, którego nie da się usunąć;
+  przecinek w `type=number` bywa odrzucany, a `parseFloat` i tak czyta tylko kropkę.
+- **Pliki/linie:** `src/components/PlanScreen.tsx:322-326` (Cel) i `:330-339` (Przyrost);
+  ten sam antywzorzec jest też w polach serie/powt./RIR (`:290-316,343+`).
+- **Fix wdrożony:** nowy komponent `NumberField` w `src/components/PlanScreen.tsx` — trzyma
+  lokalny surowy string (`type="text" inputMode="decimal|numeric"`), pozwala na pusty string
+  i przecinek podczas pisania, parsuje (`parseNum`, obsługuje przecinek i kropkę) i commituje
+  liczbę do stanu na każdy poprawny keystroke; przy `onBlur` pustą/niepoprawną wartość zamienia
+  na `fallback`. Podmienione pola: Serie, Powt. min, Powt. max, Cel, Przyrost, RIR. Zweryfikowane
+  end-to-end w przeglądarce (wyczyszczenie → wpisanie z przecinkiem → zapis → ponowne otwarcie).
+
+### FEAT-1 — „Tryb innej siłowni": przelicz cele wg dostępnych obciążeń
+- **Czego chce Kamil:** wchodzi na obcą siłownię (inne hantle/talerze, np. skok co 2 kg zamiast 2,5).
+  Chce wpisać realny skok/dostępny ciężar, a apka ma przeliczyć cele na dziś (np. 17,5 → 17 gdy
+  najbliższy dostępny), i najlepiej zapamiętać to na stałe, bo może tam chodzić regularnie.
+- **Pomysł (do rozbicia):**
+  - Osobny profil siłowni w `settings`: `{ id, name, plates[], barWeight, dumbbells[] }`, przełączany
+    globalnie. `platePlan` (`logic.ts:290`) już liczy układ z dowolnej listy talerzy — wystarczy
+    podać listę z aktywnego profilu.
+  - „Snap celu do najbliższego dostępnego ciężaru": funkcja `snapWeight(target, availableSteps)`
+    → wybiera najbliższą realizowalną wartość. Pokazywać obok celu: „na tej siłowni: 17 kg".
+  - Przyrost per-profil, żeby progresja szła skokiem danej siłowni.
+- **Uwaga:** to większa funkcja — zaproponować Kamilowi MVP (jeden alternatywny profil + snap celu),
+  zanim budować pełny menedżer siłowni.
+
+### BUG-3 — ✅ CZĘŚCIOWO NAPRAWIONE (26.07.2026) — Backup „Bad credentials" mimo działającego wczoraj tokena
+- **Diagnoza:** apka wysyła token poprawnie (`src/lib/backup.ts:19` — `Authorization: Bearer <token>`).
+  „Bad credentials" to **odpowiedź 401 od GitHuba** = to GitHub odrzuca token, nie apka go gubi
+  (kropki w polu = token wciąż zapisany w localStorage). Token **nie jest** wpychany do buildu
+  (żyje tylko w localStorage per origin), więc to nie wyciek z repo.
+- **Najczęstsze przyczyny (po stronie GitHuba):**
+  1. **Fine-grained token wygasł** (mają datę ważności; przy krótkim terminie potrafi paść z dnia
+     na dzień). — najbardziej prawdopodobne.
+  2. Token **odwołany** przez GitHub secret-scanning, jeśli gdziekolwiek trafił publicznie.
+  3. Zgubione/zmienione uprawnienie „Gists: Read and write".
+- **Możliwy współudział apki (do utwardzenia):** jeśli token wklejony z **spacją/nową linią**,
+  nagłówek staje się `Bearer ghp_xxx\n` → 401. Fix: `token.trim()` przy zapisie i w `headers()`
+  (`backup.ts:19`). Warto dodać, ale nie tłumaczy „działało wczoraj → nie dziś".
+- **Rozwiązanie dla Kamila:** wygenerować **nowy** fine-grained token (uprawnienie tylko
+  „Gists: Read and write", data ważności „No expiration" albo długa), wkleić, „Backup teraz".
+  Gist ID (`789659…`) zostaje — nowy token wejdzie na ten sam gist.
+- **Do zrobienia w kodzie:** (a) `token.trim()`; (b) czytelniejszy komunikat błędu z podpowiedzią
+  „token wygasł/odwołany — wygeneruj nowy"; (c) opcjonalnie przycisk „Test tokena" (GET /gists).
+- **Fix wdrożony (26.07.2026):** (a) `token.trim()` w `headers()` (`backup.ts:19-25`) oraz przy
+  zapisie w `MoreScreen.tsx` (pole GitHub token); (b) `apiError()` w `backup.ts` — przy odpowiedzi
+  401 apka pokazuje teraz „Token odrzucony przez GitHub (wygasł/odwołany/stracił uprawnienie) —
+  wygeneruj nowy" zamiast surowego „Bad credentials". (c) test tokena — NIE zrobione (opcjonalne).
+  **To NIE naprawia samego problemu z tokenem Kamila** — musi wygenerować nowy fine-grained token
+  na GitHubie (patrz „Rozwiązanie dla Kamila" wyżej); trim/komunikat to zabezpieczenie na przyszłość.
+
+### INFO-1 — Słupki „Objętość tygodniowa": skąd te bursztynowe (low)
+- **Logika (`weeklyMuscleVolume`, `logic.ts:74`):** liczy **serie robocze zaplanowane / tydzień
+  z aktywnych dni planu** — NIE z historii treningów. Partia główna = `targetSets` serii,
+  wspomagająca = `×0,5`. Każdy aktywny dzień = 1×/tydzień. Zakresy: `MUSCLE_RANGES` (`logic.ts:25`)
+  są **hipertroficzne** (duże partie 10–20, małe 8–16). Status: `<min` = bursztyn `low`.
+- **Dlaczego dużo bursztynu:** plan 3-dniowy pod SIŁĘ daje mało serii/partię (np. Klatka =
+  bench 3 + incline_db 3 + bench_db 3 = 9 serii < 10 → `low`). To **oczekiwane i uczciwe** —
+  patrz §11: objętość poniżej optimum pokazujemy wprost jako naturalny efekt planu pod siłę.
+- **Historia NIE jest brana pod uwagę** — metryka mówi „ile planujesz", nie „ile zrobiłeś".
+- **Pomysły (opcjonalne):** (a) druga metryka z faktycznie wykonanych serii z `sessions` za
+  ostatni tydzień; (b) suwak „cel: siła / hipertrofia" zmieniający `MUSCLE_RANGES`, żeby przy
+  profilu siłowym plan świecił się na zielono.
+
+### FEAT-2 — Wykres liniowy urywa się na ostatnim treningu; brak estymacji w przód
+- **Stan:** `exerciseHistory` (`logic.ts:219`) zwraca tylko punkty z realnych sesji, `LineChart`
+  (`src/components/Charts.tsx`) rysuje je 1:1 — stąd koniec na ostatnim treningu.
+- **Pomysł — linia trendu / projekcja:** policzyć nachylenie z ostatnich N punktów (regresja
+  liniowa po e1RM albo tempo progresji = `increment` na trafiony cykl) i dorysować **przerywaną
+  projekcję** na 2–4 treningi w przód. Oznaczyć wyraźnie jako prognozę (inny kolor/dash), nie
+  mylić z danymi. Trzymać uczciwe framowanie — to szacunek przy założeniu utrzymania progresji.
+- **Miejsce:** nowa funkcja `projectHistory(points, ex)` w `logic.ts` + tryb `projected` w `LineChart`.

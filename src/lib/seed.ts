@@ -9,6 +9,7 @@ import type {
   WorkoutDay,
 } from "./types";
 import { HISTORICAL_SESSIONS } from "./history-seed";
+import { computeProgression } from "./logic";
 
 export const SCHEMA_VERSION = 5;
 export const STORAGE_KEY = "trening-app-v2";
@@ -263,12 +264,12 @@ export function mergeHistoricalSessions(existing: Session[]): Session[] {
  */
 export function migrateState(raw: unknown): AppState {
   const fresh = defaultState();
-  if (!raw || typeof raw !== "object") return seedHistoryOnce(fresh);
+  if (!raw || typeof raw !== "object") return applyOneTimeSeeds(fresh);
   const old = raw as Partial<AppState>;
 
   if (old.version === SCHEMA_VERSION && Array.isArray(old.exercises) && Array.isArray(old.days)) {
     // Aktualny schemat — dołóż tylko ewentualne braki w settings.
-    return seedHistoryOnce({
+    return applyOneTimeSeeds({
       ...fresh,
       ...old,
       version: SCHEMA_VERSION,
@@ -288,7 +289,7 @@ export function migrateState(raw: unknown): AppState {
     if (typeof v === "number") targets[id] = v;
   }
 
-  return seedHistoryOnce({
+  return applyOneTimeSeeds({
     ...fresh,
     targets,
     sessions: Array.isArray(old.sessions) ? old.sessions : [],
@@ -308,4 +309,41 @@ export function migrateState(raw: unknown): AppState {
 function seedHistoryOnce(state: AppState): AppState {
   if (state.historySeeded) return state;
   return { ...state, historySeeded: true, sessions: mergeHistoricalSessions(state.sessions) };
+}
+
+/**
+ * Dogania cele (`targets`) do progresji wynikającej z najświeższej zalogowanej
+ * sesji per ćwiczenie — potrzebne, bo historia startowa (mergeHistoricalSessions)
+ * wstrzykuje gotowe Session[] z pominięciem finishSession(), więc nigdy nie
+ * przeliczała targets. Reguła: podnieś cel TYLKO gdy computeProgression daje
+ * wynik WYŻSZY niż obecny — nigdy nie obniża ręcznie ustawionych/zaokrąglonych
+ * celów (np. bench_db 17,5 kg zostaje, mimo że czysta progresja z kroku 2 kg
+ * dałaby 17). Bez wyjątków dla konkretnych ćwiczeń (dot. też martwego ciągu).
+ */
+function catchUpTargetsFromHistory(state: AppState): AppState {
+  const targets = { ...state.targets };
+  const sorted = [...state.sessions]
+    .filter((s) => s.completed)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  for (const exercise of state.exercises) {
+    for (const session of sorted) {
+      const entry = session.entries.find((e) => e.exerciseId === exercise.id);
+      if (!entry || !entry.sets.some((s) => s.done)) continue;
+      const result = computeProgression(exercise, entry.targetWeight, entry.sets);
+      if (result.nextWeight > (targets[exercise.id] ?? 0)) {
+        targets[exercise.id] = result.nextWeight;
+      }
+      break;
+    }
+  }
+  return { ...state, targets };
+}
+
+function catchUpTargetsOnce(state: AppState): AppState {
+  if (state.historyTargetsSeeded) return state;
+  return { ...catchUpTargetsFromHistory(state), historyTargetsSeeded: true };
+}
+
+function applyOneTimeSeeds(state: AppState): AppState {
+  return catchUpTargetsOnce(seedHistoryOnce(state));
 }

@@ -18,10 +18,19 @@ interface GistResponse {
 
 function headers(token: string): HeadersInit {
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${token.trim()}`,
     Accept: "application/vnd.github+json",
     "Content-Type": "application/json",
   };
+}
+
+function apiError(data: GistResponse, status: number): Error {
+  if (status === 401) {
+    return new Error(
+      "Token odrzucony przez GitHub (wygasł, został odwołany, lub stracił uprawnienie „Gists: Read and write”). Wygeneruj nowy fine-grained token i wklej go ponownie."
+    );
+  }
+  return new Error(data.message ?? `Gist API error (${status})`);
 }
 
 /**
@@ -47,7 +56,7 @@ export async function gistBackup(
 
   const data = (await res.json()) as GistResponse;
   if (!res.ok) {
-    throw new Error(data.message ?? `Gist API error (${res.status})`);
+    throw apiError(data, res.status);
   }
   return { gistId: data.id };
 }
@@ -60,7 +69,7 @@ export async function gistRestore(token: string, gistId: string): Promise<string
   const res = await fetch(`${API}/${gistId}`, { headers: headers(token) });
   const data = (await res.json()) as GistResponse;
   if (!res.ok) {
-    throw new Error(data.message ?? `Gist API error (${res.status})`);
+    throw apiError(data, res.status);
   }
   const file = data.files[GIST_FILENAME];
   if (!file) throw new Error("Gist nie zawiera pliku trening-backup.json");
