@@ -140,6 +140,8 @@ export interface Settings {
   muscleRanges?: Partial<Record<Muscle, { min: number; max: number }>>;
   /** Układ loggera (P3-6): "list" (domyślnie, jak dziś) albo "focus" (jedno ćwiczenie na ekran). */
   loggerLayout?: "list" | "focus";
+  /** P4-9: cel per ćwiczenie (ta sama jednostka co wykres — e1RM w kg, sekundy dla isHold). */
+  liftGoals?: Record<string, number>;
 }
 
 export interface AppState {

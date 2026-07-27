@@ -11,6 +11,7 @@ import {
   STATUS_LABELS,
   exerciseHistory,
   projectHistory,
+  estimateGoalEta,
   sessionVolume,
   sessionDuration,
   weeklyAdherence,
@@ -25,11 +26,56 @@ import {
   type VolumeGoal,
 } from "@/lib/logic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Select } from "@/components/ui/input";
+import { Select, Input } from "@/components/ui/input";
 import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { LineChart, BarChart } from "@/components/Charts";
 import { cn } from "@/lib/utils";
+
+// P4-9: liczba mnoga "tydzień/tygodnie/tygodni" po polsku.
+function plWeeks(n: number): string {
+  if (n === 1) return "tydzień";
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "tygodnie";
+  return "tygodni";
+}
+
+// P4-9: pole celu per ćwiczenie - lokalny raw string (wzorzec NumberField), ale
+// pusty string = BRAK celu (usuwa wpis), nie 0 - w przeciwienstwie do NumberField,
+// ktory zawsze wraca do liczbowego fallbacku. `key={exId}` przy uzyciu (patrz
+// nizej) remontuje komponent przy zmianie wybranego cwiczenia.
+function GoalInput({ initial, onCommit }: { initial: number | undefined; onCommit: (n: number | null) => void }) {
+  const [raw, setRaw] = useState(initial !== undefined ? String(initial).replace(".", ",") : "");
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      placeholder="brak"
+      value={raw}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (!/^\d*[.,]?\d*$/.test(v)) return;
+        setRaw(v);
+      }}
+      onBlur={() => {
+        const trimmed = raw.trim();
+        if (trimmed === "") {
+          onCommit(null);
+          return;
+        }
+        const n = Number(trimmed.replace(",", "."));
+        if (Number.isFinite(n) && n > 0) {
+          onCommit(n);
+        } else {
+          onCommit(null);
+          setRaw("");
+        }
+      }}
+      className="h-8 w-20 px-2 text-center text-xs"
+    />
+  );
+}
 
 export function ProgressScreen() {
   const { state, setDayActive, updateSettings } = useStore();
@@ -57,6 +103,15 @@ export function ProgressScreen() {
     updateSettings({ muscleRanges: next });
   }
 
+  // P4-9: cel per cwiczenie (ta sama jednostka co wykres - e1RM w kg albo
+  // sekundy dla isHold). null = usun cel.
+  function setLiftGoal(exId: string, goal: number | null) {
+    const next = { ...(state.settings.liftGoals ?? {}) };
+    if (goal !== null) next[exId] = goal;
+    else delete next[exId];
+    updateSettings({ liftGoals: next });
+  }
+
   const exercisesWithHistory = state.exercises.filter(
     (ex) => !ex.archived && state.sessions.some((s) => s.entries.some((e) => e.exerciseId === ex.id))
   );
@@ -78,6 +133,11 @@ export function ProgressScreen() {
   const chartXs = chartData.map((d) => d.x);
   const hasVisibleSquashMarker =
     chartXs.length > 0 && squashMarkers.some((m) => m >= Math.min(...chartXs) && m <= Math.max(...chartXs));
+
+  // P4-9: cel per cwiczenie + ETA z NACHYLENIA regresji (ta sama co projectHistory),
+  // nie z prostego roznicowania - patrz estimateGoalEta.
+  const liftGoal = selected ? state.settings.liftGoals?.[selected.id] : undefined;
+  const goalEta = selected && liftGoal ? estimateGoalEta(history, liftGoal) : null;
 
   const weeklyTonnage = useMemo(() => {
     const byWeek = new Map<string, number>();
@@ -382,17 +442,30 @@ export function ProgressScreen() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-            {selectable.map((ex) => (
-              <option key={ex.id} value={ex.id}>
-                {ex.name}
-              </option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} className="flex-1">
+              {selectable.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </Select>
+            {selected && (
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">Cel{selected.isHold ? " (s)" : " (1RM)"}</span>
+                <GoalInput
+                  key={selected.id}
+                  initial={liftGoal}
+                  onCommit={(n) => setLiftGoal(selected.id, n)}
+                />
+              </div>
+            )}
+          </div>
           <LineChart
             data={chartData}
             projection={projectionData}
             markers={squashMarkers}
+            goalY={liftGoal}
             formatY={(y) => `${Math.round(y)}`}
             formatX={(x) => fmtDateShort(new Date(x).toISOString())}
           />
@@ -400,6 +473,24 @@ export function ProgressScreen() {
             <p className="text-[10px] text-muted-foreground">
               Przerywana linia: szacunek na kolejne treningi przy utrzymaniu dotychczasowego tempa
               — nie prognoza, ekstrapolacja trendu.
+            </p>
+          )}
+          {goalEta && (
+            <p
+              className={cn(
+                "text-[11px]",
+                goalEta.alreadyReached
+                  ? "text-emerald-400"
+                  : goalEta.reachable
+                    ? "text-muted-foreground"
+                    : "text-amber-300"
+              )}
+            >
+              {goalEta.alreadyReached
+                ? `Cel już osiągnięty (${fmtDateShort(goalEta.etaIso!)}).`
+                : goalEta.reachable
+                  ? `Przy dotychczasowym tempie: ~${goalEta.weeks} ${plWeeks(goalEta.weeks)} (ok. ${fmtDateShort(goalEta.etaIso!)}).`
+                  : "Trend płaski — cel nieosiągalny bez zmiany (patrz plateau breaker)."}
             </p>
           )}
           {hasVisibleSquashMarker && (

@@ -31,6 +31,7 @@ import {
   deloadTargetFor,
   weeksSinceDeload,
   failedAtRirZero,
+  estimateGoalEta,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -850,6 +851,53 @@ check(
   proj[0].date
 );
 check("projectHistory: <2 punkty historii -> brak projekcji", projectHistory([trendHistory[0]], 3).length === 0);
+
+// P4-9: cel + ETA z nachylenia regresji (ta sama co projectHistory)
+const etaReachable = estimateGoalEta(trendHistory, 125);
+check(
+  "estimateGoalEta: trend +5/tydzien, cel 125 (ostatni 110) -> ~3 tygodnie",
+  etaReachable.reachable && !etaReachable.alreadyReached && etaReachable.weeks === 3,
+  etaReachable
+);
+check(
+  "estimateGoalEta: ETA data = 3 tygodnie po ostatnim punkcie (2026-08-10)",
+  etaReachable.etaIso !== null && etaReachable.etaIso.slice(0, 10) === "2026-08-10",
+  etaReachable.etaIso
+);
+
+const etaAlready = estimateGoalEta(trendHistory, 105);
+check(
+  "estimateGoalEta: cel juz ponizej ostatniego wyniku -> alreadyReached",
+  etaAlready.alreadyReached && etaAlready.reachable && etaAlready.weeks === 0 && etaAlready.etaIso === "2026-07-20",
+  etaAlready
+);
+
+const flatHistory: HistoryPoint[] = [
+  { date: "2026-07-06", e1rm: 100, topWeight: 90, topReps: 5 },
+  { date: "2026-07-13", e1rm: 100, topWeight: 90, topReps: 5 },
+  { date: "2026-07-20", e1rm: 100, topWeight: 90, topReps: 5 },
+];
+check(
+  "estimateGoalEta: trend plaski -> nieosiagalny, bez zmyslonej daty",
+  estimateGoalEta(flatHistory, 120).reachable === false && estimateGoalEta(flatHistory, 120).etaIso === null,
+  estimateGoalEta(flatHistory, 120)
+);
+
+const decliningHistory: HistoryPoint[] = [
+  { date: "2026-07-06", e1rm: 100, topWeight: 90, topReps: 5 },
+  { date: "2026-07-13", e1rm: 95, topWeight: 85, topReps: 5 },
+  { date: "2026-07-20", e1rm: 90, topWeight: 80, topReps: 5 },
+];
+check(
+  "estimateGoalEta: trend spadkowy -> nieosiagalny",
+  estimateGoalEta(decliningHistory, 120).reachable === false,
+  estimateGoalEta(decliningHistory, 120)
+);
+
+check(
+  "estimateGoalEta: <2 punkty historii -> nieosiagalny",
+  estimateGoalEta([trendHistory[0]], 120).reachable === false
+);
 
 // P0-5: tryb treningu Sila/Hipertrofia
 const deadliftEx = SEED_EXERCISES.find((e) => e.id === "deadlift")!;

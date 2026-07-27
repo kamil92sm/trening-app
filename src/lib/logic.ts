@@ -720,17 +720,12 @@ export function weeksSinceDeload(state: AppState, nowIso?: string): number {
 }
 
 /**
- * Przerywana projekcja `count` kolejnych wystąpień ćwiczenia — regresja
- * liniowa (metoda najmniejszych kwadratów) e1RM po ostatnich punktach
- * historii, ekstrapolowana z odstępem = średni odstęp między sesjami tego
- * ćwiczenia. To SZACUNEK przy założeniu utrzymania dotychczasowego tempa —
- * nie predykcja. Przy zastoju/spadku forma trendu to odzwierciedla (płasko/w
- * dół), zgodnie z uczciwym framowaniem apki — nie podkręcamy sztucznie w górę.
- * `topWeight`/`topReps` w wyniku są nieużywane (0) — projekcja liczy się tylko
- * po `e1rm`.
+ * Regresja liniowa (najmniejsze kwadraty) e1RM po ostatnich do 6 punktach
+ * historii + średni odstęp między WSZYSTKIMI sesjami tego ćwiczenia. Wspólne
+ * dla `projectHistory` (ekstrapolacja punktów na wykres) i `estimateGoalEta`
+ * (P4-9, ETA do zadanego celu) — jedno źródło prawdy dla tempa progresu.
  */
-export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint[] {
-  if (history.length < 2) return [];
+function linearTrendE1rm(history: HistoryPoint[]): { slope: number; avgIntervalMs: number } {
   const n = history.length;
   const recent = history.slice(-Math.min(6, n));
   const m = recent.length;
@@ -746,9 +741,28 @@ export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint
   const slope = den === 0 ? 0 : num / den;
 
   const firstTime = new Date(history[0].date).getTime();
+  const lastTime = new Date(history[n - 1].date).getTime();
+  const avgIntervalMs = n > 1 ? (lastTime - firstTime) / (n - 1) : 7 * 86400000;
+
+  return { slope, avgIntervalMs };
+}
+
+/**
+ * Przerywana projekcja `count` kolejnych wystąpień ćwiczenia — regresja
+ * liniowa (metoda najmniejszych kwadratów) e1RM po ostatnich punktach
+ * historii, ekstrapolowana z odstępem = średni odstęp między sesjami tego
+ * ćwiczenia. To SZACUNEK przy założeniu utrzymania dotychczasowego tempa —
+ * nie predykcja. Przy zastoju/spadku forma trendu to odzwierciedla (płasko/w
+ * dół), zgodnie z uczciwym framowaniem apki — nie podkręcamy sztucznie w górę.
+ * `topWeight`/`topReps` w wyniku są nieużywane (0) — projekcja liczy się tylko
+ * po `e1rm`.
+ */
+export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint[] {
+  if (history.length < 2) return [];
+  const n = history.length;
+  const { slope, avgIntervalMs } = linearTrendE1rm(history);
   const lastPoint = history[n - 1];
   const lastTime = new Date(lastPoint.date).getTime();
-  const avgIntervalMs = n > 1 ? (lastTime - firstTime) / (n - 1) : 7 * 86400000;
 
   const out: HistoryPoint[] = [];
   for (let i = 1; i <= count; i++) {
@@ -761,6 +775,46 @@ export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint
     });
   }
   return out;
+}
+
+export interface GoalEta {
+  /** Cel osiągalny przy dotychczasowym trendzie (nachylenie > 0). */
+  reachable: boolean;
+  /** Ostatni punkt historii już spełnia cel — nie trzeba czekać. */
+  alreadyReached: boolean;
+  /** Zaokrąglone w górę do pełnych tygodni, min. 1 gdy reachable && !alreadyReached. */
+  weeks: number;
+  etaIso: string | null;
+}
+
+/**
+ * P4-9: ETA do zadanego celu (e1RM/sekundy — te same jednostki co punkty
+ * `history`) z NACHYLENIA regresji (`linearTrendE1rm`, ta sama co `projectHistory`),
+ * nie z prostego różnicowania pierwszy/ostatni punkt. Nachylenie ≤ 0 (zastój
+ * albo regres) → `reachable: false` — apka NIE zmyśla optymistycznej daty,
+ * zgodnie z uczciwym framowaniem (§11); ekran ma podpowiedzieć plateau breaker.
+ */
+export function estimateGoalEta(history: HistoryPoint[], goal: number): GoalEta {
+  if (history.length < 2 || goal <= 0) {
+    return { reachable: false, alreadyReached: false, weeks: 0, etaIso: null };
+  }
+  const last = history[history.length - 1];
+  if (last.e1rm >= goal) {
+    return { reachable: true, alreadyReached: true, weeks: 0, etaIso: last.date };
+  }
+  const { slope, avgIntervalMs } = linearTrendE1rm(history);
+  if (slope <= 0) {
+    return { reachable: false, alreadyReached: false, weeks: 0, etaIso: null };
+  }
+  const sessionsNeeded = (goal - last.e1rm) / slope;
+  const msNeeded = sessionsNeeded * avgIntervalMs;
+  const lastTime = new Date(last.date).getTime();
+  return {
+    reachable: true,
+    alreadyReached: false,
+    weeks: Math.max(1, Math.round(msNeeded / (7 * 86400000))),
+    etaIso: new Date(lastTime + msNeeded).toISOString(),
+  };
 }
 
 export interface LastEntry {

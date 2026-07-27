@@ -16,6 +16,7 @@ export function LineChart({
   data2,
   projection,
   markers,
+  goalY,
   height = 170,
   color = "#38bdf8",
   color2 = "#f59e0b",
@@ -29,6 +30,8 @@ export function LineChart({
   projection?: Point[];
   /** Pionowe znaczniki (timestampy) — np. dni squasha (P2-2). Poza domeną X są pomijane. */
   markers?: number[];
+  /** P4-9: pozioma przerywana linia celu (ta sama jednostka co `data.y`) — rozszerza domenę Y, jeśli cel jest poza zakresem danych. */
+  goalY?: number;
   height?: number;
   color?: string;
   color2?: string;
@@ -48,7 +51,7 @@ export function LineChart({
 
   const all = [...data, ...(data2 ?? []), ...(projection ?? [])];
   const xs = all.map((d) => d.x);
-  const ys = all.map((d) => d.y);
+  const ys = goalY !== undefined ? [...all.map((d) => d.y), goalY] : all.map((d) => d.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
@@ -138,6 +141,23 @@ export function LineChart({
       {projection?.map((d, i) => (
         <circle key={`proj-${i}`} cx={px(d.x)} cy={py(d.y)} r={2.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.6} />
       ))}
+      {goalY !== undefined && (
+        <>
+          <line
+            x1={pad.l}
+            x2={width - pad.r}
+            y1={py(goalY)}
+            y2={py(goalY)}
+            stroke="#22c55e"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            strokeOpacity={0.7}
+          />
+          <text x={width - pad.r} y={py(goalY) - 3} textAnchor="end" fontSize="9" fill="#22c55e" fillOpacity={0.9}>
+            cel {formatY(goalY)}
+          </text>
+        </>
+      )}
     </svg>
   );
 }
