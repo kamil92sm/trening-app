@@ -1674,3 +1674,362 @@ komunikat typu `Liczone od 60 kg (cel był 62,5 kg)`, gdy wartości się różni
 **Dlaczego nie robimy tego od ręki:** to zmiana semantyki silnika, która dotknie
 też `catchUpTargetsFromHistory` (`seed.ts:323`) i historię startową. Wymaga świadomej
 zgody Kamila i osobnego kompletu testów — nie doklejaj tego do P3-2.
+
+---
+
+## P4 — zgłoszenia Kamila + „paka na level up" (sesja 27.07.2026, Opus 5)
+
+Trzy zgłoszenia ze screenów (P4-1…P4-3) + siedem pomysłów rozwojowych (P4-4…P4-10),
+rozpisanych tak, żeby dało się je wdrażać pojedynczo, bez czytania tej rozmowy.
+
+**Prompt dla Sonneta (kopiuj-wklej, jedno zadanie na raz):**
+```
+Wdróż zadanie P4-1 z POMYSLY.md. Trzymaj się sekcji "Zasady implementacji"
+oraz "Wspólne pułapki P3" (nadal obowiązują). Po skończeniu odhacz zadanie
+w POMYSLY.md, uruchom npm test + npm run build i zrób commit.
+```
+
+### Wspólne pułapki P4 (przeczytaj RAZ)
+
+1. **Dolna krawędź ekranu jest zatłoczona.** W trybie listy siedzą tam trzy rzeczy
+   naraz: nawigacja (`App.tsx:73`, `fixed bottom-0`, wysokość ~60 px + 10 px paddingu),
+   pigułka timera (`TrainScreen.tsx:1302`, `bottom: 78px`, wysokość ~44 px) i — po
+   P4-1 — toasty. Każde zadanie ruszające dół ekranu musi sprawdzić wszystkie trzy
+   na iPhonie, nie tylko w DevToolsach.
+2. **Zakaz animowania rzeczy wewnątrz warstw z `backdrop-blur`** (lekcja z P0-6,
+   `Gym.tsx:228`). iOS Safari repaintuje wtedy całą rozmytą warstwę co klatkę i
+   wygląda to jak rozjeżdżanie się. Animować wolno: `width`, `transform`,
+   `box-shadow`/`opacity` **na osobnej warstwie bez `backdrop-blur`**.
+3. **Nie zmieniaj semantyki `setVolume`/`entryVolume`** (`logic.ts:390-397`) bez
+   przeczytania P4-3 — tonaż z tych funkcji karmi jednocześnie „Tonaż tygodniowy",
+   „gęstość kg/min" (P1-10), rekordy i objętość per partia.
+4. Bez nowych zależności, ikony z `lucide-react`, UI po polsku, mobile-first.
+
+---
+
+### [ ] P4-1. Toasty na dole ekranu (zamiast pod Dynamic Island)
+
+**Problem (screen IMG_3161):** toast „Zmieniono cel tygodnia" wjeżdża na górę i
+zasłania nagłówek ekranu oraz kartę „Cel tygodnia" — dokładnie ten element, którego
+dotyczy. Na 6,1" ekranie zabiera ~20% widoku i jest daleko od kciuka.
+
+**Pliki:** `src/App.tsx:21-51` (komponent `Toaster`), `src/hooks/use-toast.ts`
+(bez zmian w API), ewentualnie `src/index.css` (zmienne wysokości docka).
+
+**Spec:**
+1. `Toaster` przenieś z `top: calc(env(safe-area-inset-top) + 12px)` na dół:
+   `bottom: 132px` (stała `BOTTOM_DOCK_PX = 132` w `App.tsx`, z komentarzem skąd
+   liczba: 60 px nawigacja + 10 px padding + 44 px pigułka timera + 2×~9 px odstępu).
+   **Nie dodawaj `env(safe-area-inset-bottom)`** — nawigacja świadomie go nie używa
+   (`App.tsx:70-75`), dodanie go tutaj rozjedzie toasty względem paska.
+2. Kolejność stosu: `flex-col-reverse`, żeby **najnowszy toast był najniżej**
+   (najbliżej kciuka), a starsze wypychane w górę.
+3. Maksymalnie 3 widoczne naraz — nadmiar obcinaj w `Toaster` (`toasts.slice(-3)`),
+   nie ruszaj kolejki w `use-toast.ts`.
+4. Wejście: `translateY(8px) → 0` + `opacity 0 → 1`, 180 ms, `ease-out`. Realizacja
+   przez klasę Tailwinda z `tailwindcss-animate` (jest w projekcie) albo prosty
+   `@keyframes` w `index.css`. Toast **nie ma** `backdrop-blur` na tej samej warstwie
+   co animacja — jeśli zostawiasz `backdrop-blur`, animuj wrapper, nie rozmytą kartę
+   (pułapka 2 wyżej).
+5. Dismiss dotykiem: kliknięcie w treść toasta go zamyka (`dismissToast(t.id)`),
+   z wyjątkiem kliknięcia w przycisk akcji (ten ma własny handler i nawigację).
+   Minimalny cel dotykowy całej karty i tak > 36 px.
+6. Kolizja z pigułką timera: przy stałej 132 px toast **nigdy** nie nachodzi na
+   timer, kosztem ~50 px pustki na zakładkach bez timera. To świadomy wybór —
+   prostszy i odporniejszy niż mierzenie DOM-u.
+   *Wariant B (opcjonalny, tylko jeśli ta pustka będzie przeszkadzać):* dołóż do
+   `use-toast.ts` moduł-singleton `setToastOffset(px)` (ten sam wzorzec co
+   `listeners`), `TrainScreen` w trybie listy ustawia 132 przy montowaniu pigułki i
+   72 przy odmontowaniu. Bez kontekstu Reacta, bez zmiany API `toast()`.
+
+**Kryteria akceptacji:**
+- Toast po zmianie trybu tygodnia pojawia się nad nawigacją, nie zasłania karty „Cel".
+- W trakcie treningu (tryb listy) toast „Rekord!" (`TrainScreen.tsx:420`) nie nachodzi
+  na pigułkę timera ani jej nie zasłania.
+- Toast z akcją („Zrób backup" → „Przejdź do Więcej", `TrainScreen.tsx:279`) nadal
+  nawiguje i znika po kliknięciu.
+- W trybie skupienia (sticky header) nic się nie zmienia — toasty i tak są na dole.
+- Sprawdzone na iPhonie z ekranu głównego (standalone), nie tylko w Safari.
+
+---
+
+### [ ] P4-2. Neonowa otoczka pigułki timera (tryb listy, NIE tryb skupienia)
+
+**Czego chce Kamil:** żeby odliczanie przerwy w normalnym trybie (pływająca pigułka
+nad nawigacją) miało „fajną neonową otoczkę" — czytelny sygnał peryferyjny, że czas
+leci, bez patrzenia w cyfry. Tryb skupienia (`variant="panel"`) zostaje jak jest.
+
+**Pliki:** `src/components/Gym.tsx:226-253` (`RestTimer`, gałąź `pill`),
+`src/components/TrainScreen.tsx:1302-1307` (wrapper pigułki), `src/index.css`
+(zmienne koloru neonu).
+
+**Spec:**
+1. **Osobna warstwa poświaty.** Wrapper pigułki (`TrainScreen.tsx:1302`) ma
+   `backdrop-blur` — poświaty NIE nakładaj na ten element. Zamiast tego wstaw
+   wewnątrz `RestTimer` (albo w wrapperze) `<span aria-hidden>` pozycjonowany
+   `absolute -inset-[2px] rounded-full pointer-events-none` **bez** `backdrop-blur`,
+   z `box-shadow` robiącym neon i `transform: translateZ(0)`. Animuj tylko tę warstwę.
+2. **Stany i kolory** (nowe zmienne w `index.css`, obok istniejących tokenów):
+   - `idle` (nie leci, pełny czas): brak poświaty — pigułka wygląda jak dziś, żeby
+     nie świeciła bez powodu przez cały trening.
+   - `running` (leci, > 5 s): cyan `--neon-run: 190 95% 55%`,
+     `box-shadow: 0 0 10px 1px hsl(var(--neon-run)/0.45), 0 0 24px 4px hsl(var(--neon-run)/0.18)`
+     + obrys `0 0 0 1px hsl(var(--neon-run)/0.55)`.
+   - `almost` (ostatnie 5 s): bursztyn `--neon-warn: 38 95% 55%`, ta sama formuła z
+     mocniejszą alfą (0.6 / 0.28).
+   - `done` (0 s): zieleń `--neon-done: 142 70% 45%`, poświata zostaje ~2 s po zejściu
+     do zera, potem gaśnie (`setTimeout` + stan, albo klasa zdejmowana po `transitionend`).
+   - Przejścia między stanami: `transition: box-shadow 300ms ease` — zmienia się
+     **tylko przy zmianie stanu**, nie co sekundę.
+3. **Pasek postępu w obrysie.** Pod cyframi (wewnątrz pigułki) cienki pasek 2 px,
+   `width: (left/seconds)*100%`, kolor jak aktualny stan, `transition-all` — dokładnie
+   ten sam wzorzec co `variant="panel"` (`Gym.tsx:216-221`), który już jest sprawdzony
+   pod kątem janku. Animujemy **wyłącznie `width`**.
+4. **Zakaz:** `animate-pulse`, animowane `opacity`/`filter: blur()` na warstwie z
+   `backdrop-blur`, `@keyframes` odpalane co klatkę na rozmytym elemencie. Jeśli chcesz
+   delikatne „tętno" w ostatnich 5 s — wolno TYLKO na osobnej warstwie poświaty (pkt 1),
+   `@keyframes` na `box-shadow`, cykl ≥ 1 s, i musi być zgaszone przy
+   `@media (prefers-reduced-motion: reduce)`.
+5. Cyfry zostają jak dziś (`text-amber-400` w ostatnich 5 s, `text-green-400` na zerze)
+   — neon je uzupełnia, nie zastępuje.
+
+**Kryteria akceptacji:**
+- Timer nieaktywny = zero świecenia; po odhaczeniu serii pigułka zapala się na cyan.
+- Ostatnie 5 s = bursztyn, zero „rozjeżdżania się" na iPhonie (regresja P0-6).
+- Po dojściu do zera zielona poświata gaśnie sama, timer nie zostaje zapalony na stałe.
+- Tryb skupienia (`variant="panel"`) wygląda identycznie jak przed zmianą.
+- `npm run build` przechodzi, `docs/index.html` przebudowany.
+
+---
+
+### [ ] P4-3. „Brzuch: 0 kg" w widoku Wykonane → to nie jest jeden bug, tylko dwa braki
+
+**Pytanie Kamila (screen IMG_3162):** czemu w „Objętość tygodniowa → Wykonane (7 dni)
+→ kg" Brzuch pokazuje 0 kg.
+
+**Diagnoza (dwie niezależne przyczyny — obie prawdziwe):**
+
+1. **Izometryka nie ma tonażu.** `setVolume()` (`logic.ts:390-392`) zwraca **0** dla
+   każdego ćwiczenia z `isHold: true` — bo `reps` to wtedy sekundy, a `kg × sekundy`
+   to inna jednostka niż `kg × powtórzenia` i doliczenie tego do tonażu zafałszowałoby
+   wszystkie pozostałe metryki. W planie Kamila Brzuch obsługują dokładnie dwa
+   ćwiczenia: `crunch` (Allahy, poniedziałek) i `plank` (deska, środa, `isHold: true`,
+   `seed.ts:94`). Nagłówek na screenie mówi „2 treningi · 21.07–27.07" i pokazuje
+   zerowe Pośladki i Biceps — a te wiszą wyłącznie na poniedziałku (`hipthrust`,
+   `curl_bb`, `seed.ts:456`). Czyli w oknie były środa + piątek: **Brzuch dostał serie
+   z deski, ale deska z definicji daje 0 kg tonażu**.
+2. **Zerowy tonaż jest nieodróżnialny od „nic nie robiłem".** W widoku „Serie" Brzuch
+   pokazuje 4 serie (deska), po przełączeniu na „kg" spada do 0 bez żadnego wyjaśnienia
+   — i to jest realny problem UI, nie błąd liczenia. Ten sam efekt złapie każde
+   ćwiczenie `unit: "bodyweight"` logowane z ciężarem 0 (podciąganie, unoszenie nóg
+   w zwisie, dead bug — `seed.ts:405-435`): wykonane, a w tonażu zero.
+
+**To znaczy: liczby są poprawne, brakuje kontekstu w UI.** Nie „naprawiaj" tego
+doliczaniem sekund do kilogramów.
+
+**Pliki:** `src/lib/logic.ts` (`MuscleVolume`, `weeklyMuscleVolume`,
+`actualWeeklyMuscleVolume`), `src/components/ProgressScreen.tsx:238-260`,
+`tests/logic.test.ts`.
+
+**Spec (część A — obowiązkowa, czysto informacyjna):**
+1. Rozszerz `MuscleVolume` (`logic.ts:115-121`) o dwa pola:
+   `holdSets: number` (serie z `isHold`, zaliczone) i `zeroLoadSets: number`
+   (serie zaliczone, nie-`isHold`, o `weight === 0`). Licz je w obu funkcjach
+   (`weeklyMuscleVolume` — z planu, `actualWeeklyMuscleVolume` — z sesji), tą samą
+   wagą co `direct` (tylko partia GŁÓWNA, wspomagające pomijaj — inaczej przypis
+   pojawi się przy połowie partii).
+2. W `ProgressScreen`, w gałęzi `volumeMetric === "tonnage"` (`:241-252`), pod paskiem
+   dopisz linijkę `text-[10px] text-muted-foreground`, gdy `tonnage === 0 && sets > 0`:
+   - `holdSets > 0` → `„{holdSets} serii izometrycznych — czas pod napięciem nie ma tonażu"`
+   - `zeroLoadSets > 0` → `„{zeroLoadSets} serii z masą własną (0 kg wpisane) — brak tonażu"`
+   - oba > 0 → obie części po przecinku.
+   Gdy `tonnage === 0 && sets === 0` → nic nie dopisuj (partia faktycznie nietrenowana).
+3. Dopisek w `CardDescription` przy metryce „kg" (`:174`): dodaj `„· bez izometryki"`,
+   żeby zasada była widoczna zanim ktoś zacznie szukać zera.
+
+**Spec (część B — OPCJONALNA, do decyzji Kamila; nie wdrażaj bez potwierdzenia):**
+Licz masę ciała w tonażu dla ćwiczeń `unit: "bodyweight"` (bez `isHold`):
+`(bodyweight × coef + weight) × reps`, gdzie `bodyweight` to ostatni wpis z
+`state.body` (wzorzec: `logic.ts:549`), a `coef` z małej tabeli w `logic.ts`
+(podciąganie/dipy 1.0, pompki 0.65, unoszenie nóg 0.5, reszta 0.5). Za przełącznikiem
+`settings.countBodyweightInTonnage` (domyślnie **false** — brak bumpa `SCHEMA_VERSION`,
+patrz pułapka 4 z P3), bo włączenie tego zmienia też „Tonaż tygodniowy" i gęstość
+kg/min z P1-10, czyli rozjeżdża porównanie z historycznymi tygodniami. Jeśli wdrażasz —
+przy włączonym przełączniku pokaż w karcie „Tonaż tygodniowy" ostrzeżenie, że starsze
+tygodnie liczone są tą samą regułą wstecz (bo bierze ostatnią wagę ciała, nie ówczesną).
+
+**Kryteria akceptacji (część A):**
+- Brzuch przy samej desce w oknie: `0 kg` + przypis o izometryce, nie gołe zero.
+- Partia bez żadnej serii w oknie (np. Pośladki bez poniedziałku): `0 kg` bez przypisu.
+- Widok „Serie" bez zmian wizualnych.
+- Nowe testy w `tests/logic.test.ts`: (a) sesja z samą deską → `tonnage === 0`,
+  `holdSets === liczba zaliczonych serii`; (b) ćwiczenie `bodyweight` z `weight: 0`
+  → `zeroLoadSets > 0`, `tonnage === 0`; (c) zwykłe ćwiczenie → oba pola `0`.
+
+---
+
+## P4 — pomysły rozwojowe („paka na level up")
+
+Uszeregowane po stosunku *realny wpływ na przyrosty / koszt wdrożenia*. P4-4 i P4-5
+to jedyne dwa, które zmieniają **co robisz na siłowni**; reszta to lepszy wgląd
+i motywacja. Jeśli Kamil ma czas tylko na jedno — P4-4.
+
+---
+
+### [ ] P4-4. Autoregulacja przyrostu: RIR ostatniej serii steruje progresją
+
+**Dlaczego to jest największy skok jakości:** dziś progresja widzi tylko powtórzenia
+(`computeProgression`, `logic.ts:339+`). 3×8 wykonane na luzie (2–3 powtórzenia
+w zapasie) i 3×8 wyszarpane na skraju upadku dają **ten sam** wynik: +1 krok ciężaru.
+W pierwszym przypadku tracisz tydzień na zbyt małym skoku, w drugim wchodzisz
+w przetrenowanie. Aplikacja ma już pole `rir` w `Exercise` (cel), ale nigdy nie
+pyta, ile faktycznie zostało w baku.
+
+**Pliki:** `src/lib/types.ts` (`SetLog`), `src/lib/logic.ts` (`computeProgression`),
+`src/components/TrainScreen.tsx` (logger + podsumowanie), `tests/logic.test.ts`.
+
+**Spec:**
+1. `SetLog` dostaje **opcjonalne** `rir?: number` (0–4). Opcjonalne = brak bumpa
+   `SCHEMA_VERSION`, stare sesje i draft działają bez zmian (pułapka 4 z P3).
+   `Draft` też nie zmienia kształtu — `SetLog` jest w nim reużywany.
+2. **Pytamy tylko o ostatnią serię roboczą ćwiczenia** — nie o każdą. Po odhaczeniu
+   ostatniej serii w karcie ćwiczenia pokaż jeden rząd 4 przycisków (36×36 px,
+   mieszczą się, bo to osobny wiersz pod seriami, nie w wierszu serii — patrz
+   pułapka 5 z P3): `0 (upadek) · 1 · 2 · 3+`. Pominięcie = `undefined` = dzisiejsze
+   zachowanie. Nie blokuj zakończenia treningu brakiem RIR.
+3. `computeProgression` dostaje trzeci, opcjonalny argument `lastRir?: number` i
+   modyfikuje wynik **tylko gdy komplet powtórzeń został zrobiony** (czyli tam, gdzie
+   dziś jest `+increment`):
+   - `lastRir >= 3` → `+2 × increment`, komunikat „Zostały 3+ w zapasie — podwójny skok".
+   - `lastRir === 2` albo `undefined` → jak dziś (`+increment`).
+   - `lastRir <= 1` → `+increment`, ale dopisz „Blisko upadku — jeśli następny raz
+     nie wyjdzie, zostań na tym ciężarze".
+   Gdy powtórzeń NIE ma kompletu, a `lastRir === 0` w **dwóch sesjach z rzędu** →
+   zwróć sygnał deloadu dla tego ćwiczenia (ten sam kanał komunikatu co dziś).
+   `increment` nigdy nie jest zmieniany w bazie — mnożysz go tylko przy liczeniu celu.
+4. Deload (`mode === "deload"`) ignoruje RIR — progresja tam i tak jest wyłączona.
+5. Podsumowanie treningu pokazuje powód skoku, gdy był podwójny.
+
+**Kryteria akceptacji:**
+- Testy: komplet + RIR 3 → cel +2 kroki; komplet + RIR 1 → +1 krok + ostrzeżenie;
+  komplet bez RIR → identycznie jak przed zmianą (regresja!); brak kompletu + RIR 0
+  dwa razy → sygnał deloadu.
+- Trening bez dotykania RIR daje dokładnie te same cele co dziś.
+- Odświeżenie strony w trakcie treningu nie gubi zapisanych RIR (draft).
+
+---
+
+### [ ] P4-5. Progresja OBJĘTOŚCI w mezocyklu (nie tylko ciężaru)
+
+**Dlaczego:** ciężar rośnie co tydzień, liczba serii stoi w miejscu od pierwszego dnia.
+Objętość to główny sterownik hipertrofii, a apka już wie wszystko, co potrzebne:
+serie per partia (`weeklyMuscleVolume`), zakresy min–max (`MUSCLE_RANGES_*`),
+tryb deload (P2-8) i licznik tygodni od deloadu (`weeksSinceDeload`).
+
+**Spec:**
+1. Nowe `settings.volumeProgression?: boolean` (domyślnie false) + `settings.mesoStartIso?`.
+2. Gdy włączone i `trainingMode === "hypertrophy"`: co tydzień od startu mezocyklu
+   apka proponuje **+1 serię** dla partii, która jest poniżej `min` swojego zakresu
+   (najpierw największy deficyt), do maksymalnie +1 seria na partię na tydzień
+   i nigdy powyżej `max`. To **propozycja na ekranie wyboru dnia** (jak nudge deloadu),
+   nie automat zmieniający plan — Kamil klika „Dodaj serię do {ćwiczenie}", co
+   podbija `targetSets` w drafcie sesji (nie w planie!).
+3. Po tygodniu deloadu licznik się zeruje (`mesoStartIso = data deloadu`), objętość
+   wraca do bazowej z planu.
+4. Karta w Progres: „Mezocykl: tydzień 3/5 · serie tygodniowo 9 → 12".
+
+**Kryteria akceptacji:** wyłączone = zero zmian w UI; włączone nie modyfikuje nigdy
+`state.days`/`exercises`; propozycja znika, gdy partia wejdzie w zakres.
+
+---
+
+### [ ] P4-6. Kurs masy ciała: trend, tempo i sprzężenie z pasem
+
+**Dlaczego:** paka powstaje w kuchni, a apka ma już `BodyEntry` z wagą **i obwodem
+pasa** (P1-2) — i nie robi z tego żadnego wniosku. Surowa waga dzienna skacze ±1 kg
+przez wodę i jedzenie, więc wykres nic nie mówi.
+
+**Pliki:** nowy `src/lib/body.ts` (czysta logika + testy), karta w `ProgressScreen`
+albo `MoreScreen`.
+
+**Spec:**
+1. `movingAverage(body, days = 7)` — średnia krocząca wagi; wykres pokazuje surowe
+   punkty (cienko) + średnią (grubo). To jedyna liczba, na którą warto patrzeć.
+2. `weeklyRate(body, weeks = 3)` — tempo w kg/tydz. z regresji liniowej średniej
+   kroczącej (ten sam aparat co `projectHistory`, `logic.ts`).
+3. Ocena tempa względem celu: `settings.bodyGoal?: "bulk" | "recomp" | "cut"`.
+   Dla `bulk` pasmo docelowe **0,25–0,5% masy ciała / tydzień** (przy 80 kg:
+   0,2–0,4 kg/tydz.). Status jak przy objętości: za wolno / w zakresie / za szybko.
+4. **Sprzężenie z pasem (to jest ta wartościowa część):** jeśli w oknie 4 tygodni
+   obwód pasa rośnie szybciej niż waga w ujęciu procentowym → komunikat
+   „Pas rośnie szybciej niż masa — nadwyżka za duża, zejdź o ~200 kcal".
+   Odwrotnie (waga rośnie, pas stoi) → „Idealnie, trzymaj tak".
+5. Szacunek białka: `1,6–2,2 g/kg` masy ciała, jedna linijka, bez kalkulatora posiłków.
+6. **Świadomie POZA zakresem:** liczenie kalorii, baza produktów, makro per posiłek.
+   To osobna aplikacja, nie doklejaj jej tutaj.
+
+**Kryteria akceptacji:** < 3 pomiary → karta mówi „za mało danych", nie rysuje trendu;
+testy dla `movingAverage` i `weeklyRate` (w tym trend płaski i spadkowy).
+
+---
+
+### [ ] P4-7. Raport tygodniowy — jedna karta, cztery liczby, jedna rekomendacja
+
+**Dlaczego:** dane są, wniosków nie ma. Kamil musi sam przełączać widoki, żeby
+zobaczyć, czy tydzień był dobry.
+
+**Spec:** karta na górze Progres, generowana z istniejących funkcji (zero nowej
+matematyki poza sklejeniem):
+- **Zrobione:** X z Y zaplanowanych treningów (dni aktywne vs sesje w oknie).
+- **Tonaż:** suma tygodnia i zmiana % vs poprzedni (`weeklyTonnage` już liczone,
+  `ProgressScreen:90`).
+- **Siła:** ćwiczenia, w których e1RM wzrósł / spadł (z `progressHistory`).
+- **Objętość:** partie poniżej `min` (z `actualWeeklyMuscleVolume`).
+- **Jedna rekomendacja** wybrana priorytetowo: deload (jeśli `weeksSinceDeload` ≥ 6
+  lub `detectPlateau` na ≥ 3 ćwiczeniach) → dzień bonusowy (jeśli ≥ 2 partie `low`) →
+  „trzymaj kurs".
+Zwijalna, domyślnie rozwinięta w niedzielę i poniedziałek, zwinięta w resztę tygodnia.
+
+---
+
+### [ ] P4-8. Pomiary obwodów (biceps, klatka, udo) obok wagi i pasa
+
+**Dlaczego:** „paka" to obwody, nie liczba na wadze — a przy powolnym, czystym
+przyroście masy waga potrafi stać w miejscu przez 3 tygodnie, podczas gdy ramię rośnie.
+Bez tego jedynym dowodem postępu są kilogramy na sztandze.
+
+**Spec:** `BodyEntry` dostaje opcjonalne `chest?`, `arm?`, `thigh?` (cm) — opcjonalne,
+więc bez bumpa `SCHEMA_VERSION`. Pola zwinięte pod „Więcej pomiarów" w karcie Waga
+ciała (`MoreScreen.tsx:223`), żeby nie rozdymać codziennego wpisu. Wykres: przełącznik
+serii (waga / pas / klatka / ramię / udo), ten sam `LineChart` z normalizacją do %
+zmiany, który już obsługuje dwie serie (P1-2). Historia bez pomiarów po prostu ich nie
+rysuje.
+
+---
+
+### [ ] P4-9. Cel na 12 tygodni + ETA z realnego trendu
+
+**Dlaczego:** `projectHistory` (FEAT-2) już ekstrapoluje trend, ale nie odpowiada na
+pytanie, które faktycznie motywuje: „kiedy wycisnę 60 kg".
+
+**Spec:** w karcie „Postęp ćwiczenia" pole „Cel: ___ kg" (per ćwiczenie,
+`settings.liftGoals?: Record<string, number>`). Z nachylenia regresji policz ETA
+w tygodniach i pokaż: „Przy dotychczasowym tempie: ~7 tygodni (ok. 14.09)". Gdy
+nachylenie ≤ 0 → „Trend płaski — cel nieosiągalny bez zmiany (patrz plateau breaker)",
+bez zmyślania optymistycznej daty (§11 — uczciwe framowanie). Znacznik celu jako
+pozioma linia przerywana na wykresie.
+
+---
+
+### [ ] P4-10. (OPCJONALNE) Superserie antagonistyczne — krótszy trening, ta sama robota
+
+**Dlaczego:** para ćwiczeń na przeciwstawne partie (wiosłowanie + wyciskanie,
+biceps + triceps) pozwala skrócić trening o ~20% bez straty na objętości — przy
+3 treningach/tydzień to realna różnica między „poszedłem" a „odpuściłem".
+
+**Spec:** w Planie możliwość oznaczenia dwóch ćwiczeń jako pary
+(`WorkoutDay.supersets?: [string, string][]`). W loggerze para renderuje się jako
+jedna karta z dwoma wierszami serii i **jednym** timerem między parami (a nie po
+każdej serii). Wymaga ostrożności w trybie skupienia (jedna para = jeden ekran) i
+w liczeniu objętości (bez zmian — serie liczą się normalnie).
+**Nie zaczynaj od tego** — to najbardziej inwazyjna zmiana w loggerze z całego P4.
