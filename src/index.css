@@ -23,6 +23,10 @@
   --input: 222 26% 21%;
   --ring: 217 91% 60%;
   --radius: 0.75rem;
+  /* P4-2: neonowa otoczka pigułki timera przerwy (tryb listy, nie skupienia). */
+  --neon-run: 190 95% 55%;
+  --neon-warn: 38 95% 55%;
+  --neon-done: 142 70% 45%;
 }
 
 html,
@@ -76,5 +80,55 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 @media (prefers-reduced-motion: reduce) {
   .toast-enter {
     animation: none;
+  }
+}
+
+/* P4-2: warstwa poświaty pigułki timera - osobna od backdrop-blur wrappera
+   (patrz komentarz w Gym.tsx), animujemy tylko box-shadow. */
+.rest-glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  pointer-events: none;
+  transition: box-shadow 300ms ease;
+  box-shadow: none;
+}
+.rest-glow[data-state="running"] {
+  box-shadow:
+    0 0 10px 1px hsl(var(--neon-run) / 0.45),
+    0 0 24px 4px hsl(var(--neon-run) / 0.18),
+    0 0 0 1px hsl(var(--neon-run) / 0.55);
+}
+.rest-glow[data-state="almost"] {
+  animation: rest-glow-pulse 1.2s ease-in-out infinite;
+}
+.rest-glow[data-state="done"] {
+  box-shadow:
+    0 0 10px 1px hsl(var(--neon-done) / 0.5),
+    0 0 24px 4px hsl(var(--neon-done) / 0.22),
+    0 0 0 1px hsl(var(--neon-done) / 0.6);
+}
+@keyframes rest-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px 1px hsl(var(--neon-warn) / 0.55),
+      0 0 22px 4px hsl(var(--neon-warn) / 0.22),
+      0 0 0 1px hsl(var(--neon-warn) / 0.65);
+  }
+  50% {
+    box-shadow:
+      0 0 14px 2px hsl(var(--neon-warn) / 0.75),
+      0 0 30px 6px hsl(var(--neon-warn) / 0.32),
+      0 0 0 1px hsl(var(--neon-warn) / 0.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rest-glow[data-state="almost"] {
+    animation: none;
+    box-shadow:
+      0 0 10px 1px hsl(var(--neon-warn) / 0.6),
+      0 0 24px 4px hsl(var(--neon-warn) / 0.28),
+      0 0 0 1px hsl(var(--neon-warn) / 0.7);
   }
 }

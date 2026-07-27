@@ -134,6 +134,10 @@ export function RestTimer({
   const [left, setLeft] = useState(seconds);
   const [running, setRunning] = useState(false);
   const beeped = useRef(false);
+  // P4-2: poświata "done" (zielona) zostaje chwilę po zejściu do zera, potem gaśnie
+  // sama - inaczej pigułka świeciłaby na zielono aż do następnego auto-startu.
+  const [showDoneGlow, setShowDoneGlow] = useState(false);
+  const doneGlowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (autostartKey === undefined || autostartKey === 0) return;
@@ -166,6 +170,19 @@ export function RestTimer({
     }, 1000);
     return () => clearInterval(t);
   }, [running, sound]);
+
+  useEffect(() => {
+    if (doneGlowTimer.current) clearTimeout(doneGlowTimer.current);
+    if (left === 0) {
+      setShowDoneGlow(true);
+      doneGlowTimer.current = setTimeout(() => setShowDoneGlow(false), 2000);
+    } else {
+      setShowDoneGlow(false);
+    }
+    return () => {
+      if (doneGlowTimer.current) clearTimeout(doneGlowTimer.current);
+    };
+  }, [left]);
 
   const mm = Math.floor(left / 60);
   const ss = left % 60;
@@ -223,32 +240,57 @@ export function RestTimer({
     );
   }
 
+  // P4-2: neonowa otoczka pigułki (poza trybem skupienia). "idle" = zero swiecenia
+  // (pelny czas, nie leci) - inaczej pigulka swiecilaby przez caly trening bez powodu.
+  // Pauza w polowie odliczania traktowana jak idle - swiatlo tylko gdy realnie leci.
+  const glowState: "idle" | "running" | "almost" | "done" = showDoneGlow
+    ? "done"
+    : almostDone
+      ? "almost"
+      : running
+        ? "running"
+        : "idle";
+  const pct = seconds > 0 ? Math.max(0, Math.min(100, (left / seconds) * 100)) : 0;
+  const barColor =
+    glowState === "done" ? "bg-green-400" : glowState === "almost" ? "bg-amber-400" : glowState === "running" ? "bg-sky-400" : "bg-muted-foreground/30";
+
   return (
-    <div className="flex items-center gap-2">
-      {/* Bez animate-pulse: pulsujące opacity wewnątrz pigułki z backdrop-blur
-          zmusza iOS Safari do repaintu całej rozmytej warstwy co klatkę —
-          wygląda jak "rozjeżdżanie się". Sam kolor + istniejący beep() wystarczą. */}
-      <TimerReset size={16} className={cn("text-muted-foreground", almostDone && "text-amber-400")} />
-      <span
-        className={cn(
-          "w-[56px] text-center font-mono text-lg tabular-nums",
-          left === 0
-            ? "text-green-400"
-            : almostDone
-              ? "text-amber-400"
-              : running
-                ? "text-foreground"
-                : "text-muted-foreground"
-        )}
-      >
-        {mm}:{ss.toString().padStart(2, "0")}
-      </span>
-      <Button size="icon" variant="secondary" className="h-8 w-8" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
-        {running ? <Pause size={14} /> : <Play size={14} />}
-      </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={reset} aria-label="Reset">
-        <RotateCcw size={14} />
-      </Button>
+    <div className="relative">
+      {/* Warstwa poświaty - BEZ backdrop-blur (ten jest na wrapperze w TrainScreen),
+          translateZ(0) promuje ją do własnej warstwy GPU, żeby animacja box-shadow
+          nie wymuszała repaintu rozmytego tła pigułki (patrz P0-6). */}
+      <span aria-hidden className="rest-glow" data-state={glowState} style={{ transform: "translateZ(0)" }} />
+      <div className="relative flex items-center gap-2">
+        {/* Bez animate-pulse: pulsujące opacity wewnątrz pigułki z backdrop-blur
+            zmusza iOS Safari do repaintu całej rozmytej warstwy co klatkę —
+            wygląda jak "rozjeżdżanie się". Sam kolor + istniejący beep() wystarczą. */}
+        <TimerReset size={16} className={cn("text-muted-foreground", almostDone && "text-amber-400")} />
+        <div className="flex flex-col items-center">
+          <span
+            className={cn(
+              "w-[56px] text-center font-mono text-lg tabular-nums",
+              left === 0
+                ? "text-green-400"
+                : almostDone
+                  ? "text-amber-400"
+                  : running
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+            )}
+          >
+            {mm}:{ss.toString().padStart(2, "0")}
+          </span>
+          <div className="mt-0.5 h-[2px] w-[56px] overflow-hidden rounded-full bg-muted">
+            <div className={cn("h-full transition-all", barColor)} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        <Button size="icon" variant="secondary" className="h-8 w-8" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
+          {running ? <Pause size={14} /> : <Play size={14} />}
+        </Button>
+        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={reset} aria-label="Reset">
+          <RotateCcw size={14} />
+        </Button>
+      </div>
     </div>
   );
 }
