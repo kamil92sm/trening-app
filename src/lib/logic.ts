@@ -821,24 +821,44 @@ function linearTrendE1rm(history: HistoryPoint[]): { slope: number; avgIntervalM
  * nie predykcja. Przy zastoju/spadku forma trendu to odzwierciedla (płasko/w
  * dół), zgodnie z uczciwym framowaniem apki — nie podkręcamy sztucznie w górę.
  * `topWeight`/`topReps` w wyniku są nieużywane (0) — projekcja liczy się tylko
- * po `e1rm`.
+ * po `e1rm`. Linia na wykresie i tak wychodzi z OSTATNIEJ realnej sesji
+ * (rysowane w `Charts.tsx`) — to się nie zmienia.
+ *
+ * P5-2: `nowIso`, gdy podany, przycina zwracane kropki do przyszłości —
+ * `data ostatniej sesji + k × średni odstęp` dla `k = 1, 2, …` aż `count`
+ * kropek wypadnie na `>= now` (limit bezpieczeństwa `k <= count + 26`, pół
+ * roku). Bez tego, po dłuższej przerwie od ostatniego treningu, pierwsze
+ * "przyszłe" kropki potrafiły wypaść w przeszłości. Pominięcie `nowIso`
+ * (albo ostatni punkt historii w przyszłości — śmieciowe dane/strefa
+ * czasowa) zachowuje dokładne dawne zachowanie, żeby nie psuć istniejących
+ * wywołań/testów.
  */
-export function projectHistory(history: HistoryPoint[], count = 3): HistoryPoint[] {
+export function projectHistory(history: HistoryPoint[], count = 3, nowIso?: string): HistoryPoint[] {
   if (history.length < 2) return [];
   const n = history.length;
   const { slope, avgIntervalMs } = linearTrendE1rm(history);
   const lastPoint = history[n - 1];
   const lastTime = new Date(lastPoint.date).getTime();
+  const now = nowIso !== undefined ? new Date(nowIso).getTime() : undefined;
+
+  const projectAt = (k: number): HistoryPoint => ({
+    date: new Date(lastTime + avgIntervalMs * k).toISOString(),
+    e1rm: Math.max(0, Math.round((lastPoint.e1rm + slope * k) * 10) / 10),
+    topWeight: 0,
+    topReps: 0,
+  });
+
+  if (now === undefined || now < lastTime) {
+    const out: HistoryPoint[] = [];
+    for (let k = 1; k <= count; k++) out.push(projectAt(k));
+    return out;
+  }
 
   const out: HistoryPoint[] = [];
-  for (let i = 1; i <= count; i++) {
-    const e1 = Math.max(0, Math.round((lastPoint.e1rm + slope * i) * 10) / 10);
-    out.push({
-      date: new Date(lastTime + avgIntervalMs * i).toISOString(),
-      e1rm: e1,
-      topWeight: 0,
-      topReps: 0,
-    });
+  const maxK = count + 26;
+  for (let k = 1; k <= maxK && out.length < count; k++) {
+    if (lastTime + avgIntervalMs * k < now) continue;
+    out.push(projectAt(k));
   }
   return out;
 }

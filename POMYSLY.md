@@ -2109,7 +2109,7 @@ POMYSLY.md, uruchom npm test + npm run build i zrób commit.
 
 ---
 
-### [ ] P5-1. Oś Y wykresu postępu pokazuje nieokrągłe (a czasem zdublowane) liczby
+### [x] P5-1. Oś Y wykresu postępu pokazuje nieokrągłe (a czasem zdublowane) liczby — WDROŻONE (27.07.2026)
 
 **Problem (zgłoszenie Kamila):** na wykresie „Postęp ćwiczenia" podpisy osi po lewej to
 losowo wyglądające liczby (np. `54 / 57 / 61 / 64`), a przy krótkiej historii potrafią się
@@ -2202,9 +2202,18 @@ całkowitej dopiero na etapie wyświetlania. Dwa realne scenariusze:
 62,5), żadne dwa podpisy się nie powtarzają, linia celu (`goalY`) i projekcja nadal mieszczą się
 w kadrze, wykres wagi w „Więcej" wygląda nie gorzej niż przed zmianą.
 
+**Zweryfikowane:** nowy `src/lib/scale.ts` (`niceScale`, algorytm "nice numbers" z krokiem
+1/2/2,5/5×10ⁿ), wpięty w `Charts.tsx` (domena osi = domena skali, margines lewy z długości
+najdłuższego podpisu, `minTickStep` prop). `ProgressScreen.tsx` przekazuje
+`minTickStep={selected?.isHold ? 1 : 0.5}` zamiast starego `formatY={Math.round}`.
+**Świadoma zmiana względem specu:** `decimals = Number.isInteger(step) ? 0 : 1` zamiast dosłownego
+`step < 1 ? 1 : 0` z tekstu specu — ten ostatni dałby `decimals=0` przy `step=2,5` (np. w
+przykładzie 55/62,9), co renderowałoby „57,5" jako „58" i psuło własne kryterium akceptacji z tej
+samej sekcji. 5 nowych testów w `tests/logic.test.ts`, `npm test`/`npm run build` zielone.
+
 ---
 
-### [ ] P5-2. Przerywana projekcja startuje w przeszłości i nie widać, gdzie jest „dziś"
+### [x] P5-2. Przerywana projekcja startuje w przeszłości i nie widać, gdzie jest „dziś" — WDROŻONE (27.07.2026)
 
 **Pytanie Kamila:** „przerywana zaczyna się nie od dnia dzisiejszego — czy tak powinno być?"
 
@@ -2270,6 +2279,14 @@ prop `nowX`), `src/components/ProgressScreen.tsx:126,464-477`, `tests/logic.test
 **Kryteria akceptacji:** na wykresie widać pionową kreskę „dziś"; żadna kropka projekcji nie
 leży na lewo od niej; przerywana nadal wychodzi z ostatniej pełnej kropki; podpis pod wykresem
 tłumaczy oba fakty jednym zdaniem.
+
+**Zweryfikowane:** `projectHistory(history, count, nowIso?)` — bez `nowIso` identyczne zachowanie
+(chronione istniejącymi testami), z `nowIso` przycina kropki do `>= now` (limit `k <= count+26`).
+`Charts.tsx` dostał `nowX` (pionowa przerywana kreska „dziś", wchodzi do domeny X, rysowana pod
+seriami). `ProgressScreen.tsx` przekazuje `projectHistory(history, 3, new Date().toISOString())`
+i `nowX={Date.now()}`, podpis pod wykresem tłumaczy punkt zaczepienia + odstęp (liczony z
+historii, nie na sztywno), legenda dostała szarą kreskę „dziś" obok fioletowej squasha.
+7 nowych testów (4 istniejące bez zmian + 3 nowe), `npm test`/`npm run build` zielone.
 
 ---
 
@@ -2355,7 +2372,7 @@ bench_press: {
 }
 ```
 
-#### Etap [ ] P5-3a — silnik + 6 wzorców + wpięcie w Trening
+#### Etap [x] P5-3a — silnik + 6 wzorców + wpięcie w Trening — WDROŻONE (27.07.2026)
 
 **Pliki:** nowe `src/lib/anim-poses.ts`, `src/lib/guide.ts`, `src/components/ExerciseAnim.tsx`;
 zmiany w `src/components/TrainScreen.tsx` (~1052-1085, wzorem P3-5) i `src/index.css` (keyframes).
@@ -2402,6 +2419,28 @@ zwraca fallback, nie `null`.
 **Kryteria akceptacji:** w Treningu przy ćwiczeniu jest zwinięte „Jak wykonać?"; po rozwinięciu
 ludzik płynnie powtarza ruch na iPhonie (sprawdź w podglądzie i na telefonie po deployu),
 zwinięcie zatrzymuje animację (komponent odmontowany), `npm run build` rośnie o < 15 KB.
+
+**Zweryfikowane:** `src/lib/anim-poses.ts` (6 wzorców: `bench_press`, `squat`, `hinge`,
+`row_bent`, `press_overhead`, `curl` — celowo `Partial<Record<...>>`, nie pełny `Record`,
+reszta ~16 wzorców dochodzi w 3b), `src/lib/guide.ts` (`GUIDES` dla 15 ćwiczeń z planu 3-dniowego,
+`guideFor()` z fallbackiem po `primaryMuscle` dla Klatka/Plecy/Barki/Nogi/Pośladki/Tył uda/
+Biceps/Triceps — Łydki i Brzuch świadomie bez fallbacku, czekają na `calf_raise`/`crunch`/`plank`
+w 3b), `src/components/ExerciseAnim.tsx` (SVG bez JS, `.tt-j`/`.tt-root` keyframes w `index.css`,
+`prefers-reduced-motion` honorowany), przycisk „Jak wykonać?" w `TrainScreen.tsx` wzorem
+`openPlates`/P3-5 (stan lokalny, nie w `AppState`) — automatycznie widoczny w obu układach
+loggera (list/focus), bo oba korzystają z jednej `renderExerciseCard`.
+**Bug znaleziony i naprawiony podczas weryfikacji:** `.tt-root` nie miał `transform-origin: 0 0`
+(domyślny bounding-box-center w SVG psuł pivot obrotu). **Ważniejsza poprawka:** pierwszy szkic
+autorskich (nie-referencyjnych) 5 wzorców używał `rootRot: 180` dla pozycji stojących — to
+poprawnie odwracało tors w górę, ale RÓWNIEŻ odwracało nogi w górę (ten sam obrót działa na obie
+gałęzie). Poprawka: `rootRot: 0` dla wszystkich stojących wzorców, `torso` przesunięty o +180°
+(nogi liczone od zera są już poprawne, ramiona nie wymagały zmian bo są dziećmi torsu). Kąty barku
+w hinge/row_bent/press_overhead/curl też przeliczone tak, by ręka trzymała ciężar zgodnie z
+kierunkiem ruchu (w dół przy wiszącej sztandze, w górę przy wyciskaniu nad głowę). Zweryfikowane
+liczbowo przez `getCTM()` w przeglądarce (Playwright), nie tylko wzrokowo — każdy staw wypada w
+sensownym kierunku dla wszystkich 6 wzorców w obu pozycjach (a/b). Rozmiar bundla: 368 KB → 380 KB
+(+12 KB, w budżecie). 3 nowe testy `guideFor`/`MOVE_PATTERNS` w `tests/logic.test.ts`,
+`npm test`/`npm run build` zielone.
 
 #### Etap [ ] P5-3b — pełna baza: pozostałe wzorce + teksty do wszystkich 90 ćwiczeń
 

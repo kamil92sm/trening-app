@@ -1,14 +1,9 @@
 // Autorskie, lekkie wykresy SVG — bez zależności zewnętrznych.
+import { niceScale } from "@/lib/scale";
 
 interface Point {
   x: number; // timestamp lub indeks
   y: number;
-}
-
-function niceTicks(min: number, max: number, count = 4): number[] {
-  if (min === max) return [min];
-  const step = (max - min) / count;
-  return Array.from({ length: count + 1 }, (_, i) => min + i * step);
 }
 
 export function LineChart({
@@ -17,10 +12,12 @@ export function LineChart({
   projection,
   markers,
   goalY,
+  nowX,
   height = 170,
   color = "#38bdf8",
   color2 = "#f59e0b",
-  formatY = (y: number) => String(Math.round(y)),
+  minTickStep = 0.5,
+  formatY,
   formatX,
 }: {
   data: Point[];
@@ -32,14 +29,17 @@ export function LineChart({
   markers?: number[];
   /** P4-9: pozioma przerywana linia celu (ta sama jednostka co `data.y`) — rozszerza domenę Y, jeśli cel jest poza zakresem danych. */
   goalY?: number;
+  /** P5-2: znacznik "dziś" (timestamp) — pionowa przerywana linia, wchodzi też do domeny X. */
+  nowX?: number;
   height?: number;
   color?: string;
   color2?: string;
+  /** P5-1: najmniejszy sensowny krok osi Y w jednostce serii (kg → 0.5, sekundy → 1, % → 0.5). */
+  minTickStep?: number;
   formatY?: (y: number) => string;
   formatX?: (x: number) => string;
 }) {
   const width = 340;
-  const pad = { l: 38, r: 10, t: 10, b: formatX ? 22 : 10 };
 
   if (data.length === 0) {
     return (
@@ -50,13 +50,19 @@ export function LineChart({
   }
 
   const all = [...data, ...(data2 ?? []), ...(projection ?? [])];
-  const xs = all.map((d) => d.x);
+  const xs = nowX !== undefined ? [...all.map((d) => d.x), nowX] : all.map((d) => d.x);
   const ys = goalY !== undefined ? [...all.map((d) => d.y), goalY] : all.map((d) => d.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
-  const spanY = Math.max(...ys) - Math.min(...ys);
-  const minY = Math.min(...ys) - (spanY || 1) * 0.15;
-  const maxY = Math.max(...ys) + (spanY || 1) * 0.15;
+  const scale = niceScale(Math.min(...ys), Math.max(...ys), 4, minTickStep);
+  const minY = scale.min;
+  const maxY = scale.max;
+  const fmtY = formatY ?? ((y: number) => y.toFixed(scale.decimals));
+
+  // Podpisy z prawej strony osi Y bywają dłuższe niż sztywny margines (np. "1250" albo
+  // "+12,5%") — licz szerokość marginesu z najdłuższego podpisu, inaczej wchodzi pod wykres.
+  const maxLabelChars = Math.max(...scale.ticks.map((t) => fmtY(t).length), 1);
+  const pad = { l: Math.max(26, 10 + maxLabelChars * 5.6), r: 10, t: 10, b: formatX ? 22 : 10 };
 
   const px = (x: number) =>
     maxX === minX
@@ -73,11 +79,10 @@ export function LineChart({
     projection && projection.length > 0 && data.length > 0
       ? toPath([data[data.length - 1], ...projection])
       : null;
-  const ticks = niceTicks(minY, maxY, 3);
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
-      {ticks.map((t, i) => (
+      {scale.ticks.map((t, i) => (
         <g key={i}>
           <line
             x1={pad.l}
@@ -88,7 +93,7 @@ export function LineChart({
             strokeOpacity={0.12}
           />
           <text x={pad.l - 5} y={py(t) + 3} textAnchor="end" fontSize="9" fill="currentColor" fillOpacity={0.55}>
-            {formatY(t)}
+            {fmtY(t)}
           </text>
         </g>
       ))}
@@ -101,6 +106,28 @@ export function LineChart({
             {formatX(maxX)}
           </text>
         </>
+      )}
+      {nowX !== undefined && nowX >= minX && nowX <= maxX && (
+        <g>
+          <line
+            x1={px(nowX)}
+            x2={px(nowX)}
+            y1={pad.t}
+            y2={height - pad.b}
+            stroke="currentColor"
+            strokeOpacity={0.3}
+            strokeDasharray="3 3"
+          />
+          <text
+            x={Math.min(px(nowX), width - pad.r - 14)}
+            y={pad.t + 8}
+            fontSize="8.5"
+            fill="currentColor"
+            fillOpacity={0.55}
+          >
+            dziś
+          </text>
+        </g>
       )}
       {markers
         ?.filter((x) => x >= minX && x <= maxX)
@@ -154,7 +181,7 @@ export function LineChart({
             strokeOpacity={0.7}
           />
           <text x={width - pad.r} y={py(goalY) - 3} textAnchor="end" fontSize="9" fill="#22c55e" fillOpacity={0.9}>
-            cel {formatY(goalY)}
+            cel {fmtY(goalY)}
           </text>
         </>
       )}

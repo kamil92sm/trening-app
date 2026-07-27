@@ -48,6 +48,9 @@ import {
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
 import { validateBackup } from "../src/lib/validate";
+import { niceScale } from "../src/lib/scale";
+import { MOVE_PATTERNS } from "../src/lib/anim-poses";
+import { GUIDES, guideFor } from "../src/lib/guide";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -854,6 +857,27 @@ check(
 );
 check("projectHistory: <2 punkty historii -> brak projekcji", projectHistory([trendHistory[0]], 3).length === 0);
 
+// P5-2: przycinanie kropek projekcji do przyszlosci
+const projFuture = projectHistory(trendHistory, 3, "2026-07-30"); // 10 dni po ostatniej sesji, odstep 7 dni
+check(
+  "projectHistory: wszystkie kropki >= now, pierwsza = ostatnia sesja + 14 dni (k=1 wypadl w przeszlosci)",
+  projFuture.length === 3 &&
+    projFuture.every((p) => new Date(p.date).getTime() >= new Date("2026-07-30").getTime()) &&
+    projFuture[0].date.slice(0, 10) === "2026-08-03",
+  projFuture
+);
+check(
+  "projectHistory: e1rm pierwszej zwroconej kropki = last.e1rm + slope*2 (spojnosc k i daty)",
+  projFuture[0].e1rm === 120,
+  projFuture[0]
+);
+const projToday = projectHistory(trendHistory, 3, "2026-07-20"); // ostatnia sesja = "dzis"
+check(
+  "projectHistory: historia konczaca sie dzisiaj -> identycznie jak bez nowIso",
+  JSON.stringify(projToday) === JSON.stringify(proj),
+  projToday
+);
+
 // P4-9: cel + ETA z nachylenia regresji (ta sama co projectHistory)
 const etaReachable = estimateGoalEta(trendHistory, 125);
 check(
@@ -1101,6 +1125,87 @@ check(
   !inRangeSuggestions.some((s) => s.muscle === "Klatka"),
   inRangeSuggestions
 );
+
+// P5-1: skala osi Y ("nice numbers")
+const scale5562 = niceScale(55, 62.9);
+check(
+  "niceScale(55, 62.9): min<=55, max>=62.9, step z {1,2,2.5,5}x10^n, ticki wielokrotnosciami kroku",
+  scale5562.min <= 55 &&
+    scale5562.max >= 62.9 &&
+    [1, 2, 2.5, 5].includes(scale5562.step) &&
+    scale5562.ticks.every((t) => Math.abs(t / scale5562.step - Math.round(t / scale5562.step)) < 1e-6),
+  scale5562
+);
+
+const scaleFlat = niceScale(50, 50);
+const flatLabels = new Set(scaleFlat.ticks.map((t) => t.toFixed(scaleFlat.decimals)));
+check(
+  "niceScale(50, 50): plaska seria -> >=2 ticki, wszystkie podpisy rozne",
+  scaleFlat.ticks.length >= 2 && flatLabels.size === scaleFlat.ticks.length,
+  scaleFlat
+);
+
+const scaleZero = niceScale(0, 0);
+check("niceScale(0, 0): nie wybucha, step > 0", scaleZero.step > 0, scaleZero);
+
+const scaleNegPos = niceScale(-1.2, 0.8, 4, 0.5);
+check(
+  "niceScale(-1.2, 0.8): 0 wsrod tickow",
+  scaleNegPos.ticks.some((t) => Math.abs(t) < 1e-9),
+  scaleNegPos
+);
+
+const scaleNaN = niceScale(NaN, 5);
+check("niceScale(NaN, 5): fallback, bez wyjatku", scaleNaN.step > 0 && scaleNaN.ticks.length >= 2, scaleNaN);
+
+// P5-3a: instrukcje "Jak wykonac?" (guideFor + MOVE_PATTERNS)
+let guideCoverageOk = true;
+let guideCoverageDetail = "";
+for (const [exId, guide] of Object.entries(GUIDES)) {
+  const ex = SEED_EXERCISES.find((e) => e.id === exId);
+  if (!ex) {
+    guideCoverageOk = false;
+    guideCoverageDetail = `GUIDES ma wpis dla nieistniejacego cwiczenia ${exId}`;
+    break;
+  }
+  const resolved = guideFor(ex);
+  const pattern = resolved ? MOVE_PATTERNS[resolved.pattern] : undefined;
+  if (!resolved || !pattern || resolved.steps.length < 3 || resolved.mistakes.length < 2) {
+    guideCoverageOk = false;
+    guideCoverageDetail = `${exId}: resolved=${!!resolved} pattern=${!!pattern} steps=${resolved?.steps.length} mistakes=${resolved?.mistakes.length}`;
+    break;
+  }
+}
+check(
+  "guideFor: kazdy wpis w GUIDES ma istniejacy wzorzec, >=3 kroki, >=2 bledy",
+  guideCoverageOk,
+  guideCoverageDetail
+);
+
+const syntheticChestExercise = {
+  id: "__synthetic_chest__",
+  name: "Testowe cwiczenie klatki",
+  category: "Klatka" as const,
+  unit: "machine" as const,
+  perHand: false,
+  isHold: false,
+  repMin: 8,
+  repMax: 12,
+  targetSets: 3,
+  increment: 2.5,
+  rir: 2,
+  primaryMuscle: "Klatka" as const,
+  secondaryMuscles: [],
+};
+const fallbackGuide = guideFor(syntheticChestExercise);
+check(
+  "guideFor: cwiczenie spoza GUIDES z primaryMuscle Klatka -> fallback, nie null",
+  fallbackGuide !== null && fallbackGuide.pattern === "bench_press" && fallbackGuide.steps.length >= 3,
+  fallbackGuide
+);
+
+const noMuscleExercise = { ...syntheticChestExercise, id: "__synthetic_no_muscle__", primaryMuscle: undefined };
+check("guideFor: brak primaryMuscle i brak wpisu w GUIDES -> null", guideFor(noMuscleExercise) === null);
 
 // P0-7: przywroc standardowy plan dnia
 const stRestore = defaultState();

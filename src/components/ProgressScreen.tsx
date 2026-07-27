@@ -123,7 +123,10 @@ export function ProgressScreen() {
 
   const history = selected ? exerciseHistory(state, selected.id) : [];
   const chartData = history.map((p) => ({ x: new Date(p.date).getTime(), y: p.e1rm }));
-  const projection = useMemo(() => projectHistory(history, 3), [history]);
+  const nowIso = new Date().toISOString();
+  // P5-2: kropki projekcji przycięte do przyszłości ("dziś" narysowane niżej w LineChart) —
+  // linia dalej wychodzi z ostatniego realnego punktu, tylko same daty kropek się zmieniają.
+  const projection = useMemo(() => projectHistory(history, 3, nowIso), [history, nowIso]);
   // P2-2: dni squasha jako pionowe znaczniki na wykresie postępu — korelacja
   // zostawiona człowiekowi do oceny, apka tylko pokazuje surowe dane obok siebie.
   const squashMarkers = useMemo(() => state.squash.map((s) => new Date(s.date).getTime()), [state.squash]);
@@ -133,6 +136,16 @@ export function ProgressScreen() {
   const chartXs = chartData.map((d) => d.x);
   const hasVisibleSquashMarker =
     chartXs.length > 0 && squashMarkers.some((m) => m >= Math.min(...chartXs) && m <= Math.max(...chartXs));
+  // P5-2: odstęp do podpisu pod wykresem ("kropki co ~X dni") - z tej samej
+  // historii, którą liczy projectHistory (nie wpisujemy nic na sztywno).
+  const avgIntervalDays =
+    history.length > 1
+      ? Math.round(
+          (new Date(history[history.length - 1].date).getTime() - new Date(history[0].date).getTime()) /
+            (history.length - 1) /
+            86400000
+        )
+      : null;
 
   // P4-9: cel per cwiczenie + ETA z NACHYLENIA regresji (ta sama co projectHistory),
   // nie z prostego roznicowania - patrz estimateGoalEta.
@@ -466,13 +479,16 @@ export function ProgressScreen() {
             projection={projectionData}
             markers={squashMarkers}
             goalY={liftGoal}
-            formatY={(y) => `${Math.round(y)}`}
+            nowX={Date.now()}
+            minTickStep={selected?.isHold ? 1 : 0.5}
             formatX={(x) => fmtDateShort(new Date(x).toISOString())}
           />
           {projectionData.length > 0 && (
             <p className="text-[10px] text-muted-foreground">
-              Przerywana linia: szacunek na kolejne treningi przy utrzymaniu dotychczasowego tempa
-              — nie prognoza, ekstrapolacja trendu.
+              Przerywana wychodzi z ostatniego treningu ({fmtDateShort(history[history.length - 1].date)}) —
+              stamtąd liczony jest trend. Kropki to spodziewane kolejne sesje
+              {avgIntervalDays ? ` (co ~${avgIntervalDays} dni)` : ""}. Szacunek przy utrzymaniu
+              tempa, nie prognoza.
             </p>
           )}
           {goalEta && (
@@ -496,7 +512,8 @@ export function ProgressScreen() {
           {hasVisibleSquashMarker && (
             <p className="text-[10px] text-muted-foreground">
               <span className="mr-1 inline-block h-2 w-0.5 bg-purple-400 align-middle" /> Fioletowa
-              kreska: dzień squasha. Wniosek o wpływie na siłę zostaw sobie — apka tylko pokazuje daty obok siebie.
+              kreska: dzień squasha. <span className="mr-1 ml-2 inline-block h-2 w-0.5 bg-muted-foreground align-middle" />
+              Szara kreska: dziś. Wniosek o wpływie na siłę zostaw sobie — apka tylko pokazuje daty obok siebie.
             </p>
           )}
           {selected && history.length > 0 && (

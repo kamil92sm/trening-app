@@ -37,11 +37,14 @@ import {
   type PersonalBests,
 } from "@/lib/logic";
 import { gistBackup } from "@/lib/backup";
+import { guideFor } from "@/lib/guide";
+import { MOVE_PATTERNS } from "@/lib/anim-poses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
+import { ExerciseAnim } from "@/components/ExerciseAnim";
 import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
@@ -139,6 +142,9 @@ export function TrainScreen() {
   const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
   // P3-5: rozwijana miniaturka talerzy przy cwiczeniu - domyslnie zwinieta.
   const [openPlates, setOpenPlates] = useState<Set<number>>(new Set());
+  // P5-3a: "Jak wykonac?" - domyslnie zwiniete, stan NIE trafia do AppState
+  // (celowo, zgodnie ze specem - zadnej migracji schematu w tym zadaniu).
+  const [openGuide, setOpenGuide] = useState<Set<number>>(new Set());
   // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
   // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
   const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
@@ -320,6 +326,15 @@ export function TrainScreen() {
 
   function togglePlates(entryIdx: number) {
     setOpenPlates((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryIdx)) next.delete(entryIdx);
+      else next.add(entryIdx);
+      return next;
+    });
+  }
+
+  function toggleGuide(entryIdx: number) {
+    setOpenGuide((prev) => {
       const next = new Set(prev);
       if (next.has(entryIdx)) next.delete(entryIdx);
       else next.add(entryIdx);
@@ -907,6 +922,8 @@ export function TrainScreen() {
     const ex = state.exercises.find((e) => e.id === entry.exerciseId);
     if (!ex) return null;
     const hEx = exerciseForMode(ex, draft.mode);
+          const guide = guideFor(ex);
+          const guidePattern = guide ? MOVE_PATTERNS[guide.pattern] : undefined;
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1076,6 +1093,51 @@ export function TrainScreen() {
                     {openPlates.has(ei) && (
                       <div className="mt-1 rounded-md border border-border p-2">
                         <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {guide && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => toggleGuide(ei)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      {openGuide.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      Jak wykonać?
+                    </button>
+                    {openGuide.has(ei) && (
+                      <div className="mt-1 flex gap-3 rounded-md border border-border p-2">
+                        {guidePattern && <ExerciseAnim pattern={guidePattern} size={88} />}
+                        <div className="min-w-0 flex-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
+                          <div>
+                            <p className="font-medium text-foreground/80">Ustawienie</p>
+                            {guide.setup.map((s, si) => (
+                              <p key={si}>{s}</p>
+                            ))}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground/80">Ruch</p>
+                            <ol className="list-decimal space-y-0.5 pl-4">
+                              {guide.steps.map((s, si) => (
+                                <li key={si}>{s}</li>
+                              ))}
+                            </ol>
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground/80">Częste błędy</p>
+                            <ul className="list-disc space-y-0.5 pl-4">
+                              {guide.mistakes.map((s, si) => (
+                                <li key={si}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                          {guide.safety && <p className="text-amber-300">{guide.safety}</p>}
+                          <p className="text-[10px] text-muted-foreground/70">
+                            Skrót techniczny — nie zastąpi trenera.
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>
