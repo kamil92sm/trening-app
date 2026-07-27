@@ -2586,7 +2586,7 @@ bundle ≤ 420 KB.
 
 ---
 
-### [ ] P6-2. Timer przerwy gubi czas przy zmianie zakładki i przy wyjściu z apki (NAJWAŻNIEJSZE)
+### [x] P6-2. Timer przerwy gubi czas przy zmianie zakładki i przy wyjściu z apki (NAJWAŻNIEJSZE) (2026-07-27)
 
 **Zgłoszenie Kamila:** „Zatrzymuje się czas jak zmieniam kartę czy otwieram inną apkę […]
 najbardziej właśnie to, że wygaszam ekran czy sprawdzam Messengera i licznik się zatrzymuje

@@ -51,6 +51,20 @@ import { validateBackup } from "../src/lib/validate";
 import { niceScale } from "../src/lib/scale";
 import { MOVE_PATTERNS } from "../src/lib/anim-poses";
 import { GUIDES, guideFor } from "../src/lib/guide";
+import {
+  idleState,
+  remainingMs,
+  isRunning,
+  isPaused,
+  isFinished,
+  isFreshlyFinished,
+  startState,
+  pauseState,
+  resumeState,
+  resetState,
+  stopState,
+  tick,
+} from "../src/lib/rest-timer";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown) {
@@ -1475,6 +1489,80 @@ check(
   ]) === false
 );
 check("failedAtRirZero: brak zaliczonych serii -> false", failedAtRirZero(benchExRir, []) === false);
+
+// P6-2: timer przerwy - stan liczony z zegara sciennego (endsAt - now), nie
+// przez dekrementacje. Testy symuluja "skok zegara" (apka w tle) przekazujac
+// odlegle `now`, bez zadnego prawdziwego uplywu czasu/setIntervala.
+check(
+  "P6-2: remainingMs po skoku zegara o 5 min (symulacja tla) = 0",
+  remainingMs(startState(120, 1_000), 1_000 + 5 * 60_000) === 0
+);
+{
+  const started = startState(100, 0);
+  const paused = pauseState(started, 30_000); // pauza po 30s -> zostalo 70s
+  const resumed = resumeState(paused, 90_000); // wznowienie 60s pozniej (podczas pauzy)
+  check(
+    "P6-2: pauza/wznowienie nie gubi i nie dodaje czasu",
+    remainingMs(resumed, 90_000) === 70_000,
+    { paused, resumed }
+  );
+  check(
+    "P6-2: pauza w polowie odliczania -> isPaused true, isRunning false",
+    isPaused(paused) === true && isRunning(paused) === false
+  );
+}
+check(
+  "P6-2: startState dwa razy pod rzad resetuje do pelnej dlugosci",
+  remainingMs(startState(100, 20_000), 20_000) === 100_000
+);
+{
+  const s = startState(90, 1_000);
+  const roundTripped = JSON.parse(JSON.stringify(s));
+  check(
+    "P6-2: stan odczytany z JSON-a (persystencja) daje ten sam wynik",
+    remainingMs(roundTripped, 31_000) === remainingMs(s, 31_000)
+  );
+}
+{
+  const running = startState(60, 0);
+  const justEnded = tick(running, 60_000); // dokladnie w momencie konca
+  check("P6-2: tick w momencie konca -> isFinished", isFinished(justEnded) === true);
+  check("P6-2: tick w momencie konca -> remainingMs 0", remainingMs(justEnded, 60_000) === 0);
+  check(
+    "P6-2: tick zapamietuje PRAWDZIWY moment konca (endsAt), nie 'now' pollu",
+    justEnded.lastEndedAt === 60_000
+  );
+  const stillRunning = tick(running, 30_000);
+  check("P6-2: tick przed koncem -> bez zmian (ta sama referencja)", stillRunning === running);
+
+  const staleTick = tick(startState(60, 0), 5 * 60_000); // poll przyszedl 5 min pozno (apka w tle)
+  check(
+    "P6-2: tick spozniony o 5 min - lastEndedAt to moment konca, nie moment pollu",
+    staleTick.lastEndedAt === 60_000
+  );
+}
+check(
+  "P6-2: idleState - remainingMs pokazuje pelna dlugosc, nikt nie startowal",
+  remainingMs(idleState(150), 999_999) === 150_000 && !isRunning(idleState(150)) && !isFinished(idleState(150))
+);
+{
+  const finished = tick(startState(60, 0), 60_000);
+  check("P6-2: isFreshlyFinished tuz po zakonczeniu (staleMs 2s) -> true", isFreshlyFinished(finished, 60_500, 2_000));
+  check(
+    "P6-2: isFreshlyFinished po 11 min (staleMs 10 min) -> false",
+    isFreshlyFinished(finished, 60_000 + 11 * 60_000, 10 * 60_000) === false
+  );
+  const resetAgain = resetState(finished);
+  check(
+    "P6-2: resetState po zakonczeniu -> z powrotem idle pelnej dlugosci",
+    remainingMs(resetAgain, 999_999) === 60_000 && !isFinished(resetAgain)
+  );
+  const stopped = stopState(finished);
+  check(
+    "P6-2: stopState po zakonczeniu -> z powrotem idle pelnej dlugosci",
+    remainingMs(stopped, 999_999) === 60_000 && !isFinished(stopped)
+  );
+}
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

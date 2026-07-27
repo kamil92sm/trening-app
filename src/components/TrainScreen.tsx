@@ -47,6 +47,7 @@ import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
 import { ExerciseAnim } from "@/components/ExerciseAnim";
 import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { restTimer } from "@/hooks/use-rest-timer";
 
 const DRAFT_KEY = "trening-app-draft";
 const BONUS_SUGGESTION_KEY = "trening-app-bonus-suggestion";
@@ -134,8 +135,6 @@ export function TrainScreen() {
   const [sessionRecords, setSessionRecords] = useState<RecordHit[]>([]);
   const [summarySession, setSummarySession] = useState<Session | null>(null);
   const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot | null>(null);
-  const [timerKey, setTimerKey] = useState(0);
-  const [timerSeconds, setTimerSeconds] = useState(state.settings.restSeconds);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   // P3-8: filtr tekstowy w liscie kandydatow do zamiany (baza urosla do ~90 pozycji).
   const [swapSearch, setSwapSearch] = useState("");
@@ -165,8 +164,6 @@ export function TrainScreen() {
       if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
     };
   }, []);
-  // Zmiana pauzuje/resetuje RestTimer (panel) - patrz efekt nizej przy focusIdx.
-  const [exerciseStopKey, setExerciseStopKey] = useState(0);
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -311,8 +308,7 @@ export function TrainScreen() {
     if (!draft || layout !== "focus") return;
     const entry = draft.entries[focusIdx];
     const ex = entry ? state.exercises.find((e) => e.id === entry.exerciseId) : undefined;
-    setTimerSeconds(ex?.restSeconds ?? state.settings.restSeconds);
-    setExerciseStopKey((k) => k + 1);
+    restTimer.stop(ex?.restSeconds ?? state.settings.restSeconds);
   }, [focusIdx, layout]);
 
   function toggleWarmup(entryIdx: number) {
@@ -388,14 +384,11 @@ export function TrainScreen() {
     setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
     setReadiness(null);
     setFocusIdx(0);
-    // Bug: RestTimer nie istnieje na ekranie wyboru dnia, wiec kazdy start dnia
-    // montuje go od nowa. Jesli timerKey zostal niezerowy z POPRZEDNIEGO treningu
-    // w tej samej sesji (karta nie byla przeladowana), swiezy RestTimer dostaje
-    // od razu niezerowy autostartKey na pierwszym renderze i odpala odliczanie
-    // ZANIM cokolwiek zaznaczono w nowym treningu. Widoczne najbardziej w trybie
-    // skupienia (duzy panel), ale dotyczylo tez pigulki w trybie listy.
-    setTimerKey(0);
-    setTimerSeconds(state.settings.restSeconds);
+    // P6-2: timer przerwy zyje w stalym store'ze (poza Reactem), wiec nowy
+    // trening ma wystartowac od czystego, zatrzymanego stanu - inaczej
+    // odliczanie z POPRZEDNIEGO treningu w tej samej sesji (karta nie byla
+    // przeladowana) leciałoby dalej / pigulka pokazywalaby stary czas.
+    restTimer.stop(state.settings.restSeconds);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
@@ -418,8 +411,7 @@ export function TrainScreen() {
     if (patch.done === true) {
       const exId = draft?.entries[entryIdx]?.exerciseId;
       const ex = exId ? state.exercises.find((e) => e.id === exId) : undefined;
-      setTimerSeconds(ex?.restSeconds ?? state.settings.restSeconds);
-      setTimerKey((k) => k + 1);
+      restTimer.start(ex?.restSeconds ?? state.settings.restSeconds);
 
       // P1-8: jednorazowy toast, gdy zaznaczenie serii bije rekord życia.
       // `prevSet` to jeszcze stary stan (przed setDraft powyżej) — merge z
@@ -1297,13 +1289,7 @@ export function TrainScreen() {
         <div className="space-y-3 p-4">
           {renderExerciseCard(focusIdx)}
           <div className="rounded-lg border border-border bg-card p-3">
-            <RestTimer
-              variant="panel"
-              seconds={timerSeconds}
-              sound={state.settings.sound}
-              autostartKey={timerKey}
-              stopKey={exerciseStopKey}
-            />
+            <RestTimer variant="panel" />
           </div>
           <div className="flex items-center justify-between gap-2">
             <Button
@@ -1388,13 +1374,8 @@ export function TrainScreen() {
           Zakończ trening
         </Button>
       </div>
-
-      <div
-        className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
-        style={{ bottom: "78px" }} // tuż nad paskiem nawigacji (pasek ma teraz +10px paddingu)
-      >
-        <RestTimer seconds={timerSeconds} sound={state.settings.sound} autostartKey={timerKey} />
-      </div>
+      {/* P6-2: pigulka timera przerwy przeniesiona do App.tsx (obok Toastera) -
+          zyje na kazdej zakladce, nie tylko tutaj (patrz src/lib/rest-timer-store.ts). */}
     </div>
   );
 }

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import { Pause, Play, RotateCcw, TimerReset } from "lucide-react";
 import { platePlan, fmtKg, MUSCLE_COLORS } from "@/lib/logic";
+import { remainingMs, isRunning, isPaused, isFinished, isFreshlyFinished } from "@/lib/rest-timer";
+import { restTimer, useRestTimerState } from "@/hooks/use-rest-timer";
 import type { Exercise, Muscle } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -92,119 +93,56 @@ export function PlateBar({
   );
 }
 
-// ── Timer przerwy ──────────────────────────────────────────────────────────
+// ── Timer przerwy (P6-2) ────────────────────────────────────────────────────
+// Stan (`RestTimerState`) i zegar zyja w src/lib/rest-timer-store.ts, POZA
+// Reactem - ten komponent go tylko CZYTA (useRestTimerState) i steruje nim
+// przez restTimer.toggle()/reset(). Zadnego lokalnego `left`/`running` w
+// useState: odmontowanie tego komponentu (zmiana zakladki) juz nie gubi
+// odliczania, a `beep()` (w store'ze) odpala sie raz - w momencie realnego
+// przekroczenia zera z zegara sciennego, nie z dekrementowanego licznika.
 
-function beep() {
-  try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 880;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.5);
-    osc.onended = () => ctx.close();
-  } catch {
-    // audio niedostępne — trudno
-  }
+function fmtMmSs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  return `${mm}:${ss.toString().padStart(2, "0")}`;
 }
 
-export function RestTimer({
-  seconds,
-  sound,
-  autostartKey,
-  stopKey,
-  variant = "pill",
-}: {
-  seconds: number;
-  sound: boolean;
-  /** zmiana wartości restartuje odliczanie (np. po odhaczeniu serii) */
-  autostartKey?: number;
-  /** Zmiana wartości ZATRZYMUJE i resetuje do pełnej długości (bez auto-startu) —
-   * używane przy przejściu na inne ćwiczenie w trybie skupienia: czas na ogarnięcie
-   * sprzętu/ciężaru nie jest odpoczynkiem, więc odliczanie nie ma lecieć w tle. */
-  stopKey?: number;
+/** "przed chwilą" / "N min temu" - do komunikatu o przerwie zakonczonej w tle. */
+function fmtAgo(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  if (totalSec < 60) return "przed chwilą";
+  return `${Math.floor(totalSec / 60)} min temu`;
+}
+
+export function RestTimer({ variant = "pill" }: {
   /** P3-6: "pill" (domyślnie, jak dziś - pływająca pigułka) albo "panel" (duże cyfry
    * + pasek postępu, tryb skupienia). */
   variant?: "pill" | "panel";
 }) {
-  const [left, setLeft] = useState(seconds);
-  const [running, setRunning] = useState(false);
-  const beeped = useRef(false);
-  // P4-2: poświata "done" (zielona) zostaje chwilę po zejściu do zera, potem gaśnie
-  // sama - inaczej pigułka świeciłaby na zielono aż do następnego auto-startu.
-  const [showDoneGlow, setShowDoneGlow] = useState(false);
-  const doneGlowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const state = useRestTimerState();
+  const now = Date.now();
+  const left = remainingMs(state, now);
+  const running = isRunning(state);
+  const finished = isFinished(state);
+  // P4-2: poswiata "done" (zielona) - okno ~2s tuz po zejsciu do zera, ten sam
+  // efekt co dawny `showDoneGlow`, teraz liczony z `lastEndedAt` zamiast z timeoutu.
+  const justFinished = isFreshlyFinished(state, now, 2000);
+  // P6-2 pkt 5: "Przerwa skonczona X temu" - tylko gdy realnie minela w tle
+  // (>5s, zeby nie dublowac poswiaty przy normalnym, obserwowanym zejsciu do
+  // zera) i nie dawniej niz ~10 min (potem po prostu wyzeruj - patrz spec).
+  const agoMs = state.lastEndedAt !== null ? now - state.lastEndedAt : 0;
+  const showAgo = finished && isFreshlyFinished(state, now, 10 * 60 * 1000) && agoMs > 5000;
+  const doneColor = finished && isFreshlyFinished(state, now, 10 * 60 * 1000);
+  const almostDone = running && left > 0 && left <= 5000;
 
-  useEffect(() => {
-    if (autostartKey === undefined || autostartKey === 0) return;
-    setLeft(seconds);
-    setRunning(true);
-    beeped.current = false;
-  }, [autostartKey, seconds]);
-
-  useEffect(() => {
-    if (stopKey === undefined) return;
-    setRunning(false);
-    setLeft(seconds);
-    beeped.current = false;
-  }, [stopKey]);
-
-  useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => {
-      setLeft((prev) => {
-        if (prev <= 1) {
-          setRunning(false);
-          if (sound && !beeped.current) {
-            beeped.current = true;
-            beep();
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [running, sound]);
-
-  useEffect(() => {
-    if (doneGlowTimer.current) clearTimeout(doneGlowTimer.current);
-    if (left === 0) {
-      setShowDoneGlow(true);
-      doneGlowTimer.current = setTimeout(() => setShowDoneGlow(false), 2000);
-    } else {
-      setShowDoneGlow(false);
-    }
-    return () => {
-      if (doneGlowTimer.current) clearTimeout(doneGlowTimer.current);
-    };
-  }, [left]);
-
-  const mm = Math.floor(left / 60);
-  const ss = left % 60;
-  const almostDone = running && left > 0 && left <= 5;
-
-  const toggle = () => {
-    if (left === 0) setLeft(seconds);
-    beeped.current = false;
-    setRunning((r) => !r);
-  };
-  const reset = () => {
-    setRunning(false);
-    setLeft(seconds);
-    beeped.current = false;
-  };
+  const toggle = () => restTimer.toggle();
+  const reset = () => restTimer.reset();
 
   if (variant === "panel") {
     // P3-6: tryb skupienia - duze cyfry + pasek "uciekajacy" w miare odliczania.
     // Bez animate-pulse/animowanego opacity (patrz P0-6) - animujemy tylko width.
-    const pct = seconds > 0 ? Math.max(0, Math.min(100, (left / seconds) * 100)) : 0;
-    const totalMm = Math.floor(seconds / 60);
-    const totalSs = seconds % 60;
+    const pct = state.totalSec > 0 ? Math.max(0, Math.min(100, (left / (state.totalSec * 1000)) * 100)) : 0;
     return (
       <div>
         <div className="flex items-end justify-between gap-2">
@@ -212,17 +150,21 @@ export function RestTimer({
             <span
               className={cn(
                 "font-mono text-4xl tabular-nums",
-                left === 0 ? "text-green-400" : almostDone ? "text-amber-400" : "text-foreground"
+                doneColor ? "text-green-400" : almostDone ? "text-amber-400" : "text-foreground"
               )}
             >
-              {mm}:{ss.toString().padStart(2, "0")}
+              {fmtMmSs(left)}
             </span>
-            <span className="text-sm text-muted-foreground">
-              / {totalMm}:{totalSs.toString().padStart(2, "0")}
-            </span>
+            <span className="text-sm text-muted-foreground">/ {fmtMmSs(state.totalSec * 1000)}</span>
           </div>
           <div className="flex gap-2">
-            <Button size="icon" variant="secondary" className="h-9 w-9" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
+            <Button
+              size="icon"
+              variant="secondary"
+              className="h-9 w-9"
+              onClick={toggle}
+              aria-label={running ? "Pauza" : "Start"}
+            >
               {running ? <Pause size={16} /> : <Play size={16} />}
             </Button>
             <Button size="icon" variant="ghost" className="h-9 w-9" onClick={reset} aria-label="Reset">
@@ -232,10 +174,11 @@ export function RestTimer({
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
           <div
-            className={cn("h-full transition-all", left > 0 && left <= 5 ? "bg-red-500" : "bg-amber-400")}
+            className={cn("h-full transition-all", left > 0 && left <= 5000 ? "bg-red-500" : "bg-amber-400")}
             style={{ width: `${pct}%` }}
           />
         </div>
+        {showAgo && <p className="mt-1 text-[11px] text-green-400">Przerwa skończona {fmtAgo(agoMs)}</p>}
       </div>
     );
   }
@@ -243,14 +186,14 @@ export function RestTimer({
   // P4-2: neonowa otoczka pigułki (poza trybem skupienia). "idle" = zero swiecenia
   // (pelny czas, nie leci) - inaczej pigulka swiecilaby przez caly trening bez powodu.
   // Pauza w polowie odliczania traktowana jak idle - swiatlo tylko gdy realnie leci.
-  const glowState: "idle" | "running" | "almost" | "done" = showDoneGlow
+  const glowState: "idle" | "running" | "almost" | "done" = justFinished
     ? "done"
     : almostDone
       ? "almost"
       : running
         ? "running"
         : "idle";
-  const pct = seconds > 0 ? Math.max(0, Math.min(100, (left / seconds) * 100)) : 0;
+  const pct = state.totalSec > 0 ? Math.max(0, Math.min(100, (left / (state.totalSec * 1000)) * 100)) : 0;
   const barColor =
     glowState === "done" ? "bg-green-400" : glowState === "almost" ? "bg-amber-400" : glowState === "running" ? "bg-sky-400" : "bg-muted-foreground/30";
 
@@ -269,20 +212,19 @@ export function RestTimer({
           <span
             className={cn(
               "w-[56px] text-center font-mono text-lg tabular-nums",
-              left === 0
-                ? "text-green-400"
-                : almostDone
-                  ? "text-amber-400"
-                  : running
-                    ? "text-foreground"
-                    : "text-muted-foreground"
+              doneColor ? "text-green-400" : almostDone ? "text-amber-400" : running ? "text-foreground" : "text-muted-foreground"
             )}
           >
-            {mm}:{ss.toString().padStart(2, "0")}
+            {fmtMmSs(left)}
           </span>
           <div className="mt-0.5 h-[2px] w-[56px] overflow-hidden rounded-full bg-muted">
             <div className={cn("h-full transition-all", barColor)} style={{ width: `${pct}%` }} />
           </div>
+          {showAgo && (
+            <span className="mt-0.5 w-[56px] truncate text-center text-[8px] leading-none text-green-400/80">
+              {fmtAgo(agoMs)}
+            </span>
+          )}
         </div>
         <Button size="icon" variant="secondary" className="h-8 w-8" onClick={toggle} aria-label={running ? "Pauza" : "Start"}>
           {running ? <Pause size={14} /> : <Play size={14} />}
@@ -293,4 +235,14 @@ export function RestTimer({
       </div>
     </div>
   );
+}
+
+/** Czy warto pokazać pływającą pigułkę (poza trybem skupienia): leci, jest
+ * zapauzowana, albo skończyła się niedawno (<10 min - potem sama "znika",
+ * patrz rest-timer.ts:isFreshlyFinished). Używane w App.tsx do decyzji, czy
+ * w ogóle montować <RestTimer variant="pill" /> na bieżącej zakładce. */
+export function useShowRestPill(): boolean {
+  const state = useRestTimerState();
+  const now = Date.now();
+  return isRunning(state) || isPaused(state) || (isFinished(state) && isFreshlyFinished(state, now, 10 * 60 * 1000));
 }

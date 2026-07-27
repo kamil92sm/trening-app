@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dumbbell, TrendingUp, History, ClipboardList, Menu } from "lucide-react";
 import { TrainScreen } from "@/components/TrainScreen";
 import { ProgressScreen } from "@/components/ProgressScreen";
@@ -6,6 +6,9 @@ import { HistoryScreen } from "@/components/HistoryScreen";
 import { PlanScreen } from "@/components/PlanScreen";
 import { MoreScreen } from "@/components/MoreScreen";
 import { useToasts, dismissToast } from "@/hooks/use-toast";
+import { restTimer } from "@/hooks/use-rest-timer";
+import { RestTimer, useShowRestPill } from "@/components/Gym";
+import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type Tab = "train" | "progress" | "history" | "plan" | "more";
@@ -20,8 +23,8 @@ const TABS: { id: Tab; label: string; icon: typeof Dumbbell }[] = [
 
 // P4-1: dół zamiast góry — pod Dynamic Island toast zasłaniał dokładnie ten
 // nagłówek/kartę, którego dotyczył. 132px = 60px nawigacja + 10px padding +
-// 44px pigułka timera (TrainScreen.tsx) + odstępy — toast nigdy nie nachodzi
-// na timer w trakcie treningu (patrz "Wspólne pułapki P4" w POMYSLY.md).
+// 44px pigułka timera (GlobalRestPill niżej) + odstępy — toast nigdy nie
+// nachodzi na timer w trakcie treningu (patrz "Wspólne pułapki P4" w POMYSLY.md).
 const TOAST_BOTTOM_PX = 132;
 const MAX_VISIBLE_TOASTS = 3;
 
@@ -59,8 +62,35 @@ function Toaster({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   );
 }
 
+// P6-2: pigulka timera przerwy widoczna na KAZDEJ zakladce, dopoki przerwa
+// leci/jest zapauzowana/skonczyla sie niedawno (useShowRestPill) - to
+// bezposrednia odpowiedz na "zmieniam karte i tracę przerwę". W trybie
+// skupienia na zakladce Trening pigulka jest zbedna - ten sam timer juz
+// pokazuje sie tam duzy, jako panel (TrainScreen.tsx).
+function GlobalRestPill({ hidden }: { hidden: boolean }) {
+  const show = useShowRestPill();
+  if (hidden || !show) return null;
+  return (
+    <div
+      className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
+      style={{ bottom: "78px" }} // tuż nad paskiem nawigacji (pasek ma teraz +10px paddingu)
+    >
+      <RestTimer variant="pill" />
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("train");
+  const { state } = useStore();
+  const layout = state.settings.loggerLayout ?? "list";
+
+  // P6-2: dzwiek timera (beep w store'ze) idzie za ustawieniem "Dzwiek" -
+  // synchronizowane tutaj, bo store zyje poza Reactem i nie ma wlasnego
+  // dostepu do AppState.
+  useEffect(() => {
+    restTimer.setSound(state.settings.sound);
+  }, [state.settings.sound]);
 
   return (
     // min-height = największy viewport + 1px: strona ZAWSZE ma minimalny scroll,
@@ -69,6 +99,7 @@ export default function App() {
     // dolną nawigację. Przy zwiniętym pasku Safari pozycja jest stała wszędzie.
     <div className="mx-auto flex min-h-full max-w-xl flex-col" style={{ minHeight: "calc(100lvh + 1px)" }}>
       <Toaster onNavigate={setTab} />
+      <GlobalRestPill hidden={tab === "train" && layout === "focus"} />
       <main className="flex-1 pb-20">
         {tab === "train" && <TrainScreen />}
         {tab === "progress" && <ProgressScreen />}
