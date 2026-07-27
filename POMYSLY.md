@@ -2470,3 +2470,364 @@ przycisk **„Obejrzyj filmik ↗"** (`target="_blank" rel="noreferrer"`), a gdy
 trackerów w apce, działa też gdy Apple zmieni zasady osadzania. Minus do zaakceptowania:
 z PWA na ekranie głównym otwiera się Safari (wyjście z apki) i wymaga internetu — dla
 scenariusza „raz na kilka tygodni nie znam ćwiczenia" to uczciwy kompromis.
+
+---
+
+## P6 — zgłoszenia Kamila (sesja 27.07.2026, wieczór III — Opus 5)
+
+Sześć zadań z jednej rozmowy + screena zakładki Progres. Trzy z nich (**P6-2**, **P6-3**,
+**P6-5**) dotyczą tego samego komponentu (`RestTimer`) i **muszą iść w tej kolejności**,
+bo P6-2 przebudowuje jego stan, a P6-3/P6-5 dokładają się do już przebudowanego.
+
+**Kolejność wdrażania (zależności):** P6-6 (izolowany layout) → P6-2 (przebudowa timera) →
+P6-3 → P6-5 → P6-4 → P6-1 (największe, osobne dwa etapy). Każde zadanie = osobny commit.
+
+**Prompt dla Sonneta (kopiuj-wklej, jedno zadanie na raz):**
+```
+Wdróż zadanie P6-1 z POMYSLY.md. Trzymaj się sekcji "Zasady implementacji" oraz
+"Wspólne pułapki P3/P4/P5/P6" (wszystkie nadal obowiązują). Po skończeniu odhacz
+zadanie w POMYSLY.md, uruchom npm test + npm run build i zrób commit.
+```
+
+### Wspólne pułapki P6 (przeczytaj RAZ)
+
+1. **`RestTimer` ma DWA warianty i DWA miejsca renderowania**: pigułka (`variant="pill"`,
+   `TrainScreen.tsx:1396`, tryb listy) i panel (`variant="panel"`, `TrainScreen.tsx:1300`,
+   tryb skupienia). Każda zmiana zachowania timera musi zostać sprawdzona **w obu układach**
+   (przełącznik „Tryb skupienia" na ekranie wyboru dnia).
+2. **Zmiana zakładki ODMONTOWUJE ekran.** `App.tsx:73-77` renderuje warunkowo
+   (`{tab === "train" && <TrainScreen />}`) — nie ma `hidden`, nie ma routera. Każdy stan
+   Reacta w `TrainScreen` (w tym `useState` w `RestTimer`) **ginie przy kliknięciu w Progres**
+   i wraca do wartości początkowych. To nie jest domysł, to bezpośrednia przyczyna P6-2.
+3. **`npm test` to czysty node przez esbuild — bez Reacta, bez DOM-u, bez `window`.**
+   Nowy moduł w `src/lib/` jest bundlowany do testu w całości, więc **żadnego dotykania
+   `localStorage`/`window` na poziomie modułu** (tylko w funkcjach, za `typeof window !== "undefined"`),
+   inaczej `npm test` wysypie się przy imporcie.
+4. **iOS: nie ma wibracji i nie ma powiadomień w tle** — patrz sekcja „Odrzucone". Nie
+   próbuj tego naprawiać przez Web Push / Notification; P6-2 rozwiązuje realny problem
+   (gubienie czasu), a nie ten nierozwiązywalny (dźwięk przy zgaszonym ekranie).
+5. **Bundle: dziś ~368 KB** (`docs/index.html`). Limit z P5 zostaje: po P6 nie więcej niż
+   **420 KB**. Sprawdź `ls -l docs/index.html` po buildzie i zapisz rozmiar w commicie.
+6. Bez nowych zależności, ikony z `lucide-react`, teksty po polsku, mobile-first (sprawdź
+   przy szerokości **320 px**, nie tylko 390).
+
+---
+
+### [ ] P6-1. Animowane ludziki pokazują NIE TEN ruch, co nazwa ćwiczenia
+
+**Zgłoszenie Kamila:** „te ludziki pokazują głupoty, to nie są te ruchy co w nazwie
+ćwiczenia. Są to randomowe ruchy nie pokazujące prawdziwego ćwiczenia."
+
+**To są TRZY niezależne przyczyny naraz — napraw wszystkie, bo każda z osobna wystarczy,
+żeby animacja wyglądała losowo.**
+
+**Przyczyna 1 (bug, i to on daje efekt „losowości"): tułów animuje się w INNYM tempie niż
+kończyny.** `ExerciseAnim.tsx:26-35` (`rootVars`) ustawia `--ax/--ay/--ar/--bx/--by/--br`,
+ale **nie ustawia `--dur`**. `jointVars` (`:18-24`) ustawia `--dur` na każdym stawie osobno.
+CSS `.tt-root` (`index.css:157-160`) czyta `animation: tt-root var(--dur, 2.4s)` — nie
+dziedziczy niczego od dzieci, więc **root zawsze jedzie 2,4 s**, a stawy np. 2,6 s (przysiad),
+2,0 s (wiosłowanie), 1,8 s (uginanie), 2,2 s (OHP). Dwie animacje o różnych okresach i
+`alternate` rozjeżdżają się w fazie w sposób nieokresowy → biodra jadą w dół, gdy kolana się
+prostują, ręka wyciska, gdy tors wraca. Dokładnie „randomowy ruch". Zgodne tylko
+`bench_press` (2400 ms = fallback) — i tylko ono wygląda dziś sensownie.
+**Fix:** przekaż `durationMs` również w `rootVars` (albo ustaw `--dur` raz na `<svg>`, a w
+`jointVars` nie ustawiaj go wcale — czysto przez dziedziczenie). To jednolinijkowa poprawka
+i ona ma iść PIERWSZA, przed jakimkolwiek strojeniem kątów.
+
+**Przyczyna 2: mapowania-proxy w `guide.ts` świadomie pokazują inny ruch.** Etap P5-3a
+zaimplementował 6 wzorców i podpiął pod nie ~17 ćwiczeń „na oko":
+`incline_db → bench_press` (:47), `lunges → squat` (:69), `hipthrust → hinge` (:102),
+`pulldown → row_bent` (:133), `lateral → press_overhead` (:154), `french → curl` (:184).
+Wznosy bokiem **naprawdę** pokazują wyciskanie nad głowę, a francuz — uginanie bicepsa.
+**Fix (zasada nadrzędna): lepiej BRAK animacji niż zła animacja.** Skasuj wszystkie proxy —
+`pattern` zostaje tylko tam, gdzie wzorzec faktycznie odpowiada ruchowi. Zmień typ na
+`pattern?: MovePatternId` i pokazuj `<ExerciseAnim>` tylko gdy jest; sekcja „Jak wykonać?"
+z samym tekstem (kroki/błędy) zostaje i dalej ma sens.
+
+**Przyczyna 3: fallback po partii mięśniowej rozlewa te 6 wzorców na ~90 ćwiczeń.**
+`FALLBACK_PATTERN_BY_MUSCLE` (`guide.ts:203-212`) daje KAŻDEMU ćwiczeniu na triceps
+wyciskanie leżąc, każdemu na plecy wiosłowanie w opadzie itd. Przy 90-pozycyjnej bazie
+(P3-8) to jest maszyna do produkowania „głupot".
+**Fix:** usuń `FALLBACK_PATTERN_BY_MUSCLE` całkowicie. Tekstowy `FALLBACK_GUIDE_TEXT`
+(ogólne zasady wykonania) może zostać — ale bez animacji.
+
+#### Etap A (najpierw, mały commit): naprawa + uczciwe mapowanie
+1. Fix `--dur` (przyczyna 1).
+2. `ExerciseGuide.pattern` → opcjonalny; wywal proxy i fallback po partii (przyczyny 2, 3).
+   Po tym etapie animację mają TYLKO: `bench_bb`, `squat`, `deadlift`, `rdl`, `row_bb`,
+   `row_db`, `ohp`, `curl_bb` (+ `bench_db` — ten sam ruch co `bench_bb`, tu proxy jest
+   uczciwe, bo to dosłownie ta sama ścieżka ruchu innym sprzętem; ustaw `load: "dumbbell"`).
+3. **Zweryfikuj te 9 wizualnie, nie „na oko w kodzie".** W repo jest Chromium + Playwright
+   (`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`). Zrób tymczasową stronę podglądu
+   (`preview-anim.html` w rootcie, **nie commituj jej do `docs/`**), która renderuje wszystkie
+   wzorce obok siebie w dwóch pozach (A i B, z `animation: none`), zrób screenshot i **obejrzyj
+   go**. Poza A i poza B mają być rozpoznawalne jako początek i koniec danego ćwiczenia. Jeśli
+   któraś nie jest — popraw kąty i powtórz. Bez tego kroku wracamy dokładnie tu, gdzie jesteśmy.
+4. **Kill switch:** `Settings.showExerciseAnim?: boolean` (brak = `true`, więc bez bumpa
+   `SCHEMA_VERSION` — pułapka 4 z P3) + przełącznik w „Więcej → Ustawienia": „Animacja
+   ćwiczenia (ludzik)". Jeśli Kamilowi to nadal nie siada, wyłącza jednym kliknięciem i
+   zostaje sam tekst. (Kontekst: P2-1 — heatmapa z ludzikiem — została wycofana z tego
+   samego powodu. Escape hatch jest tani, brak escape hatcha kosztował już jedną funkcję.)
+
+#### Etap B (osobny commit): dokończ wzorce, których naprawdę brakuje
+Dopiero po zaakceptowaniu etapu A przez Kamila. Dorób i **wizualnie zweryfikuj** (ten sam
+proces co wyżej, screenshot per wzorzec) pozostałe pozycje z `MovePatternId`, priorytetem
+te, które są w planie i w dniu bonusowym: `lateral_raise`, `triceps_ext`, `pulldown`,
+`calf_raise`, `crunch` (allahy), `plank`, `lunge`, `incline_press`, `face_pull`,
+`hinge_hip` (hip thrust — to NIE jest hinge stojący, potrzebuje własnego wzorca z ławką).
+Dopiero potem reszta (`fly`, `dip`, `pushup`, `pullup`, `row_seated`, `shrug`, `leg_press`,
+`leg_curl`).
+
+**Kryteria akceptacji:** (a) żadne ćwiczenie nie pokazuje animacji innego ruchu — albo
+własny zweryfikowany wzorzec, albo nic; (b) tors i kończyny animują się zsynchronizowane
+we WSZYSTKICH wzorcach; (c) screenshoty poz A/B każdego wzorca obejrzane przed commitem;
+(d) przełącznik wyłączający animacje działa; (e) `npm test` + `npm run build` zielone,
+bundle ≤ 420 KB.
+
+---
+
+### [ ] P6-2. Timer przerwy gubi czas przy zmianie zakładki i przy wyjściu z apki (NAJWAŻNIEJSZE)
+
+**Zgłoszenie Kamila:** „Zatrzymuje się czas jak zmieniam kartę czy otwieram inną apkę […]
+najbardziej właśnie to, że wygaszam ekran czy sprawdzam Messengera i licznik się zatrzymuje
+podczas przerwy pomiędzy ćwiczeniami."
+
+**To są dwa różne błędy z jednym źródłem: cały stan timera to `useState` w komponencie.**
+
+- **Zmiana zakładki:** `App.tsx:73-77` renderuje ekrany warunkowo, więc wejście w Progres
+  **odmontowuje `TrainScreen`**, a z nim `RestTimer` — `left`/`running` (`Gym.tsx:134-135`)
+  przepadają. Po powrocie timer jest zresetowany do pełnej długości i zatrzymany. Czas nie
+  „stoi" — on jest bezpowrotnie tracony.
+- **Wyjście do innej apki / zgaszenie ekranu:** odliczanie stoi na `setInterval(…, 1000)`
+  (`Gym.tsx:156-172`), który dekrementuje licznik o 1 na tick. iOS zawiesza timery JS
+  w tle, więc po powrocie licznik pokazuje wartość sprzed wyjścia — apka „nie wie", że
+  minęły 2 minuty.
+
+**Fix — jedno źródło prawdy poza Reactem, liczone z zegara ściennego:**
+
+1. **Nowy `src/lib/rest-timer.ts`** (czysty moduł, testowalny — pułapka 3):
+   ```ts
+   export interface RestTimerState {
+     totalSec: number;
+     endsAt: number | null;      // epoch ms; null = nie leci
+     pausedLeftMs: number | null; // !== null = zapauzowany
+     lastEndedAt: number | null;  // do komunikatu "skończona X temu"
+   }
+   export function remainingMs(s: RestTimerState, now: number): number;
+   export function isRunning(s: RestTimerState): boolean;
+   export function startState(totalSec: number, now: number): RestTimerState;
+   export function pauseState(s, now), resumeState(s, now), resetState(s), stopState(s);
+   ```
+   Czas ZAWSZE liczony jako `endsAt - now`, nigdy przez dekrementację. Do tego cienka
+   warstwa store (subskrypcja + `useSyncExternalStore`) i persystencja w `localStorage`
+   pod `trening-app-rest-timer` — **cała za `typeof window !== "undefined"`**.
+2. **Tick 250 ms** (nie 1000 — po powrocie z tła cyfra ma się poprawić natychmiast,
+   a nie po sekundzie), uruchamiany tylko gdy timer leci. Do tego nasłuch
+   `visibilitychange` + `pageshow` + `focus` → wymuszony przeliczenie ze świeżego `Date.now()`.
+3. **`RestTimer` (`Gym.tsx:115+`) czyta ze store'u zamiast z `useState`.** `autostartKey`/
+   `stopKey` znikają — `TrainScreen` woła bezpośrednio `restTimer.start(sec)` /
+   `.stop()` (odpowiednio `updateSet` przy `done === true`, `TrainScreen.tsx:418-422`, i efekt
+   przy zmianie ćwiczenia w trybie skupienia, `:310-316`).
+4. **Pigułka widoczna na KAŻDEJ zakładce, dopóki przerwa leci.** Przenieś render pigułki
+   z `TrainScreen.tsx:1392-1397` do `App.tsx` (obok `<Toaster>`), warunek: timer leci
+   **lub** trwa draft treningu. Panel w trybie skupienia zostaje tam, gdzie jest.
+   To jest bezpośrednia odpowiedź na „zmieniam kartę i tracę przerwę".
+5. **Powrót po czasie:** jeśli przerwa skończyła się, gdy apka była w tle — po powrocie
+   jeden `beep()` (gdy `settings.sound`), pigułka na zielono i tekst
+   „Przerwa skończona X min temu" (tylko gdy < 10 min; powyżej po prostu wyzeruj).
+   Uczciwie: **dźwięku przy zgaszonym ekranie nie da się dostarczyć** (patrz „Odrzucone" —
+   brak SW i backendu pod Web Push). Naprawiamy to, że po powrocie czas jest PRAWDZIWY.
+6. **(Opcjonalny spike, timebox 30 min, tylko jeśli 1-5 działa):** cichy, zapętlony bufor
+   w tym samym `AudioContext` + `beep` zaplanowany na `ctx.currentTime + left` — bywa, że
+   iOS utrzymuje sesję audio w tle i dźwięk jednak zagra. Jeśli nie działa na telefonie
+   Kamila po pierwszej próbie — **wyrzuć kod i dopisz do „Odrzucone"**, nie drąż.
+
+**Testy (`tests/logic.test.ts`):** `remainingMs` po „skoku zegara" o 5 min (symulacja tła)
+= 0; pauza/wznowienie nie gubi i nie dodaje czasu; `startState` dwa razy pod rząd resetuje
+do pełnej długości; stan odczytany z JSON-a (persystencja) daje ten sam wynik.
+
+**Kryteria akceptacji:** (a) start przerwy → przejście na Progres i z powrotem → licznik
+pokazuje realnie pozostały czas; (b) start przerwy → wyjście z PWA na 60 s → powrót:
+licznik krótszy dokładnie o ~60 s (a nie o 0); (c) przerwa, która minęła w tle, po powrocie
+jest zakończona z komunikatem, nie „zamrożona"; (d) pigułka widoczna na innych zakładkach
+w trakcie przerwy; (e) oba układy loggera działają jak wcześniej.
+
+---
+
+### [ ] P6-3. Po zakończeniu treningu (i po ostatniej serii) timer nie ma czego odmierzać
+
+**Zgłoszenie Kamila:** „Licznik na końcu jak zakończę trening po co? Już nie powinno
+odmierzać czasu."
+
+**Root cause:** `updateSet` (`TrainScreen.tsx:418-422`) startuje przerwę po **każdym**
+zaznaczeniu serii — również po ostatniej serii ostatniego ćwiczenia, po której nie ma już
+czego odpoczywać, tylko „Zakończ trening". Po P6-2 robi się to jeszcze bardziej widoczne,
+bo timer przeżywa zmianę zakładki i zakończenie treningu.
+
+**Fix:**
+1. W `updateSet`: policz, czy po tym kliknięciu **wszystkie serie całego treningu** są
+   zaliczone. Jeśli tak — **nie startuj przerwy** (i zatrzymaj trwającą). Zamiast pigułki
+   pokaż w jej miejscu podpowiedź „Wszystko zrobione — zakończ trening".
+2. W `finish()` (`TrainScreen.tsx:~540-589`) i w `cancel()` (`:591-593`) wywołaj
+   `restTimer.stop()` — bezwarunkowo, na wejściu.
+3. Na ekranie podsumowania (`TrainScreen.tsx:615+`) pigułka nie ma prawa się pojawić
+   (po P6-2 pkt 4 warunek renderu w `App.tsx` musi to uwzględniać: brak draftu + timer
+   zatrzymany = brak pigułki).
+
+**Kryteria akceptacji:** zaznaczenie ostatniej serii ostatniego ćwiczenia nie odpala
+odliczania; po „Zakończ trening" i po „Porzuć" nigdzie w apce nie widać lecącego timera;
+przerwa uruchomiona ręcznie przyciskiem Start nadal działa normalnie.
+
+---
+
+### [ ] P6-4. Tryb skupienia: karta ćwiczenia znika za szybko (najbardziej w deloadzie)
+
+**Zgłoszenie Kamila:** „Deload w widoku focus pokazuje się, ale szybko znika i przełącza
+się na następną."
+
+**Root cause:** auto-przejście do kolejnego ćwiczenia jest bezwarunkowym `setTimeout` na
+**900 ms** po zaliczeniu ostatniej serii (`TrainScreen.tsx:445-452`). Nie da się go
+anulować, nie ma żadnego sygnału, że zaraz nastąpi, i:
+- w **deloadzie** serii jest o jedną mniej (`setsForMode`, `:110-113`) i **nie ma pytania
+  o RIR** (`:1228` — warunek `draft.mode !== "deload"`), więc po ostatnim kliknięciu karta
+  znika praktycznie natychmiast — dokładnie to, co Kamil opisuje;
+- w sile/hipertrofii jest bug bliźniaczy, tylko mniej widoczny: pytanie „Ile zostało w baku
+  (RIR)?" pojawia się dokładnie w tym samym momencie i **odjeżdża po 900 ms**, zanim da się
+  odpowiedzieć. Autoregulacja z P4-4 jest w trybie skupienia praktycznie nie do wypełnienia.
+
+**Fix — przejście świadome, nigdy niespodziewane:**
+1. Wywal ślepy `setTimeout`. Po zaliczeniu ostatniej serii roboczej pokaż **w karcie**
+   pasek: „Ćwiczenie zrobione" + duży przycisk **„Następne ćwiczenie ➜"**.
+2. Jeśli tryb ≠ deload i RIR **nie jest jeszcze wybrany** — nie ma żadnego auto-przejścia,
+   kropka. Wybór RIR (albo tap w „Następne") przechodzi dalej po ~600 ms.
+3. Jeśli auto-przejście jednak leci (deload / RIR już wybrany), pokaż **widoczne odliczanie**
+   („Następne za 3…2…1") z przyciskiem **„Zostań"**, a **każda interakcja z kartą**
+   (scroll, tap w pole, +/-) je anuluje.
+4. Wydłuż bazowe opóźnienie z 900 ms do **3 s**.
+
+**Kryteria akceptacji:** w deloadzie po ostatniej serii karta zostaje na ekranie, dopóki
+Kamil nie potwierdzi (albo nie minie widoczne odliczanie 3 s, które da się przerwać);
+w sile pytanie o RIR da się spokojnie kliknąć w trybie skupienia; ręczna nawigacja
+strzałkami/kropkami działa jak wcześniej.
+
+---
+
+### [ ] P6-5. „Zawsze 2:00" przed pierwszą serią — mimo że każde ćwiczenie ma własną przerwę
+
+**Zgłoszenie Kamila:** „Włączam dany dzień i mam stały czas 2:00, i dopiero jak zrobię
+ćwiczenie, to zaczyna lecieć poprawna przerwa. Po co to 2:00 zawsze? Widzę w ustawieniach
+120 sekund przerwa, ale przecież różne ćwiczenia mają inne przerwy."
+
+**Root cause (dwa, oba realne):**
+1. `timerSeconds` startuje na `state.settings.restSeconds` (`TrainScreen.tsx:138`) i jest
+   podmieniane na przerwę konkretnego ćwiczenia **dopiero** przy zaliczeniu serii (`:421`)
+   albo przy zmianie ćwiczenia w trybie skupienia (`:314`). `startDay` wręcz **cofa** do
+   globalnych 120 s (`:398`). W trybie listy przed pierwszym kliknięciem apka nie wie,
+   „które ćwiczenie" — więc pokazuje wartość globalną. Wygląda to jak ustawienie sztywne,
+   choć nim nie jest.
+2. **Podejrzenie do zweryfikowania, prawdopodobne:** ćwiczenia w stanie Kamila mogą w ogóle
+   nie mieć `restSeconds`. `mergeExerciseLibrary` (`seed.ts:643-650`) świadomie **nie dolewa
+   pól z seeda** do ćwiczeń, które user już ma — a `restSeconds` doszło dopiero w commicie
+   `8113617`/P0-3. Stan zapisany wcześniej ma te ćwiczenia **bez** `restSeconds`, więc każde
+   z nich wpada na globalne 120 s i różnice per ćwiczenie nigdy nie działały.
+   **Weryfikacja przed kodowaniem:** w apce → Plan → dowolne ćwiczenie → pole „Przerwa";
+   jeśli pokazuje placeholder „domyślna (120 s)" zamiast konkretnej liczby — hipoteza
+   potwierdzona.
+
+**Fix:**
+1. **Backfill (idempotentny, wzorem `historyTargetsSeeded` z BUG-1):** nowa flaga
+   `AppState.restSecondsBackfilled?: boolean` + krok w `applyOneTimeSeeds` (`seed.ts:742-744`),
+   który dla ćwiczeń o ID istniejącym w `SEED_EXERCISES` i **bez** własnego `restSeconds`
+   kopiuje wartość z seeda. Nie dotyka ćwiczeń użytkownika spoza seeda ani tych, które już
+   mają swoją wartość. `resetAll()` (`store.tsx`) ustawia flagę na `true`, jak pozostałe.
+2. **Timer pokazuje przerwę ćwiczenia, przy którym jesteś** — również przed pierwszą serią:
+   w trybie listy licz „bieżące ćwiczenie" jako **pierwsze z niezaliczoną serią** i z niego
+   bierz `restSeconds`; ustaw to już w `startDay` (zamiast globalnych 120 s, `:398`).
+3. **Pigułka w stanie spoczynku ma mówić, co pokazuje**: zamiast samego „2:00" —
+   podpis `Przerwa: {nazwa skrócona ćwiczenia}` albo przynajmniej „gotowe: 2:00" innym
+   kolorem niż odliczanie (dziś idle i running różnią się subtelnie).
+4. **Etykieta w Ustawieniach** (`MoreScreen.tsx:496`): „Przerwa (s)" → „Domyślna przerwa (s)"
+   + podpis „Używana tylko dla ćwiczeń bez własnej przerwy — te ustawisz w Planie".
+
+**Kryteria akceptacji:** po wejściu w dzień timer pokazuje przerwę pierwszego ćwiczenia
+(np. 3:00 przy przysiadzie, nie 2:00); po backfillu pole „Przerwa" w Planie ma konkretne
+wartości dla ćwiczeń z seeda; ćwiczenia własne Kamila zostają nietknięte; `npm test` zielony
+(dopisz test backfillu: brak pola → wartość z seeda, własna wartość → bez zmian, ćwiczenie
+spoza seeda → bez zmian).
+
+---
+
+### [ ] P6-6. „(plan 9)" ucięte poza krawędź ekranu i nie wiadomo, co znaczy
+
+**Zgłoszenie Kamila (zakreślone na screenie):** „co oznacza ten »plan« w nawiasie i dlaczego
+jest taki sam jak te kolorowe cyfry (wykonane serie?)"
+
+**Dwa problemy — jeden wizualny, jeden komunikacyjny.**
+
+1. **Ucięty tekst.** Wiersz partii (`ProgressScreen.tsx:358-405`) to `flex justify-between`,
+   gdzie lewy `<span>` ma `shrink-0`, a prawy nie może się zawinąć (jeden inline `<span>`
+   z liczbą, zakresem i „(plan X, +Y)"). Przy dłuższej treści („Barki 10.5 / 5–12 (plan 10.5)")
+   nie mieści się i wychodzi poza kartę — dokładnie to widać na screenie.
+   **Fix:** prawa strona `min-w-0` + `text-right` + `flex-wrap` (albo: „(plan X)" jako
+   osobna, mniejsza linia pod liczbą / obok paska postępu). **Sprawdź przy 320 px** dla
+   najdłuższej etykiety („Bardzo wysoko" + partia „Tył uda" + wartości dwucyfrowe z połówką).
+2. **Niejasne znaczenie.** P3-3 dodało „(plan X)" jako odpowiedź na wcześniejsze pytanie
+   „czemu Plan i Wykonane są identyczne", ale sam nawias tego nie tłumaczy.
+   **Fix:** w widoku „Wykonane (7 dni)" dopisz jedną linię legendy pod przełącznikami:
+   „**Kolorowa liczba** = serie zrobione w ostatnich 7 dniach · **plan** = serie zaplanowane
+   na tydzień. Równe wartości = zrobiłeś dokładnie to, co przewiduje plan."
+   Krótko i uczciwie (§11) — bez straszenia, bez sugerowania, że to błąd.
+
+**Kryteria akceptacji:** żadna wartość nie wychodzi poza kartę przy 320 px w obu widokach
+(Plan / Wykonane) i obu metrykach (Serie / kg); legenda widoczna tylko w widoku „Wykonane";
+liczby bez zmian (to zadanie NIE dotyka `logic.ts`).
+
+---
+
+## P6 — pomysły rozwojowe („level up", do decyzji Kamila)
+
+Uszeregowane od największego zysku do najmniejszego. **Nic z tego nie wchodzi bez decyzji.**
+
+### [ ] P6-7. Prawdziwy tryb offline (service worker) — REKOMENDACJA #1
+**Problem, którego dziś nie widać, dopóki nie boli:** apka jest jednym plikiem z GitHub Pages,
+ale **bez service workera**. Na siłowni w piwnicy, przy słabym LTE, Safari może po prostu nie
+wczytać strony — a wtedy nie ma treningu (dane są lokalne, ale sam kod przychodzi z sieci).
+Wake Lock i timer nie pomogą, jeśli apka się nie otworzy.
+**Co zrobić:** `docs/sw.js` (~30 linii, cache-first dla `index.html`, aktualizacja w tle) +
+rejestracja w `index.html`. **Koszt:** deliverable przestaje być dosłownie „jednym plikiem"
+(§7 CLAUDE.md do poprawienia) i trzeba uważać na cache przy deployach (wersjonowana nazwa
+cache'u, `skipWaiting`). **Zysk:** apka startuje bez internetu, natychmiast. Osobno warto
+wiedzieć: SW to także jedyna droga, żeby kiedyś wrócić do tematu powiadomień — ale to nadal
+wymaga serwera push, więc **nie** traktuj tego jako obietnicy.
+
+### [ ] P6-8. Eksport historii do CSV — REKOMENDACJA #2
+Jeden przycisk w „Więcej": `sessions` → plik CSV (data, dzień, ćwiczenie, seria, kg, powt.,
+RIR, tonaż). ~40 linii, zero zależności, `Blob` + `<a download>`. Zysk: dane wychodzą z apki
+do Excela/Numbers na dowolną analizę i są czytelne dla człowieka nawet za 5 lat, niezależnie
+od tego, czy apka jeszcze istnieje. To najtańsze ubezpieczenie historii, jakie można dodać
+(backup do Gista chroni przed utratą, ale zapisuje JSON pod format tej konkretnej wersji).
+
+### [ ] P6-9. „Poprzednie 3 sesje" w karcie ćwiczenia — REKOMENDACJA #3
+Dziś w loggerze jest „Ostatnio" (jedna sesja, P0-4). Trzy ostatnie w jednej linijce
+(`62,5×8,8,7 · 60×8,8,8 · 60×8,7,7`) pokazują **kierunek**, a nie punkt — czyli dokładnie to,
+czego potrzeba, żeby zdecydować „dokładam czy walczę o powtórzenia". Dane już są
+(`lastByExercise`, `TrainScreen.tsx:177-191` — wystarczy zwrócić 3 zamiast 1), koszt to
+jedna linia w UI, zero nowych mechanizmów.
+
+### [ ] P6-10. Czas trwania treningu na żywo w nagłówku
+Nagłówek loggera pokazuje serie i tonaż (`TrainScreen.tsx:1374-1376`), ale nie czas — a ten
+jest liczony dopiero w podsumowaniu (`sessionDuration`). Po P6-2 masz już poprawny zegar
+ścienny, więc „47 min" w nagłówku to ~10 linii. Uwaga: Kamil nie lubi liczników, które lecą
+bez powodu (P6-3) — ten ma sens tylko w trakcie treningu i musi znikać razem z nim.
+
+### [ ] P6-11. Tygodniowy „raport w jednej karcie" (dopięcie P4-7)
+Cztery liczby (tonaż vs poprzedni tydzień, trafione dni, ćwiczenia w zastoju, saldo objętości
+per partia) + JEDNA rekomendacja na następny tydzień. Spec leży gotowy w P4-7 — do rozważenia
+dopiero po P6-1…P6-6, bo to nowy ekran, a nie naprawa istniejącego.
+
+### Świadomie NIE rekomendowane (żeby nie wracać do tematu)
+- **Powiadomienie o końcu przerwy w tle** — patrz „Odrzucone". P6-2 to maksimum możliwego
+  bez serwera push.
+- **Konto / sync w chmurze między urządzeniami** — Gist (P0-2) już to robi w 90%; reszta to
+  backend i utrzymanie dla jednego użytkownika.
+- **Zdjęcia/wideo techniki w apce** — rozwala budżet bundla (analiza w P5-3) i offline.

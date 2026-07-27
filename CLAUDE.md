@@ -499,3 +499,44 @@ kryteria akceptacji, do wdrożenia pojedynczo przez Sonneta):
   czystym CSS (jedna klatka kluczowa + zmienne CSS na staw, zero JS), do tego kroki /
   częste błędy per ćwiczenie. Trzy etapy: 3a silnik + 6 wzorców + wpięcie w Trening,
   3b pełna baza 90 ćwiczeń + Plan, 3c (opcjonalnie) link do YouTube zamiast osadzania.
+
+---
+
+## 15. Backlog P6 — zgłoszenia Kamila (sesja 27.07.2026, wieczór III)
+
+Sześć zadań + pięć pomysłów rozwojowych rozpisanych w **`POMYSLY.md`, sekcja „P6"**
+(root cause z numerami linii, spec, kryteria akceptacji). Kolejność wdrażania:
+**P6-6 → P6-2 → P6-3 → P6-5 → P6-4 → P6-1** (trzy zadania timera muszą iść po sobie,
+bo P6-2 przebudowuje jego stan).
+
+- **P6-1 — ludziki pokazują nie ten ruch.** Trzy przyczyny naraz: (a) `ExerciseAnim.tsx:26-35`
+  nie ustawia `--dur` na `.tt-root`, więc tors jedzie 2,4 s, a stawy np. 2,6 s → animacja
+  rozjeżdża się w fazie („randomowy ruch"); (b) mapowania-proxy w `guide.ts` (wznosy bokiem →
+  wyciskanie nad głowę, francuz → uginanie); (c) `FALLBACK_PATTERN_BY_MUSCLE` (`guide.ts:203-212`)
+  rozlewa 6 wzorców na 90 ćwiczeń. Zasada naprawy: **lepiej brak animacji niż zła animacja**
+  + weryfikacja screenshotami przed commitem + kill switch w Ustawieniach.
+- **P6-2 — timer przerwy gubi czas** przy zmianie zakładki (`App.tsx:73-77` odmontowuje
+  `TrainScreen`, stan `useState` w `RestTimer` przepada) i przy wyjściu z apki (`setInterval`
+  dekrementujący co 1 s, `Gym.tsx:156-172`, jest w tle zawieszany). Fix: `src/lib/rest-timer.ts`
+  ze stanem poza Reactem, czas liczony jako `endsAt - Date.now()`, persystencja w localStorage,
+  pigułka widoczna na każdej zakładce. Dźwięku przy zgaszonym ekranie NIE da się dostarczyć
+  (patrz „Odrzucone" w POMYSLY.md) — naprawiamy to, że po powrocie czas jest prawdziwy.
+- **P6-3 — timer startuje po ostatniej serii treningu** (`TrainScreen.tsx:418-422` startuje
+  przerwę po każdym zaznaczeniu) i przeżywa zakończenie. Fix: brak startu, gdy cały trening
+  zaliczony + `stop()` w `finish()`/`cancel()`.
+- **P6-4 — tryb skupienia przełącza ćwiczenie po 900 ms** bez ostrzeżenia i bez możliwości
+  anulowania (`TrainScreen.tsx:445-452`); w deloadzie (brak pytania o RIR) karta znika
+  natychmiast, w sile pytanie o RIR odjeżdża, zanim da się je kliknąć. Fix: przejście
+  świadome (przycisk + widoczne odliczanie 3 s z „Zostań").
+- **P6-5 — „zawsze 2:00" przed pierwszą serią.** `timerSeconds` startuje na globalnym
+  `settings.restSeconds` (`TrainScreen.tsx:138`, cofane w `startDay`, `:398`); do tego
+  prawdopodobny brak `restSeconds` w ćwiczeniach Kamila — `mergeExerciseLibrary`
+  (`seed.ts:643-650`) świadomie nie dolewa pól z seeda do istniejących ćwiczeń, a pole
+  doszło później. Fix: jednorazowy backfill (flaga `restSecondsBackfilled`) + timer pokazuje
+  przerwę bieżącego ćwiczenia + poprawiona etykieta w Ustawieniach.
+- **P6-6 — „(plan 9)" ucięte poza kartę i nieopisane** (`ProgressScreen.tsx:358-405`).
+  Fix: `min-w-0` + zawijanie (sprawdzone przy 320 px) + jedna linia legendy w widoku
+  „Wykonane (7 dni)".
+- **Pomysły rozwojowe (P6-7…P6-11):** service worker = prawdziwy offline (rekomendacja #1),
+  eksport historii do CSV (#2), „poprzednie 3 sesje" w karcie ćwiczenia (#3), czas treningu
+  na żywo w nagłówku, tygodniowy raport (dopięcie P4-7).
