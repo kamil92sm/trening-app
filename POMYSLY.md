@@ -2041,3 +2041,362 @@ jedna karta z dwoma wierszami serii i **jednym** timerem między parami (a nie p
 każdej serii). Wymaga ostrożności w trybie skupienia (jedna para = jeden ekran) i
 w liczeniu objętości (bez zmian — serie liczą się normalnie).
 **Nie zaczynaj od tego** — to najbardziej inwazyjna zmiana w loggerze z całego P4.
+
+---
+
+## P5 — zgłoszenia Kamila (sesja 27.07.2026, wieczór II — Opus 5)
+
+Trzy tematy: dwie poprawki wykresu postępu (**P5-1**, **P5-2** — małe, niezależne od siebie,
+po ~30–60 min) i jeden duży feature: **instrukcja wykonania ćwiczenia z animowanym ludzikiem**
+(**P5-3**, rozbity na trzy etapy 3a/3b/3c — każdy wdrażany i commitowany osobno).
+
+**Prompt dla Sonneta (kopiuj-wklej, jedno zadanie na raz):**
+```
+Wdróż zadanie P5-1 z POMYSLY.md. Trzymaj się sekcji "Zasady implementacji" oraz
+"Wspólne pułapki P3/P4/P5" (nadal obowiązują). Po skończeniu odhacz zadanie w
+POMYSLY.md, uruchom npm test + npm run build i zrób commit.
+```
+
+### Wspólne pułapki P5 (przeczytaj RAZ)
+
+1. **`LineChart` karmi DWA różne wykresy** — „Postęp ćwiczenia" (`ProgressScreen.tsx:464`,
+   e1RM w kg albo sekundy dla `isHold`, + `projection`, `markers`, `goalY`) oraz „Waga i pas"
+   (`MoreScreen.tsx:231`, DWA szeregi, wartości procentowe ze znakiem i jednym miejscem po
+   przecinku, `formatY={(y) => ...toFixed(1)}%`). Każda zmiana skali osi musi zostać obejrzana
+   na **obu**, inaczej naprawiasz jeden wykres i psujesz drugi.
+2. **`npm test` to czysty node przez esbuild, bez Reacta i bez DOM-u.** Logika testowalna →
+   `src/lib/*` (bez importu Reacta), JSX → `src/components/*`. Nowe pliki z danymi (skala osi,
+   pozy ludzika, teksty instrukcji) trzymaj w `src/lib/`, żeby dało się je objąć testami.
+3. **Zmiana sygnatury `projectHistory` musi być wstecznie zgodna.** Cztery istniejące testy
+   (`tests/logic.test.ts:841-853`) wołają ją z historią z przeszłości (2026-07) i sprawdzają
+   konkretne daty. Nowy parametr `nowIso` **musi być opcjonalny i domyślnie wyłączać
+   przycinanie** (patrz P5-2 pkt 1) — inaczej testy padną i „naprawisz" je przez zepsucie
+   asercji, czego robić nie wolno.
+4. Bez nowych zależności, ikony z `lucide-react`, UI po polsku, mobile-first. Deliverable to
+   jeden plik `docs/index.html` — dziś **368 KB**. To jest budżet: każdy KB dokładany do
+   bundla jest widoczny w czasie startu apki na telefonie (patrz analiza w P5-3).
+
+---
+
+### [ ] P5-1. Oś Y wykresu postępu pokazuje nieokrągłe (a czasem zdublowane) liczby
+
+**Problem (zgłoszenie Kamila):** na wykresie „Postęp ćwiczenia" podpisy osi po lewej to
+losowo wyglądające liczby (np. `54 / 57 / 61 / 64`), a przy krótkiej historii potrafią się
+powtórzyć (`50 / 50 / 50 / 50`) — wygląda jak błąd renderowania.
+
+**Root cause (to nie jest przypadek — to dokładnie to, co robi kod):**
+`Charts.tsx:8-12`:
+```ts
+function niceTicks(min, max, count = 4) {
+  if (min === max) return [min];
+  const step = (max - min) / count;      // ← równy podział, ZERO zaokrąglania do ładnych wartości
+  return Array.from({ length: count + 1 }, (_, i) => min + i * step);
+}
+```
+plus `Charts.tsx:57-59`, gdzie domena jest wcześniej rozciągana o 15% z każdej strony:
+```ts
+const spanY = Math.max(...ys) - Math.min(...ys);
+const minY  = Math.min(...ys) - (spanY || 1) * 0.15;
+const maxY  = Math.max(...ys) + (spanY || 1) * 0.15;
+```
+Nazwa `niceTicks` jest myląca — funkcja nie robi nic „nice": dzieli **rozciągniętą, nieokrągłą**
+domenę na 3 równe kawałki, a `formatY` (`ProgressScreen.tsx:469`) zaokrągla wynik do liczby
+całkowitej dopiero na etapie wyświetlania. Dwa realne scenariusze:
+
+- **e1RM 55,0 … 62,9 kg** → span 7,9 → domena 53,815 … 64,085 → ticki 53,815 / 57,238 /
+  60,662 / 64,085 → podpisy **54 / 57 / 61 / 64**. Odstępy między liniami siatki: 3,4 kg.
+  Nic nie zaczepia się o okrągłe 55 / 60 / 65.
+- **jeden punkt historii albo płaska seria (np. zawsze 50 kg)** → `spanY = 0` → domena
+  49,85 … 50,15 → ticki 49,85 / 49,95 / 50,05 / 50,15 → podpisy **50 / 50 / 50 / 50**
+  (cztery identyczne liczby na czterech różnych liniach — to jest ten „dziwny" widok).
+
+**Pliki:** nowy `src/lib/scale.ts`, `src/components/Charts.tsx:8-12,41-42,52-59,76,90-93`,
+`src/components/ProgressScreen.tsx:469`, `tests/logic.test.ts` (nowe testy).
+
+**Spec:**
+
+1. Nowy **czysty** moduł `src/lib/scale.ts` (bez Reacta — ma być testowalny, pułapka 2):
+   ```ts
+   /** Zaokrąglenie „w górę do ładnej" wartości: 1 / 2 / 2,5 / 5 / 10 × 10^n. */
+   function niceNum(range: number, round: boolean): number { … }
+
+   export interface Scale { min: number; max: number; step: number; ticks: number[]; decimals: number }
+
+   /**
+    * Skala osi Y z podpisami na OKRĄGŁYCH wartościach (algorytm Heckberta „nice numbers").
+    * @param minStep najmniejszy sensowny krok w jednostce serii (kg → 0.5, sekundy → 1, % → 0.5)
+    */
+   export function niceScale(min: number, max: number, maxTicks = 4, minStep = 0.5): Scale
+   ```
+   Wymagania:
+   - `min === max` (jeden punkt / płaska seria) → rozszerz domenę o `max(minStep * 2, |min| * 0.05)`
+     w obie strony, **zanim** policzysz krok. Nigdy nie zwracaj dwóch ticków o tym samym podpisie.
+   - `step = max(minStep, niceNum(range / (maxTicks - 1), true))`; `min` w dół do wielokrotności
+     `step` (`Math.floor(min / step) * step`), `max` w górę (`Math.ceil`).
+   - **Uwaga na float:** pętla `for (let v = niceMin; v <= niceMax + step * 1e-9; v += step)`
+     kumuluje błąd — generuj ticki przez `Math.round(niceMin / step + i)` × `step` i
+     dodatkowo zaokrąglaj wynik do 6 miejsc (`Math.round(v * 1e6) / 1e6`), inaczej wyjdzie
+     `57.99999999999999`.
+   - `decimals = step < 1 ? 1 : 0` — do domyślnego formatowania podpisów.
+   - Odporność na śmieci: `NaN`/`Infinity` w wejściu → zwróć `{min: 0, max: 1, step: 1, ticks: [0, 1], decimals: 0}`
+     zamiast wysypywać render.
+2. `Charts.tsx` — `LineChart`:
+   - Usuń lokalne `niceTicks`, użyj `niceScale`. **Domena osi Y = domena ze skali**
+     (`scale.min`/`scale.max`), a nie stare `±15%`. Padding wizualny jest już zapewniony przez
+     zaokrąglenie w dół/górę do wielokrotności kroku; jeżeli po zaokrągleniu linia dotyka
+     krawędzi (dane dokładnie na ticku), dołóż **pół kroku** z tej strony.
+   - Nowy opcjonalny prop `minTickStep?: number` (domyślnie `0.5`). `goalY` nadal wchodzi do
+     wyliczenia domeny (dziś `Charts.tsx:54`) — cel poza zakresem danych musi zostać widoczny.
+   - **Szerokość marginesu lewego licz z najdłuższego podpisu**, zamiast sztywnego `pad.l = 38`
+     (`Charts.tsx:42`): `pad.l = 10 + maxLabelChars * 5.6` (fontSize 9 ≈ 5,4 px na znak), min. 26.
+     Bez tego podpisy typu `+12.5%` (MoreScreen) albo `1250` wchodzą pod wykres.
+   - Domyślny `formatY` ma używać `scale.decimals` (`y.toFixed(scale.decimals)`), nie
+     `Math.round`. Wywołania z własnym `formatY` (MoreScreen) działają jak dziś.
+3. `ProgressScreen.tsx:469` — **usuń** `formatY={(y) => `${Math.round(y)}`}` (domyślne
+   formatowanie ze skali jest teraz lepsze) i dołóż `minTickStep={selected?.isHold ? 1 : 0.5}`
+   (sekundy planku nie mają połówek).
+4. `MoreScreen.tsx:231` — zostaw `formatY` (procenty), ale sprawdź w przeglądarce, czy przy
+   serii wagi (np. −1,2% … +0,8%) podpisy wychodzą okrągłe i czy 0% wpada na siatkę.
+   Jeśli nie — dołóż `minTickStep={0.5}` jawnie.
+
+**Testy (`tests/logic.test.ts`, import z `../src/lib/scale`):**
+- `niceScale(55, 62.9)` → wszystkie ticki są wielokrotnościami `step`, `step ∈ {1, 2, 2.5, 5}`,
+  `min ≤ 55`, `max ≥ 62.9`.
+- `niceScale(50, 50)` → **≥ 2 ticki i wszystkie podpisy różne** (regresja na bug ze screena).
+- `niceScale(0, 0)` → nie wybucha, `step > 0`.
+- `niceScale(-1.2, 0.8, 4, 0.5)` → zawiera `0` wśród ticków.
+- `niceScale(NaN, 5)` → fallback, bez wyjątku.
+
+**Kryteria akceptacji:** podpisy osi to okrągłe liczby ze stałym krokiem (np. 55 / 57,5 / 60 /
+62,5), żadne dwa podpisy się nie powtarzają, linia celu (`goalY`) i projekcja nadal mieszczą się
+w kadrze, wykres wagi w „Więcej" wygląda nie gorzej niż przed zmianą.
+
+---
+
+### [ ] P5-2. Przerywana projekcja startuje w przeszłości i nie widać, gdzie jest „dziś"
+
+**Pytanie Kamila:** „przerywana zaczyna się nie od dnia dzisiejszego — czy tak powinno być?"
+
+**Odpowiedź (i co z tego wynika):** **częściowo tak, częściowo nie.**
+- **Tak** co do punktu zaczepienia linii: przerywana **celowo** wychodzi z ostatniego realnego
+  punktu historii (`Charts.tsx:71-75` — `toPath([data[data.length-1], ...projection])`), żeby
+  linia nie miała dziury. Trend jest liczony z historii, więc musi startować tam, gdzie historia
+  się kończy. Tego nie zmieniamy.
+- **Nie** co do dat samych kropek projekcji. `projectHistory` (`logic.ts:760-778`) generuje je
+  jako `data ostatniej sesji + k × średni odstęp`. Jeśli ostatni trening tego ćwiczenia był
+  np. 10 dni temu, a średni odstęp to 7 dni, **pierwsza „przyszła" kropka wypada 3 dni w
+  przeszłości**. Apka pokazuje wtedy „prognozę" na dzień, który już był — to jest realny błąd.
+- **Nie** też co do czytelności: na osi X są tylko dwa podpisy (min i max, `Charts.tsx:95-104`),
+  a `maxX` uwzględnia punkty projekcji — prawy podpis to data z przyszłości i nic na wykresie
+  nie mówi, gdzie kończy się rzeczywistość, a zaczyna ekstrapolacja.
+
+**Pliki:** `src/lib/logic.ts:760-778` (`projectHistory`), `src/components/Charts.tsx` (nowy
+prop `nowX`), `src/components/ProgressScreen.tsx:126,464-477`, `tests/logic.test.ts:841-853`.
+
+**Spec:**
+
+1. `projectHistory(history, count = 3, nowIso?: string)`:
+   - Zachowaj `linearTrendE1rm` (wspólne z `estimateGoalEta` — nie duplikuj matematyki).
+   - Gdy `nowIso` **nie jest podany** → zachowanie identyczne jak dziś (kluczowe dla
+     istniejących testów, pułapka 3).
+   - Gdy `nowIso` jest podany → generuj kandydatów dla `k = 1, 2, 3, …`
+     (`date = lastTime + avgInterval × k`, `e1rm = last.e1rm + slope × k` — **ten sam `k`**,
+     żeby wartość odpowiadała dacie, a nie kolejności kropki), **pomijaj te z datą < now**
+     i zbierz pierwsze `count` z datą ≥ now. Limit bezpieczeństwa: `k ≤ count + 26`
+     (pół roku); po jego przekroczeniu zwróć to, co uzbierane.
+   - Gdy ostatni punkt historii jest w przyszłości (śmieciowe dane / strefa czasowa) →
+     nie kombinuj, zachowaj się jak bez `nowIso`.
+   - Zaktualizuj docblock: napisz wprost, że kropki są przycinane do przyszłości, a linia
+     nadal wychodzi z ostatniej sesji.
+2. `Charts.tsx` — nowy opcjonalny prop `nowX?: number` (timestamp):
+   - Pionowa linia `stroke="currentColor"`, `strokeOpacity={0.3}`, `strokeDasharray="3 3"`,
+     od `pad.t` do `height - pad.b`, plus podpis `dziś` (`fontSize 8.5`, `fillOpacity 0.55`)
+     tuż nad linią, wyrównany tak, żeby nie wychodził poza `width - pad.r`.
+   - `nowX` **wchodzi do domeny X** (razem z `data`/`data2`/`projection`), żeby przy historii
+     kończącej się dawno temu „dziś" nie wypadło poza kadr.
+   - Rysuj **pod** seriami (przed `<path>`), tak jak `markers`, żeby nie zasłaniało kropek.
+     Nie myl tego ze znacznikami squasha (fioletowe, `Charts.tsx:105-118`) — inny kolor,
+     inny opis w legendzie.
+3. `ProgressScreen.tsx`:
+   - `projectHistory(history, 3, new Date().toISOString())` (linia 126) i `nowX={Date.now()}`
+     w `<LineChart>` (linia 464).
+   - Podpis pod wykresem (dziś linie 472-477) rozbuduj o punkt zaczepienia i odstęp — tekst
+     ma odpowiadać na dokładnie to pytanie, które zadał Kamil:
+     „Przerywana wychodzi z **ostatniego treningu** (14.07) — stamtąd liczony jest trend.
+     Kropki to spodziewane kolejne sesje (co ~7 dni). Szacunek przy utrzymaniu tempa, nie prognoza."
+     Daty i odstęp bierz z danych (`history[last].date`, `avgIntervalMs` — wystaw go z
+     `projectHistory` albo policz w komponencie z historii), nie wpisuj na sztywno.
+   - Gdy `hasVisibleSquashMarker` jest prawdziwe, w legendzie obok fioletowej kreski dopisz
+     szarą kreskę „dziś", żeby dwie pionowe linie nie myliły się ze sobą.
+
+**Testy (`tests/logic.test.ts`):**
+- Cztery istniejące testy `projectHistory` (linie 841-853) **muszą przejść bez zmian**.
+- Nowy: historia kończąca się 10 dni przed `now`, odstęp 7 dni → wszystkie 3 zwrócone daty
+  są ≥ `now`, a pierwsza to `last + 14 dni` (bo `k=1` wypadł w przeszłości).
+- Nowy: `e1rm` pierwszej zwróconej kropki = `last.e1rm + slope × 2` (spójność `k` i daty).
+- Nowy: historia kończąca się dziś → wynik identyczny jak bez `nowIso`.
+
+**Kryteria akceptacji:** na wykresie widać pionową kreskę „dziś"; żadna kropka projekcji nie
+leży na lewo od niej; przerywana nadal wychodzi z ostatniej pełnej kropki; podpis pod wykresem
+tłumaczy oba fakty jednym zdaniem.
+
+---
+
+### [ ] P5-3. Instrukcja wykonania ćwiczenia — animowany ludzik + kroki (domyślnie zwinięte)
+
+**Czego chce Kamil:** przy każdym ćwiczeniu domyślnie schowana sekcja; po rozwinięciu widać,
+**jak** się to ćwiczenie wykonuje (miniaturka ludzika / mini-filmik) + ewentualne uwagi i
+kroki. Ma ratować sytuację „nie znam tego ćwiczenia" — np. po zamianie ćwiczenia (P1-3) albo
+przy ćwiczeniu z rozszerzonej bazy (P3-8, 90 pozycji).
+
+#### Analiza: dlaczego NIE filmik i NIE GIF (przeczytaj przed wyborem podejścia)
+
+| Wariant | Rozmiar | Offline | Werdykt |
+|---|---|---|---|
+| GIF/WebP per ćwiczenie w bundlu (data-URI) | 30–80 KB × 90 = **3–7 MB** (dziś cały plik ma 368 KB) | tak | **Odrzucone** — 10–20× większy bundle, sekundy startu na LTE |
+| Pliki w `docs/anim/` dociągane na żądanie | bundle bez zmian | **nie** (brak service workera, apka z ekranu głównego bez sieci = puste kadry) | Odrzucone — łamie „jeden plik" z §7 CLAUDE.md |
+| Osadzony YouTube (`<iframe>`) | ~0 KB | nie | Odrzucone — wymaga sieci, ciasteczka/tracking, w PWA na iOS zachowuje się nieprzewidywalnie |
+| **Animowany ludzik SVG (wektor, generowany z pozycji stawów)** | **~0,3 KB na wzorzec ruchu**, ~18 wzorców = ~6 KB | tak | **Rekomendacja** |
+| Link „szukaj w YouTube" jako uzupełnienie | 0 KB | nie (ale to świadome wyjście z apki) | Opcjonalne, etap 3c |
+
+Wektorowy ludzik wygrywa, bo jeden wzorzec ruchu (np. „wyciskanie leżąc") obsługuje **wszystkie**
+warianty tego ruchu (sztanga, hantle, maszyna, skos) — 90 ćwiczeń mapuje się na ~18 wzorców.
+Do tego rysunek jest w kolorach motywu, działa offline i nie ma problemów licencyjnych.
+
+#### Model animacji (rdzeń — przeczytaj zanim zaczniesz kodować)
+
+Ludzik z boku, `viewBox="0 0 120 120"`, zbudowany z **zagnieżdżonych grup obracanych wokół
+stawów**. Każdy segment rysowany jest jako linia z `(0,0)` do `(0, len)` (czyli **w dół**), a
+potem obracany: `rotate(a)`, gdzie dodatnie `a` = zgodnie z ruchem wskazówek zegara
+(`a = 90` → segment celuje w lewo, `a = -90` → w prawo).
+
+Hierarchia: `root(translate + rotate)` → `tors` → `[szyja+głowa]`, `[ramię → przedramię →
+dłoń(+sprzęt)]`; `root` → `udo → podudzie → stopa`. Sprzęt jest **dzieckiem przedramienia**,
+więc automatycznie jedzie za dłonią. W widoku z boku sztanga to po prostu **koło** (`<circle>`),
+hantel — mały zaokrąglony prostokąt; nie trzeba rysować gryfu wzdłuż ekranu.
+
+Animacja **bez JS** (kluczowe dla baterii i dla pułapki 2 z P4 — żadnego `requestAnimationFrame`
+i żadnego animowania wewnątrz warstw z `backdrop-blur`): każdy staw dostaje dwie zmienne CSS
+(kąt w pozie A i w pozie B) i **jedną wspólną klatkę kluczową**:
+
+```css
+@keyframes tt-joint { from { transform: rotate(var(--a)); } to { transform: rotate(var(--b)); } }
+.tt-j { animation: tt-joint var(--dur, 2.4s) ease-in-out infinite alternate; transform-origin: 0 0; }
+@keyframes tt-root { from { transform: translate(var(--ax), var(--ay)) rotate(var(--ar)); }
+                     to   { transform: translate(var(--bx), var(--by)) rotate(var(--br)); } }
+@media (prefers-reduced-motion: reduce) { .tt-j, .tt-root { animation: none; transform: rotate(var(--b)); } }
+```
+Wszystkie stawy mają ten sam czas trwania i `alternate`, więc ruch jest zsynchronizowany
+(ekscentryka = ta sama animacja odtwarzana w tył). Kąty są **statyczne** — CSS interpoluje
+tylko między dwiema rozwiniętymi wartościami, więc `var()` w `@keyframes` jest tu bezpieczne.
+
+Typy (plik `src/lib/anim-poses.ts`, **bez importu Reacta** — pułapka 2):
+```ts
+export interface Pose {
+  rootX: number; rootY: number; rootRot: number;   // biodro + obrót całej sylwetki (leżenie = 90)
+  torso: number; neck: number;
+  shoulder: number; elbow: number;
+  hip: number; knee: number; ankle: number;
+}
+export type Load  = "none" | "barbell" | "dumbbell" | "cable" | "bar-back" | "bar-hip";
+export type Decor = "floor" | "bench-flat" | "bench-incline" | "rack" | "pulley-high" | "pulley-low" | "mat";
+export type MovePatternId =
+  | "bench_press" | "incline_press" | "fly" | "dip" | "pushup"
+  | "row_bent" | "pulldown" | "pullup" | "row_seated" | "shrug"
+  | "squat" | "hinge" | "lunge" | "leg_press" | "leg_curl" | "calf_raise"
+  | "press_overhead" | "lateral_raise" | "face_pull"
+  | "curl" | "triceps_ext" | "crunch" | "plank";
+export interface MovePattern {
+  id: MovePatternId; label: string; load: Load; decor: Decor[];
+  a: Pose; b: Pose; durationMs?: number;   // a = pozycja startowa, b = końcowa
+}
+export const MOVE_PATTERNS: Record<MovePatternId, MovePattern>;
+```
+
+Wzorzec referencyjny (skopiuj konwencję kątów, resztę dobierz w podglądzie na żywo):
+```ts
+bench_press: {
+  id: "bench_press", label: "Wyciskanie leżąc", load: "barbell", decor: ["bench-flat", "floor"],
+  // leżenie: cała sylwetka obrócona o 90°, ruch tylko w barku i łokciu
+  a: { rootX: 46, rootY: 62, rootRot: 90, torso: 0, neck: -8, shoulder: -80, elbow: 75,  hip: 55, knee: -80, ankle: 20 },
+  b: { rootX: 46, rootY: 62, rootRot: 90, torso: 0, neck: -8, shoulder: -95, elbow: 5,   hip: 55, knee: -80, ankle: 20 },
+  durationMs: 2400,
+}
+```
+
+#### Etap [ ] P5-3a — silnik + 6 wzorców + wpięcie w Trening
+
+**Pliki:** nowe `src/lib/anim-poses.ts`, `src/lib/guide.ts`, `src/components/ExerciseAnim.tsx`;
+zmiany w `src/components/TrainScreen.tsx` (~1052-1085, wzorem P3-5) i `src/index.css` (keyframes).
+
+1. `src/lib/guide.ts` (czysty, testowalny):
+   ```ts
+   export interface ExerciseGuide {
+     pattern: MovePatternId;
+     setup: string[];      // 1–2 zdania: ustawienie przed pierwszym powtórzeniem
+     steps: string[];      // 3–5 kroków samego powtórzenia (koncentryka + ekscentryka)
+     mistakes: string[];   // 2–3 typowe błędy ("czego NIE robić")
+     safety?: string;      // tylko tam, gdzie realne ryzyko (martwy, przysiad, OHP)
+   }
+   export const GUIDES: Record<string, ExerciseGuide>;              // klucz = Exercise.id
+   export function guideFor(ex: Exercise): ExerciseGuide | null;    // id → GUIDES, fallback → wzorzec z kategorii/partii
+   ```
+   `guideFor` musi mieć **fallback po `primaryMuscle` + `unit`** (mapa ~10 pozycji), żeby
+   ćwiczenie dodane ręcznie przez Kamila też dostało sensowną animację; brak dopasowania →
+   `null` → UI po prostu nie pokazuje przycisku (żadnych pustych paneli).
+2. `src/components/ExerciseAnim.tsx` — `<ExerciseAnim pattern={id} size={96} />`. Renderuje
+   szkielet wg modelu wyżej, ustawia zmienne CSS z `MOVE_PATTERNS[pattern].a/.b`, rysuje
+   `decor` jako statyczne kształty **pod** ludzikiem, kolory z tokenów motywu
+   (`stroke="currentColor"`, sprzęt akcentem `#38bdf8`), `aria-hidden` + `role="img"` z
+   `aria-label={label}`.
+3. W tym etapie wypełnij **6 wzorców** pokrywających plan z §6 CLAUDE.md: `bench_press`,
+   `squat`, `hinge` (martwy/RDL), `row_bent`, `press_overhead`, `curl` — i wpisy `GUIDES` dla
+   ćwiczeń z trzech dni planu + bonusu (~14 pozycji).
+4. UI w `TrainScreen.tsx`: nowy stan `openGuide: Set<number>` + `toggleGuide(ei)`,
+   **dokładnie wzorem `openPlates`** (`:141`, `:1052-1085`) — ten sam przycisk z
+   `ChevronRight/ChevronDown`, `text-[11px] text-muted-foreground`, etykieta
+   **„Jak wykonać?"**. Panel po rozwinięciu: animacja (96 px, po lewej) + po prawej kroki
+   („Ustawienie" / „Ruch" / „Częste błędy"), `safety` na bursztynowo (`text-amber-300`),
+   na dole `text-[10px]`: „Skrót techniczny — nie zastąpi trenera."
+   Umieść blok **pod** miniaturką talerzy, nad listą serii. Domyślnie zwinięte **zawsze** —
+   nie zapisuj stanu do `AppState` (żadnej migracji schematu w tym zadaniu).
+5. Sprawdź, czy **tryb skupienia** (P3-6) renderuje tę samą kartę ćwiczenia — jeśli tak,
+   sekcja pojawi się automatycznie; jeśli ma osobny render, dołóż ją i tam.
+
+**Testy:** dla każdego `Exercise` z `SEED_EXERCISES` z wpisem w `GUIDES` → `guideFor` zwraca
+obiekt, `MOVE_PATTERNS[guide.pattern]` istnieje, `steps.length >= 3`, `mistakes.length >= 2`.
+Dodatkowo: `guideFor` na ćwiczeniu spoza `GUIDES` (np. sztucznym, `primaryMuscle: "Klatka"`)
+zwraca fallback, nie `null`.
+
+**Kryteria akceptacji:** w Treningu przy ćwiczeniu jest zwinięte „Jak wykonać?"; po rozwinięciu
+ludzik płynnie powtarza ruch na iPhonie (sprawdź w podglądzie i na telefonie po deployu),
+zwinięcie zatrzymuje animację (komponent odmontowany), `npm run build` rośnie o < 15 KB.
+
+#### Etap [ ] P5-3b — pełna baza: pozostałe wzorce + teksty do wszystkich 90 ćwiczeń
+
+Uzupełnij `MOVE_PATTERNS` do pełnej listy z `MovePatternId` i `GUIDES` do **wszystkich**
+ćwiczeń z `SEED_EXERCISES` (90 pozycji, `seed.ts:47-449`). Zasady dla tekstów:
+- Po polsku, krótko, tryb rozkazujący, bez żargonu bez wyjaśnienia. 3–5 kroków, max ~12 słów
+  na krok — to ma się czytać między seriami, na telefonie, na stojąco.
+- **Nie powielaj `ex.note`** (cue trenera już wyświetlany, `TrainScreen.tsx:1021`) — instrukcja
+  ma opisywać ruch, notatka zostaje osobno jako wskazówka „na ten tydzień".
+- `safety` tylko tam, gdzie jest realne ryzyko (martwy ciąg, przysiad, OHP, wiosłowanie w
+  opadzie, allahy z dużym ciężarem). Nie strasz przy wznosach bokiem.
+- §11 CLAUDE.md (uczciwe framowanie) obowiązuje też tutaj: żadnych obietnic typu „to ćwiczenie
+  najszybciej buduje klatkę".
+- Budżet: 90 wpisów × ~250 B ≈ 22 KB źródła. Jeśli po buildzie `docs/index.html` przekracza
+  **420 KB**, skróć teksty zamiast wycinać ćwiczenia.
+
+Dołóż też `ExerciseAnim` **w Planie** (`PlanScreen.tsx`, okno edycji ćwiczenia) — przeglądanie
+biblioteki poza siłownią to połowa wartości tej funkcji.
+
+#### Etap [ ] P5-3c — (OPCJONALNE) link do filmiku
+
+Nowe pole `Exercise.videoUrl?: string` (typ opcjonalny → **bez bumpa `SCHEMA_VERSION`**,
+istniejące stany działają) + pole w oknie edycji ćwiczenia w Planie. W panelu „Jak wykonać?"
+przycisk **„Obejrzyj filmik ↗"** (`target="_blank" rel="noreferrer"`), a gdy `videoUrl` puste —
+**„Szukaj w YouTube ↗"** z linkiem `https://www.youtube.com/results?search_query=` +
+`encodeURIComponent(ex.name + " technika")`. Świadomie **link, nie `<iframe>`**: zero KB, zero
+trackerów w apce, działa też gdy Apple zmieni zasady osadzania. Minus do zaakceptowania:
+z PWA na ekranie głównym otwiera się Safari (wyjście z apki) i wymaga internetu — dla
+scenariusza „raz na kilka tygodni nie znam ćwiczenia" to uczciwy kompromis.

@@ -471,3 +471,31 @@ kolorowe tagi partii i rozszerzenie bazy ćwiczeń do ~90 pozycji.
 (`seed.ts:270`) przykrywa seed tablicą `old.exercises`, więc **samo dopisanie
 ćwiczeń do `SEED_EXERCISES` nie dotrze do istniejącego stanu** — potrzebny jest
 merge biblioteki (P3-8 krok 1), nie bump `SCHEMA_VERSION`.
+
+---
+
+## 14. Backlog P5 — zgłoszenia Kamila (sesja 27.07.2026, wieczór II)
+
+Trzy tematy rozpisane w **`POMYSLY.md`, sekcja „P5"** (spec + pliki/linie + testy +
+kryteria akceptacji, do wdrożenia pojedynczo przez Sonneta):
+
+- **P5-1 — oś Y wykresu pokazuje nieokrągłe / powtórzone liczby.** `niceTicks`
+  (`Charts.tsx:8-12`) dzieli rozciągniętą o 15% domenę (`:57-59`) na równe kawałki
+  i dopiero podpis jest zaokrąglany → `54/57/61/64`, a przy płaskiej serii
+  `50/50/50/50`. Fix: nowy `src/lib/scale.ts` z `niceScale()` (algorytm „nice
+  numbers": krok 1/2/2,5/5 × 10ⁿ), domena osi = domena skali, margines lewy liczony
+  z długości podpisu.
+- **P5-2 — przerywana projekcja startuje w przeszłości.** Punkt zaczepienia linii
+  (ostatnia sesja) jest OK i zostaje; błędem są daty kropek: `projectHistory`
+  (`logic.ts:760-778`) liczy `ostatnia sesja + k × średni odstęp`, więc po przerwie
+  dłuższej niż odstęp pierwsze „przyszłe" kropki wypadają w przeszłości. Fix:
+  opcjonalny `nowIso` przycinający kropki do przyszłości (**opcjonalny — inaczej
+  padają 4 testy**, `tests/logic.test.ts:841-853`) + nowy prop `nowX` w `LineChart`
+  rysujący pionową kreskę „dziś".
+- **P5-3 — instrukcja wykonania ćwiczenia** (domyślnie zwinięta sekcja „Jak wykonać?"
+  przy każdym ćwiczeniu w Treningu). **Nie GIF i nie filmik** — 90 ćwiczeń × 30-80 KB
+  rozwaliłoby jednoplikowy bundle (dziś 368 KB) i offline. Zamiast tego animowany
+  ludzik SVG generowany z kątów w stawach: ~18 wzorców ruchu × ~0,3 KB, animacja
+  czystym CSS (jedna klatka kluczowa + zmienne CSS na staw, zero JS), do tego kroki /
+  częste błędy per ćwiczenie. Trzy etapy: 3a silnik + 6 wzorców + wpięcie w Trening,
+  3b pełna baza 90 ćwiczeń + Plan, 3c (opcjonalnie) link do YouTube zamiast osadzania.
