@@ -58,3 +58,23 @@ input[type="date"]::-webkit-date-and-time-value {
 input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.5;
 }
+
+/* P4-1: wejście toasta od dołu (najnowszy najbliżej kciuka). */
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast-enter {
+  animation: toast-enter 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter {
+    animation: none;
+  }
+}

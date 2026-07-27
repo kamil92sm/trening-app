@@ -18,17 +18,25 @@ const TABS: { id: Tab; label: string; icon: typeof Dumbbell }[] = [
   { id: "more", label: "Więcej", icon: Menu },
 ];
 
+// P4-1: dół zamiast góry — pod Dynamic Island toast zasłaniał dokładnie ten
+// nagłówek/kartę, którego dotyczył. 132px = 60px nawigacja + 10px padding +
+// 44px pigułka timera (TrainScreen.tsx) + odstępy — toast nigdy nie nachodzi
+// na timer w trakcie treningu (patrz "Wspólne pułapki P4" w POMYSLY.md).
+const TOAST_BOTTOM_PX = 132;
+const MAX_VISIBLE_TOASTS = 3;
+
 function Toaster({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
-  const toasts = useToasts();
+  const toasts = useToasts().slice(-MAX_VISIBLE_TOASTS);
   return (
     <div
-      className="pointer-events-none fixed left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4"
-      style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+      className="pointer-events-none fixed left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col-reverse gap-2 px-4"
+      style={{ bottom: `${TOAST_BOTTOM_PX}px` }}
     >
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="pointer-events-auto rounded-lg border border-border bg-card/95 p-3 shadow-lg backdrop-blur"
+          onClick={() => dismissToast(t.id)}
+          className="toast-enter pointer-events-auto rounded-lg border border-border bg-card/95 p-3 shadow-lg backdrop-blur"
         >
           <p className="text-sm font-medium">{t.title}</p>
           {t.description && <p className="text-xs text-muted-foreground">{t.description}</p>}
@@ -36,7 +44,8 @@ function Toaster({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
             <button
               type="button"
               className="mt-1.5 text-xs font-semibold text-primary underline underline-offset-2"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 onNavigate(t.action!.tab as Tab);
                 dismissToast(t.id);
               }}
