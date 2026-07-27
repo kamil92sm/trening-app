@@ -1,9 +1,8 @@
 // P6-2: cienki hook nad singletonem src/lib/rest-timer-store.ts.
 import { useSyncExternalStore } from "react";
-import { restTimer } from "@/lib/rest-timer-store";
-import type { RestTimerState } from "@/lib/rest-timer";
+import { restTimer, type RestTimerSnapshot } from "@/lib/rest-timer-store";
 
-export function useRestTimerState(): RestTimerState {
+export function useRestTimerState(): RestTimerSnapshot {
   return useSyncExternalStore(restTimer.subscribe, restTimer.getSnapshot, restTimer.getSnapshot);
 }
 

@@ -437,6 +437,51 @@ check(
 );
 check("BUG-1: flaga historyTargetsSeeded ustawiona po dogonieniu", migV5.historyTargetsSeeded === true);
 
+// P6-5: backfill restSeconds - mergeExerciseLibrary swiadomie NIE dolewa pol z
+// seeda do istniejacych cwiczen usera, a restSeconds doszlo do seeda pozniej
+// niz istniejace stany - te cwiczenia utkely bez niego na zawsze bez backfillu.
+{
+  const benchSeed = SEED_EXERCISES.find((e) => e.id === "bench_bb")!;
+  const squatSeed = SEED_EXERCISES.find((e) => e.id === "squat")!;
+  const { restSeconds: _benchRest, ...benchNoRest } = benchSeed;
+  const { restSeconds: _squatRest, ...squatBase } = squatSeed;
+  const customEx = { ...squatBase, id: "custom_ex_1", name: "Własne ćwiczenie" };
+
+  const rawForBackfill = {
+    version: SCHEMA_VERSION,
+    exercises: [benchNoRest, { ...squatSeed, restSeconds: 999 }, customEx],
+    days: SEED_DAYS,
+    targets: SEED_TARGETS,
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  const migBackfill = migrateState(rawForBackfill);
+  check(
+    "P6-5: backfill - cwiczenie z seeda BEZ wlasnego restSeconds dostaje wartosc z seeda",
+    migBackfill.exercises.find((e) => e.id === "bench_bb")?.restSeconds === benchSeed.restSeconds,
+    migBackfill.exercises.find((e) => e.id === "bench_bb")?.restSeconds
+  );
+  check(
+    "P6-5: backfill - cwiczenie z seeda z WLASNA wartoscia restSeconds NIE nadpisane",
+    migBackfill.exercises.find((e) => e.id === "squat")?.restSeconds === 999,
+    migBackfill.exercises.find((e) => e.id === "squat")?.restSeconds
+  );
+  check(
+    "P6-5: backfill - cwiczenie spoza seeda (wlasne uzytkownika) bez restSeconds - bez zmian",
+    migBackfill.exercises.find((e) => e.id === "custom_ex_1")?.restSeconds === undefined
+  );
+  check("P6-5: flaga restSecondsBackfilled ustawiona po backfillu", migBackfill.restSecondsBackfilled === true);
+
+  const rawAlreadyBackfilled = { ...rawForBackfill, restSecondsBackfilled: true };
+  const migNoRebackfill = migrateState(rawAlreadyBackfilled);
+  check(
+    "P6-5: flaga restSecondsBackfilled=true -> backfill NIE uruchamia sie ponownie",
+    migNoRebackfill.exercises.find((e) => e.id === "bench_bb")?.restSeconds === undefined
+  );
+}
+
 // Dedup: wlasny wpis uzytkownika z tego samego dnia blokuje wstrzykniecie duplikatu
 const oldV4dup = {
   ...oldV4,

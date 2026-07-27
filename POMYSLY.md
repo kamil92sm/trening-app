@@ -2712,7 +2712,7 @@ strzałkami/kropkami działa jak wcześniej.
 
 ---
 
-### [ ] P6-5. „Zawsze 2:00" przed pierwszą serią — mimo że każde ćwiczenie ma własną przerwę
+### [x] P6-5. „Zawsze 2:00" przed pierwszą serią — mimo że każde ćwiczenie ma własną przerwę (2026-07-27)
 
 **Zgłoszenie Kamila:** „Włączam dany dzień i mam stały czas 2:00, i dopiero jak zrobię
 ćwiczenie, to zaczyna lecieć poprawna przerwa. Po co to 2:00 zawsze? Widzę w ustawieniach

@@ -154,6 +154,8 @@ export interface AppState {
   historySeeded?: boolean;
   /** Czy cele zostały już dogonione do progresji wynikającej z historii sesji — jednorazowo. */
   historyTargetsSeeded?: boolean;
+  /** P6-5: czy ćwiczeniom z seeda bez własnego `restSeconds` dolano wartosc z seeda — jednorazowo. */
+  restSecondsBackfilled?: boolean;
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;

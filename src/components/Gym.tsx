@@ -124,6 +124,7 @@ export function RestTimer({ variant = "pill" }: {
   const now = Date.now();
   const left = remainingMs(state, now);
   const running = isRunning(state);
+  const paused = isPaused(state);
   const finished = isFinished(state);
   // P4-2: poswiata "done" (zielona) - okno ~2s tuz po zejsciu do zera, ten sam
   // efekt co dawny `showDoneGlow`, teraz liczony z `lastEndedAt` zamiast z timeoutu.
@@ -135,6 +136,9 @@ export function RestTimer({ variant = "pill" }: {
   const showAgo = finished && isFreshlyFinished(state, now, 10 * 60 * 1000) && agoMs > 5000;
   const doneColor = finished && isFreshlyFinished(state, now, 10 * 60 * 1000);
   const almostDone = running && left > 0 && left <= 5000;
+  // P6-5: w spoczynku (nikt jeszcze nie startowal TEGO odliczania) pigulka/panel
+  // maja mowic co pokazuja - "Przerwa: Przysiad", nie goly "3:00" bez kontekstu.
+  const showLabel = !running && !paused && !finished && state.label !== null;
 
   const toggle = () => restTimer.toggle();
   const reset = () => restTimer.reset();
@@ -179,6 +183,7 @@ export function RestTimer({ variant = "pill" }: {
           />
         </div>
         {showAgo && <p className="mt-1 text-[11px] text-green-400">Przerwa skończona {fmtAgo(agoMs)}</p>}
+        {showLabel && <p className="mt-1 truncate text-[11px] text-muted-foreground">Przerwa: {state.label}</p>}
       </div>
     );
   }
@@ -223,6 +228,11 @@ export function RestTimer({ variant = "pill" }: {
           {showAgo && (
             <span className="mt-0.5 w-[56px] truncate text-center text-[8px] leading-none text-green-400/80">
               {fmtAgo(agoMs)}
+            </span>
+          )}
+          {showLabel && (
+            <span className="mt-0.5 w-[56px] truncate text-center text-[8px] leading-none text-muted-foreground">
+              {state.label}
             </span>
           )}
         </div>

@@ -402,9 +402,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Kopia bezpieczeństwa PRZED wyzerowaniem — z tych samych powodów co przy imporcie.
         saveAutoBackupSnapshot(state);
         // "Wyzeruj wszystko" ma naprawdę czyścić historię — ustawiamy flagi
-        // historySeeded/historyTargetsSeeded, żeby jednorazowe dosiewy NIE
-        // wstrzyknęły z powrotem historii ani nie przeliczyły celów.
-        setState({ ...defaultState(), historySeeded: true, historyTargetsSeeded: true });
+        // historySeeded/historyTargetsSeeded/restSecondsBackfilled, żeby
+        // jednorazowe dosiewy NIE wstrzyknęły z powrotem historii, nie
+        // przeliczyły celów ani nie próbowały dolewać restSeconds (świeży
+        // seed ma je już wszystkie).
+        setState({
+          ...defaultState(),
+          historySeeded: true,
+          historyTargetsSeeded: true,
+          restSecondsBackfilled: true,
+        });
       },
 
       restoreAutoBackup() {

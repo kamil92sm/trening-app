@@ -490,12 +490,15 @@ export function MoreScreen() {
             </div>
           </div>
           <div>
-            <Label>Przerwa między seriami (s)</Label>
+            <Label>Domyślna przerwa między seriami (s)</Label>
             <Input
               type="number" inputMode="numeric" step="15"
               value={state.settings.restSeconds}
               onChange={(e) => store.updateSettings({ restSeconds: parseInt(e.target.value) || 120 })}
             />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Używana tylko dla ćwiczeń bez własnej przerwy — te ustawisz w Planie.
+            </p>
           </div>
           <div>
             <Label>Talerze (kg, po przecinku)</Label>

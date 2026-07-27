@@ -308,7 +308,7 @@ export function TrainScreen() {
     if (!draft || layout !== "focus") return;
     const entry = draft.entries[focusIdx];
     const ex = entry ? state.exercises.find((e) => e.id === entry.exerciseId) : undefined;
-    restTimer.stop(ex?.restSeconds ?? state.settings.restSeconds);
+    restTimer.stop(ex?.restSeconds ?? state.settings.restSeconds, ex?.name ?? null);
   }, [focusIdx, layout]);
 
   function toggleWarmup(entryIdx: number) {
@@ -388,7 +388,11 @@ export function TrainScreen() {
     // trening ma wystartowac od czystego, zatrzymanego stanu - inaczej
     // odliczanie z POPRZEDNIEGO treningu w tej samej sesji (karta nie byla
     // przeladowana) leciałoby dalej / pigulka pokazywalaby stary czas.
-    restTimer.stop(state.settings.restSeconds);
+    // P6-5: pokaz przerwe PIERWSZEGO cwiczenia (nie globalne settings.restSeconds)
+    // juz teraz - inaczej przed pierwsza zaliczona seria timer klamie, pokazujac
+    // wartosc, ktora nigdy nie bedzie realnie odliczana.
+    const firstEx = entries[0] ? state.exercises.find((e) => e.id === entries[0].exerciseId) : undefined;
+    restTimer.stop(firstEx?.restSeconds ?? state.settings.restSeconds, firstEx?.name ?? null);
   }
 
   function generateBonusSuggestion(day: WorkoutDay) {
@@ -422,7 +426,7 @@ export function TrainScreen() {
       if (allEntriesDoneAfter) {
         restTimer.stop();
       } else {
-        restTimer.start(ex?.restSeconds ?? state.settings.restSeconds);
+        restTimer.start(ex?.restSeconds ?? state.settings.restSeconds, ex?.name ?? null);
       }
 
       // P1-8: jednorazowy toast, gdy zaznaczenie serii bije rekord życia.
@@ -1408,17 +1412,27 @@ export function TrainScreen() {
           Zakończ trening
         </Button>
       </div>
-      {/* P6-2: pigulka timera przerwy przeniesiona do App.tsx (obok Toastera) -
-          zyje na kazdej zakladce, nie tylko tutaj (patrz src/lib/rest-timer-store.ts).
+      {/* Pigulka timera - lokalnie na TEJ zakladce, ZAWSZE gdy trwa trening
+          (rowniez w spoczynku, przed pierwsza seria - P6-5: ma pokazywac
+          przerwe PIERWSZEGO cwiczenia, nie znikac do momentu pierwszego
+          klikniecia). Poza zakladka Trening przejmuje ja globalny
+          GlobalRestPill w App.tsx (widoczny tylko gdy realnie cos sie dzieje -
+          patrz useShowRestPill), zeby nie dublowac pigulek gdy jestes tutaj.
           P6-3: gdy WSZYSTKIE serie sa zaliczone, timer jest juz zatrzymany
-          (updateSet) wiec globalna pigulka sama znika - w jej miejscu (ten sam
-          fixed/bottom co ona) podpowiedz, ze nie ma juz czego odmierzac. */}
-      {allSetsDone && (
+          (updateSet) - w tym samym miejscu podpowiedz zamiast pigulki. */}
+      {allSetsDone ? (
         <div
           className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-green-500/40 bg-card/95 px-4 py-1.5 text-xs font-medium text-green-400 shadow-lg backdrop-blur"
           style={{ bottom: "78px" }}
         >
           Wszystko zrobione — zakończ trening
+        </div>
+      ) : (
+        <div
+          className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
+          style={{ bottom: "78px" }}
+        >
+          <RestTimer variant="pill" />
         </div>
       )}
     </div>

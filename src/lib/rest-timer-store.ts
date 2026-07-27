@@ -15,6 +15,15 @@ import {
   tick,
 } from "./rest-timer";
 
+/** P6-5: snapshot store'u = stan czasowy (rest-timer.ts) + krótka etykieta
+ * ćwiczenia, którego dotyczy bieżący `totalSec` — do pokazania "Przerwa:
+ * {nazwa}" w pigułce/panelu w spoczynku, zamiast gołego "2:00" bez kontekstu.
+ * Etykieta NIE trafia do rest-timer.ts (czysty moduł o samym czasie,
+ * testowalny bez DOM-u) - żyje tylko tutaj, w warstwie zwróconej do UI. */
+export interface RestTimerSnapshot extends RestTimerState {
+  label: string | null;
+}
+
 const STORAGE_KEY = "trening-app-rest-timer";
 
 function loadInitial(): RestTimerState {
@@ -55,7 +64,7 @@ function beep() {
   }
 }
 
-let state: RestTimerState = loadInitial();
+let state: RestTimerSnapshot = { ...loadInitial(), label: null };
 let soundEnabled = true;
 let intervalId: ReturnType<typeof setInterval> | null = null;
 const listeners = new Set<() => void>();
@@ -89,9 +98,9 @@ function syncInterval() {
 // zwroci Object.is-rowna wartosc, a licznik ma tykac co 250 ms na ekranie.
 function poll() {
   const now = Date.now();
-  const next = tick(state, now);
-  const finished = next !== state;
-  state = { ...next };
+  const rawNext = tick(state, now);
+  const finished = rawNext !== state;
+  state = { ...rawNext, label: state.label };
   if (finished) {
     persist();
     if (soundEnabled) beep();
@@ -100,8 +109,9 @@ function poll() {
   notify();
 }
 
-function setState(next: RestTimerState) {
-  state = next;
+/** `label === undefined` -> zostaw bez zmian (pause/resume/reset nie dotycza cwiczenia). */
+function setState(next: RestTimerState, label?: string | null) {
+  state = { ...next, label: label !== undefined ? label : state.label };
   persist();
   syncInterval();
   notify();
@@ -120,13 +130,13 @@ if (typeof window !== "undefined") {
   syncInterval();
 }
 
-function start(totalSec: number) {
-  setState(startState(totalSec, Date.now()));
+function start(totalSec: number, label: string | null = null) {
+  setState(startState(totalSec, Date.now()), label);
 }
 
-/** Zatrzymuje bieżące odliczanie; opcjonalnie ustawia nowy `totalSec` (np. przy zmianie ćwiczenia). */
-function stop(totalSec?: number) {
-  setState(idleState(totalSec ?? state.totalSec));
+/** Zatrzymuje bieżące odliczanie; opcjonalnie ustawia nowy `totalSec`/`label` (np. przy zmianie ćwiczenia). */
+function stop(totalSec?: number, label: string | null = null) {
+  setState(idleState(totalSec ?? state.totalSec), label);
 }
 
 function pause() {
@@ -139,11 +149,11 @@ function resume() {
   setState(resumeState(state, Date.now()));
 }
 
-/** Start<->pauza; ze stanu zatrzymanego/skończonego startuje pełną długość od nowa. */
+/** Start<->pauza; ze stanu zatrzymanego/skończonego startuje pełną długość od nowa (ta sama etykieta). */
 function toggle() {
   if (isRunning(state)) pause();
   else if (isPaused(state)) resume();
-  else start(state.totalSec);
+  else start(state.totalSec, state.label);
 }
 
 function reset() {
@@ -159,7 +169,7 @@ function subscribe(cb: () => void) {
   return () => listeners.delete(cb);
 }
 
-function getSnapshot(): RestTimerState {
+function getSnapshot(): RestTimerSnapshot {
   return state;
 }
 

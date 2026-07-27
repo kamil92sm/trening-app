@@ -739,8 +739,35 @@ function catchUpTargetsOnce(state: AppState): AppState {
   return { ...catchUpTargetsFromHistory(state), historyTargetsSeeded: true };
 }
 
+/**
+ * P6-5: `restSeconds` (przerwa per ćwiczenie) doszło do `Exercise` już PO tym,
+ * jak wielu użytkowników miało swój stan zapisany — `mergeExerciseLibrary`
+ * świadomie nie dolewa pól z seeda do istniejących ćwiczeń (ochrona ręcznych
+ * edycji Plan → Przerwa), więc te ćwiczenia utknęły bez `restSeconds` na
+ * zawsze i timer przed pierwszą serią zawsze pokazywał globalne 120 s.
+ * Backfill jednorazowy: dla ćwiczenia o ID istniejącym w SEED_EXERCISES BEZ
+ * własnego `restSeconds` — kopiuje wartość z seeda. Nie dotyka ćwiczeń
+ * spoza seeda (własnych użytkownika) ani tych, które już mają swoją wartość
+ * (także `restSeconds: 0`, gdyby ktoś świadomie tak ustawił — `!== undefined`).
+ */
+function backfillRestSecondsFromSeed(state: AppState): AppState {
+  const seedById = new Map(SEED_EXERCISES.map((e) => [e.id, e]));
+  const exercises = state.exercises.map((ex) => {
+    if (ex.restSeconds !== undefined) return ex;
+    const seedEx = seedById.get(ex.id);
+    if (!seedEx || seedEx.restSeconds === undefined) return ex;
+    return { ...ex, restSeconds: seedEx.restSeconds };
+  });
+  return { ...state, exercises };
+}
+
+function backfillRestSecondsOnce(state: AppState): AppState {
+  if (state.restSecondsBackfilled) return state;
+  return { ...backfillRestSecondsFromSeed(state), restSecondsBackfilled: true };
+}
+
 function applyOneTimeSeeds(state: AppState): AppState {
-  return catchUpTargetsOnce(seedHistoryOnce(state));
+  return backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(state)));
 }
 
 /**

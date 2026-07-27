@@ -62,11 +62,14 @@ function Toaster({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   );
 }
 
-// P6-2: pigulka timera przerwy widoczna na KAZDEJ zakladce, dopoki przerwa
-// leci/jest zapauzowana/skonczyla sie niedawno (useShowRestPill) - to
-// bezposrednia odpowiedz na "zmieniam karte i tracę przerwę". W trybie
-// skupienia na zakladce Trening pigulka jest zbedna - ten sam timer juz
-// pokazuje sie tam duzy, jako panel (TrainScreen.tsx).
+// P6-2/P6-5: pigulka timera przerwy widoczna na KAZDEJ zakladce POZA Trening,
+// dopoki przerwa leci/jest zapauzowana/skonczyla sie niedawno (useShowRestPill)
+// - to bezposrednia odpowiedz na "zmieniam karte i tracę przerwę". Na samej
+// zakladce Trening timer renderuje sie LOKALNIE (TrainScreen.tsx) - w trybie
+// listy jako wlasna pigulka WIDOCZNA TEZ W SPOCZYNKU (P6-5: ma pokazywac
+// przerwe biezacego cwiczenia od razu po wejsciu w dzien, nie dopiero po
+// pierwszym kliknieciu), w trybie skupienia jako duzy panel. Globalna pigulka
+// tutaj pokazywalaby sie wiec podwojnie, gdyby nie byla ukryta na tej zakladce.
 function GlobalRestPill({ hidden }: { hidden: boolean }) {
   const show = useShowRestPill();
   if (hidden || !show) return null;
@@ -83,7 +86,6 @@ function GlobalRestPill({ hidden }: { hidden: boolean }) {
 export default function App() {
   const [tab, setTab] = useState<Tab>("train");
   const { state } = useStore();
-  const layout = state.settings.loggerLayout ?? "list";
 
   // P6-2: dzwiek timera (beep w store'ze) idzie za ustawieniem "Dzwiek" -
   // synchronizowane tutaj, bo store zyje poza Reactem i nie ma wlasnego
@@ -99,7 +101,7 @@ export default function App() {
     // dolną nawigację. Przy zwiniętym pasku Safari pozycja jest stała wszędzie.
     <div className="mx-auto flex min-h-full max-w-xl flex-col" style={{ minHeight: "calc(100lvh + 1px)" }}>
       <Toaster onNavigate={setTab} />
-      <GlobalRestPill hidden={tab === "train" && layout === "focus"} />
+      <GlobalRestPill hidden={tab === "train"} />
       <main className="flex-1 pb-20">
         {tab === "train" && <TrainScreen />}
         {tab === "progress" && <ProgressScreen />}
