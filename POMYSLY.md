@@ -1707,7 +1707,7 @@ w POMYSLY.md, uruchom npm test + npm run build i zrób commit.
 
 ---
 
-### [ ] P4-1. Toasty na dole ekranu (zamiast pod Dynamic Island)
+### [x] P4-1. Toasty na dole ekranu (zamiast pod Dynamic Island) (2026-07-27)
 
 **Problem (screen IMG_3161):** toast „Zmieniono cel tygodnia" wjeżdża na górę i
 zasłania nagłówek ekranu oraz kartę „Cel tygodnia" — dokładnie ten element, którego
@@ -1753,7 +1753,7 @@ dotyczy. Na 6,1" ekranie zabiera ~20% widoku i jest daleko od kciuka.
 
 ---
 
-### [ ] P4-2. Neonowa otoczka pigułki timera (tryb listy, NIE tryb skupienia)
+### [x] P4-2. Neonowa otoczka pigułki timera (tryb listy, NIE tryb skupienia) (2026-07-27)
 
 **Czego chce Kamil:** żeby odliczanie przerwy w normalnym trybie (pływająca pigułka
 nad nawigacją) miało „fajną neonową otoczkę" — czytelny sygnał peryferyjny, że czas
@@ -1802,7 +1802,7 @@ leci, bez patrzenia w cyfry. Tryb skupienia (`variant="panel"`) zostaje jak jest
 
 ---
 
-### [ ] P4-3. „Brzuch: 0 kg" w widoku Wykonane → to nie jest jeden bug, tylko dwa braki
+### [x] P4-3. „Brzuch: 0 kg" w widoku Wykonane → to nie jest jeden bug, tylko dwa braki (2026-07-27)
 
 **Pytanie Kamila (screen IMG_3162):** czemu w „Objętość tygodniowa → Wykonane (7 dni)
 → kg" Brzuch pokazuje 0 kg.
@@ -1876,7 +1876,7 @@ i motywacja. Jeśli Kamil ma czas tylko na jedno — P4-4.
 
 ---
 
-### [ ] P4-4. Autoregulacja przyrostu: RIR ostatniej serii steruje progresją
+### [x] P4-4. Autoregulacja przyrostu: RIR ostatniej serii steruje progresją (2026-07-27)
 
 **Dlaczego to jest największy skok jakości:** dziś progresja widzi tylko powtórzenia
 (`computeProgression`, `logic.ts:339+`). 3×8 wykonane na luzie (2–3 powtórzenia
@@ -2015,7 +2015,7 @@ rysuje.
 
 ---
 
-### [ ] P4-9. Cel na 12 tygodni + ETA z realnego trendu
+### [x] P4-9. Cel na 12 tygodni + ETA z realnego trendu (2026-07-27)
 
 **Dlaczego:** `projectHistory` (FEAT-2) już ekstrapoluje trend, ale nie odpowiada na
 pytanie, które faktycznie motywuje: „kiedy wycisnę 60 kg".
