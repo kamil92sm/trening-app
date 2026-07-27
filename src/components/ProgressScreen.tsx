@@ -171,7 +171,7 @@ export function ProgressScreen() {
           <CardDescription>
             {volumeMetric === "sets"
               ? "Serie robocze na partię (główna = 1, wspomagająca = ½)"
-              : "Tonaż na partię (kg × powtórzenia, hantle ×2)"}{" "}
+              : "Tonaż na partię (kg × powtórzenia, hantle ×2) · bez izometryki"}{" "}
             · {volumeView === "planned" ? "z planu" : "wykonane w ostatnich 7 dniach"}
           </CardDescription>
         </CardHeader>
@@ -240,6 +240,22 @@ export function ProgressScreen() {
             return volumes.map((v) => {
             if (volumeMetric === "tonnage") {
               const pct = Math.min((v.tonnage / maxTonnage) * 100, 100);
+              // P4-3: "0 kg" jest nieodrozniale od "nic nie robiles" - dopisujemy
+              // powod, gdy zero wynika z izometryki i/lub cwiczen bez obciazenia,
+              // a nie z braku serii. Partia faktycznie nietrenowana (sets===0)
+              // zostaje bez przypisu.
+              const zeroExplained = v.tonnage === 0 && v.sets > 0 && (v.holdSets > 0 || v.zeroLoadSets > 0);
+              const zeroReasons: string[] = [];
+              if (zeroExplained && v.holdSets > 0) {
+                zeroReasons.push(
+                  `${v.holdSets} ${v.holdSets === 1 ? "seria izometryczna" : "serii izometrycznych"} — czas pod napięciem nie ma tonażu`
+                );
+              }
+              if (zeroExplained && v.zeroLoadSets > 0) {
+                zeroReasons.push(
+                  `${v.zeroLoadSets} ${v.zeroLoadSets === 1 ? "seria" : "serii"} z masą własną (0 kg wpisane) — brak tonażu`
+                );
+              }
               return (
                 <div key={v.muscle}>
                   <div className="flex items-center justify-between gap-2 text-xs">
@@ -249,6 +265,9 @@ export function ProgressScreen() {
                   <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full bg-sky-400 transition-all" style={{ width: `${pct}%` }} />
                   </div>
+                  {zeroReasons.length > 0 && (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroReasons.join(", ")}</p>
+                  )}
                 </div>
               );
             }

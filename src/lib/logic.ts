@@ -118,6 +118,13 @@ export interface MuscleVolume {
   direct: number;
   tonnage: number;
   status: VolumeStatus;
+  /** P4-3: serie robocze (partia GŁÓWNA) z ćwiczeń isHold — mają 0 kg tonażu z
+   * definicji (czas pod napięciem, nie kg × powt.), żeby "0 kg" w widoku Wykonane
+   * dało się odróżnić od partii faktycznie nietrenowanej. */
+  holdSets: number;
+  /** P4-3: serie robocze (partia GŁÓWNA) z ćwiczeń bez obciążenia (masa własna
+   * logowana z 0 kg) — ten sam powód zerowego tonażu co wyżej, inne źródło. */
+  zeroLoadSets: number;
 }
 
 function volumeStatus(
@@ -140,8 +147,8 @@ function volumeStatus(
  * `goal` decyduje o progach statusu (patrz MUSCLE_RANGES_STRENGTH/_HYPERTROPHY).
  */
 export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertrophy"): MuscleVolume[] {
-  const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
-  for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number; hold: number; zero: number }>();
+  for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0, hold: 0, zero: 0 });
   // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
   const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
@@ -159,6 +166,8 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
         a.sets += sets;
         a.direct += sets;
         a.tonnage += tonnage;
+        if (ex.isHold) a.hold += sets;
+        else if (target === 0) a.zero += sets;
       }
       for (const m of ex.secondaryMuscles ?? []) {
         const a = acc.get(m)!;
@@ -175,6 +184,8 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
       direct: a.direct,
       tonnage: Math.round(a.tonnage),
       status: volumeStatus(a.sets, muscle, goal, state.settings.muscleRanges),
+      holdSets: a.hold,
+      zeroLoadSets: a.zero,
     };
   });
 }
@@ -207,8 +218,8 @@ export function actualWeeklyMuscleVolume(
   goal: VolumeGoal = "hypertrophy",
   nowIso?: string
 ): MuscleVolume[] {
-  const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number }>();
-  for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0 });
+  const acc = new Map<Muscle, { sets: number; direct: number; tonnage: number; hold: number; zero: number }>();
+  for (const m of MUSCLES) acc.set(m, { sets: 0, direct: 0, tonnage: 0, hold: 0, zero: 0 });
   // P3-8: baza urosla do ~90 pozycji - Map zamiast .find() w petli (O(n) zamiast O(n*m)).
   const exById = new Map(state.exercises.map((e) => [e.id, e]));
 
@@ -229,6 +240,11 @@ export function actualWeeklyMuscleVolume(
         a.sets += doneSets;
         a.direct += doneSets;
         a.tonnage += tonnage;
+        if (ex.isHold) {
+          a.hold += doneSets;
+        } else {
+          a.zero += entry.sets.filter((s) => s.done && s.weight === 0).length;
+        }
       }
       for (const m of ex.secondaryMuscles ?? []) {
         const a = acc.get(m)!;
@@ -245,6 +261,8 @@ export function actualWeeklyMuscleVolume(
       direct: a.direct,
       tonnage: Math.round(a.tonnage),
       status: volumeStatus(a.sets, muscle, goal, state.settings.muscleRanges),
+      holdSets: a.hold,
+      zeroLoadSets: a.zero,
     };
   });
 }

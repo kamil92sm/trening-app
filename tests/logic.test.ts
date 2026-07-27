@@ -1095,5 +1095,68 @@ check(
   typeof validateBackup({ ...defaultState(), exercises: [{ foo: "bar" }] }) === "string"
 );
 
+// P4-3: "0 kg" w widoku Wykonane rozroznione od "nic nie robiles" - holdSets/zeroLoadSets
+const stHoldOnly = defaultState();
+stHoldOnly.sessions.push({
+  id: "hold1",
+  dayId: "wed",
+  date: "2026-07-24",
+  completed: true,
+  entries: [
+    {
+      exerciseId: "plank",
+      targetWeight: 10,
+      sets: [
+        { weight: 10, reps: 40, done: true },
+        { weight: 10, reps: 40, done: true },
+      ],
+    },
+  ],
+});
+const holdActual = actualWeeklyMuscleVolume(stHoldOnly, "hypertrophy", "2026-07-26").find((v) => v.muscle === "Brzuch")!;
+check(
+  "P4-3: sama deska (isHold) -> tonnage 0, holdSets = zaliczone serie",
+  holdActual.tonnage === 0 && holdActual.holdSets === 2 && holdActual.zeroLoadSets === 0,
+  holdActual
+);
+
+const stZeroLoad = defaultState();
+stZeroLoad.sessions.push({
+  id: "zero1",
+  dayId: "mon",
+  date: "2026-07-24",
+  completed: true,
+  entries: [
+    {
+      exerciseId: "hanging_leg_raise",
+      targetWeight: 0,
+      sets: [
+        { weight: 0, reps: 12, done: true },
+        { weight: 0, reps: 12, done: true },
+      ],
+    },
+  ],
+});
+const zeroActual = actualWeeklyMuscleVolume(stZeroLoad, "hypertrophy", "2026-07-26").find((v) => v.muscle === "Brzuch")!;
+check(
+  "P4-3: cwiczenie bodyweight z 0 kg -> tonnage 0, zeroLoadSets = zaliczone serie",
+  zeroActual.tonnage === 0 && zeroActual.zeroLoadSets === 2 && zeroActual.holdSets === 0,
+  zeroActual
+);
+
+const normalActual = actualWeeklyMuscleVolume(stActual, "hypertrophy", "2026-07-26").find((v) => v.muscle === "Klatka")!;
+check(
+  "P4-3: zwykle cwiczenie z tonazem -> holdSets i zeroLoadSets oba 0",
+  normalActual.tonnage > 0 && normalActual.holdSets === 0 && normalActual.zeroLoadSets === 0,
+  normalActual
+);
+
+const plankPlanned = weeklyMuscleVolume(defaultState(), "hypertrophy").find((v) => v.muscle === "Brzuch")!;
+check(
+  "P4-3: weeklyMuscleVolume (plan) - deska w srode dokladana do holdSets",
+  plankPlanned.holdSets === 4,
+  plankPlanned
+);
+
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);
