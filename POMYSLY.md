@@ -1901,6 +1901,12 @@ pyta, ile faktycznie zostało w baku.
    modyfikuje wynik **tylko gdy komplet powtórzeń został zrobiony** (czyli tam, gdzie
    dziś jest `+increment`):
    - `lastRir >= 3` → `+2 × increment`, komunikat „Zostały 3+ w zapasie — podwójny skok".
+     **Limit bezpieczeństwa (obowiązkowy):** podwójny skok tylko gdy
+     `2 * ex.increment <= 0.15 * targetWeight` ORAZ `ex.id !== "deadlift"` — inaczej
+     zwykły `+increment`. Bez tego wznosy bokiem (9 kg, krok 1) dostałyby +22% w tydzień,
+     a hantle na skosie (16 kg, krok 2) +25%. W praktyce podwójny skok dostają sztangowe
+     wielostawowe (wyciskanie 11%, przysiad 7,7%, wiosłowanie 8%), izolacje na hantlach nie.
+     Wyjątek martwego ciągu jest spójny z istniejącym wyjątkiem w `exerciseForMode`.
    - `lastRir === 2` albo `undefined` → jak dziś (`+increment`).
    - `lastRir <= 1` → `+increment`, ale dopisz „Blisko upadku — jeśli następny raz
      nie wyjdzie, zostań na tym ciężarze".
@@ -1911,7 +1917,9 @@ pyta, ile faktycznie zostało w baku.
 5. Podsumowanie treningu pokazuje powód skoku, gdy był podwójny.
 
 **Kryteria akceptacji:**
-- Testy: komplet + RIR 3 → cel +2 kroki; komplet + RIR 1 → +1 krok + ostrzeżenie;
+- Testy: komplet + RIR 3 na wyciskaniu (45 kg, krok 2,5) → 50 kg; komplet + RIR 3 na
+  wznosach bokiem (9 kg, krok 1 — limit 15%) → 10 kg, NIE 11; komplet + RIR 3 na martwym
+  ciągu → pojedynczy krok; komplet + RIR 1 → +1 krok + ostrzeżenie;
   komplet bez RIR → identycznie jak przed zmianą (regresja!); brak kompletu + RIR 0
   dwa razy → sygnał deloadu.
 - Trening bez dotykania RIR daje dokładnie te same cele co dziś.
