@@ -411,7 +411,19 @@ export function TrainScreen() {
     if (patch.done === true) {
       const exId = draft?.entries[entryIdx]?.exerciseId;
       const ex = exId ? state.exercises.find((e) => e.id === exId) : undefined;
-      restTimer.start(ex?.restSeconds ?? state.settings.restSeconds);
+      // P6-3: jesli to kliknięcie zaliczyło OSTATNIĄ nie odhaczoną serię całego
+      // treningu - nie ma juz czego odpoczywac, tylko "Zakoncz trening". Liczone
+      // z domkniecia `draft` sprzed setDraft() (ten sam wzorzec co `othersAlreadyDone`
+      // nizej), rozszerzone na WSZYSTKIE wpisy, nie tylko biezace cwiczenie.
+      const allEntriesDoneAfter =
+        (draft?.entries ?? []).every((e, i) =>
+          i === entryIdx ? e.sets.every((s, si) => si === setIdx || s.done) : e.sets.every((s) => s.done)
+        );
+      if (allEntriesDoneAfter) {
+        restTimer.stop();
+      } else {
+        restTimer.start(ex?.restSeconds ?? state.settings.restSeconds);
+      }
 
       // P1-8: jednorazowy toast, gdy zaznaczenie serii bije rekord życia.
       // `prevSet` to jeszcze stary stan (przed setDraft powyżej) — merge z
@@ -527,6 +539,11 @@ export function TrainScreen() {
     if (!draft) return;
     const anyDone = draft.entries.some((e) => e.sets.some((s) => s.done));
     if (!anyDone && !confirm("Żadna seria nie jest odhaczona. Zakończyć mimo to?")) return;
+    // P6-3: koniec treningu = koniec odpoczywania - po tym punkcie funkcja
+    // zawsze konczy trening (zaden dalszy early-return), wiec to bezpieczne
+    // miejsce na bezwarunkowy stop() (dopiero PO ew. confirm() wyzej, zeby
+    // odrzucenie dialogu nie ubijalo lecacej przerwy w trwajacym treningu).
+    restTimer.stop();
 
     // P1-8: rekordy trafione w tym treningu — liczone PRZED finishSession, na
     // rekordach SPRZED tej sesji (personalBestsByExercise jeszcze ich nie
@@ -581,7 +598,13 @@ export function TrainScreen() {
   }
 
   function cancel() {
-    if (confirm("Porzucić ten trening? Wpisane serie przepadną.")) setDraft(null);
+    // P6-3: stop() dopiero PO potwierdzeniu - inaczej klikniecie "Porzuc" i
+    // odrzucenie confirm() ("nie, jednak nie") ubijaloby lecaca przerwe mimo
+    // ze trening tak naprawde trwa dalej.
+    if (confirm("Porzucić ten trening? Wpisane serie przepadną.")) {
+      restTimer.stop();
+      setDraft(null);
+    }
   }
 
   // P2-9: cofniecie zakonczenia - usuwa wlasnie zapisana sesje i przywraca
@@ -894,6 +917,9 @@ export function TrainScreen() {
   const day = state.days.find((d) => d.id === draft.dayId);
   const doneCount = draft.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
   const totalCount = draft.entries.reduce((n, e) => n + e.sets.length, 0);
+  // P6-3: gdy WSZYSTKIE serie treningu sa zaliczone, nie ma juz czego odmierzac -
+  // zamiast pigulki/panelu timera pokazujemy podpowiedz "zakoncz trening".
+  const allSetsDone = totalCount > 0 && doneCount === totalCount;
   const volume = sessionVolume(state, {
     id: "draft",
     dayId: draft.dayId,
@@ -1289,7 +1315,15 @@ export function TrainScreen() {
         <div className="space-y-3 p-4">
           {renderExerciseCard(focusIdx)}
           <div className="rounded-lg border border-border bg-card p-3">
-            <RestTimer variant="panel" />
+            {/* P6-3: po ostatniej serii calego treningu nie ma juz czego
+                odmierzac - podpowiedz zamiast (juz zatrzymanego) panelu. */}
+            {allSetsDone ? (
+              <p className="text-center text-sm font-medium text-green-400">
+                Wszystko zrobione — zakończ trening
+              </p>
+            ) : (
+              <RestTimer variant="panel" />
+            )}
           </div>
           <div className="flex items-center justify-between gap-2">
             <Button
@@ -1375,7 +1409,18 @@ export function TrainScreen() {
         </Button>
       </div>
       {/* P6-2: pigulka timera przerwy przeniesiona do App.tsx (obok Toastera) -
-          zyje na kazdej zakladce, nie tylko tutaj (patrz src/lib/rest-timer-store.ts). */}
+          zyje na kazdej zakladce, nie tylko tutaj (patrz src/lib/rest-timer-store.ts).
+          P6-3: gdy WSZYSTKIE serie sa zaliczone, timer jest juz zatrzymany
+          (updateSet) wiec globalna pigulka sama znika - w jej miejscu (ten sam
+          fixed/bottom co ona) podpowiedz, ze nie ma juz czego odmierzac. */}
+      {allSetsDone && (
+        <div
+          className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-green-500/40 bg-card/95 px-4 py-1.5 text-xs font-medium text-green-400 shadow-lg backdrop-blur"
+          style={{ bottom: "78px" }}
+        >
+          Wszystko zrobione — zakończ trening
+        </div>
+      )}
     </div>
   );
 }

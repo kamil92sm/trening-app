@@ -2654,7 +2654,7 @@ w trakcie przerwy; (e) oba układy loggera działają jak wcześniej.
 
 ---
 
-### [ ] P6-3. Po zakończeniu treningu (i po ostatniej serii) timer nie ma czego odmierzać
+### [x] P6-3. Po zakończeniu treningu (i po ostatniej serii) timer nie ma czego odmierzać (2026-07-27)
 
 **Zgłoszenie Kamila:** „Licznik na końcu jak zakończę trening po co? Już nie powinno
 odmierzać czasu."
