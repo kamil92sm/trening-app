@@ -30,6 +30,7 @@ import {
   targetForMode,
   deloadTargetFor,
   weeksSinceDeload,
+  failedAtRirZero,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -1157,6 +1158,92 @@ check(
   plankPlanned.holdSets === 4,
   plankPlanned
 );
+
+// P4-4: RIR ostatniej serii steruje progresja (podwojny skok / ostrzezenie / deload)
+const benchExRir = defaultState().exercises.find((e) => e.id === "bench_bb")!;
+const lateralExRir = defaultState().exercises.find((e) => e.id === "lateral")!;
+const deadliftExRir = defaultState().exercises.find((e) => e.id === "deadlift")!;
+
+const benchCompleteSets = [
+  { weight: 45, reps: 8, done: true },
+  { weight: 45, reps: 8, done: true },
+  { weight: 45, reps: 8, done: true },
+];
+check(
+  "P4-4: komplet + RIR 3 na wyciskaniu (45 kg, krok 2,5) -> 50 kg (podwojny skok)",
+  computeProgression(benchExRir, 45, benchCompleteSets, 3).nextWeight === 50,
+  computeProgression(benchExRir, 45, benchCompleteSets, 3)
+);
+
+const lateralCompleteSets = [
+  { weight: 9, reps: 15, done: true },
+  { weight: 9, reps: 15, done: true },
+  { weight: 9, reps: 15, done: true },
+];
+check(
+  "P4-4: komplet + RIR 3 na wznosach bokiem (9 kg, krok 1, limit 15%) -> 10 kg, NIE 11",
+  computeProgression(lateralExRir, 9, lateralCompleteSets, 3).nextWeight === 10,
+  computeProgression(lateralExRir, 9, lateralCompleteSets, 3)
+);
+
+const deadliftCompleteSets = [
+  { weight: 77.5, reps: 6, done: true },
+  { weight: 77.5, reps: 6, done: true },
+];
+check(
+  "P4-4: komplet + RIR 3 na martwym ciagu -> pojedynczy krok (wyjatek bezpieczenstwa)",
+  computeProgression(deadliftExRir, 77.5, deadliftCompleteSets, 3).nextWeight === 80,
+  computeProgression(deadliftExRir, 77.5, deadliftCompleteSets, 3)
+);
+
+const benchRir1 = computeProgression(benchExRir, 45, benchCompleteSets, 1);
+check(
+  "P4-4: komplet + RIR 1 -> pojedynczy krok + ostrzezenie 'Blisko upadku'",
+  benchRir1.nextWeight === 47.5 && benchRir1.message.includes("Blisko upadku"),
+  benchRir1
+);
+
+const benchNoRir = computeProgression(benchExRir, 45, benchCompleteSets);
+check(
+  "P4-4: komplet bez RIR -> identycznie jak przed zmiana (regresja)",
+  benchNoRir.nextWeight === 47.5 &&
+    benchNoRir.message === "Wszystkie serie po 8 powt. — nowy ciężar 47.5 kg, wracasz do 5 powt.",
+  benchNoRir
+);
+
+const benchIncompleteSets = [
+  { weight: 45, reps: 6, done: true, rir: 0 },
+  { weight: 45, reps: 6, done: true, rir: 0 },
+  { weight: 45, reps: 6, done: true, rir: 0 },
+];
+check(
+  "P4-4: brak kompletu + RIR 0 dwa razy z rzedu -> sygnal deloadu",
+  computeProgression(benchExRir, 45, benchIncompleteSets, 0, true).status === "deload",
+  computeProgression(benchExRir, 45, benchIncompleteSets, 0, true)
+);
+check(
+  "P4-4: brak kompletu + RIR 0, ale POPRZEDNIA sesja bez fail -> zwykly 'hold', nie deload",
+  computeProgression(benchExRir, 45, benchIncompleteSets, 0, false).status === "hold",
+  computeProgression(benchExRir, 45, benchIncompleteSets, 0, false)
+);
+
+check(
+  "failedAtRirZero: komplet powtorzen (sukces) -> false niezaleznie od RIR",
+  failedAtRirZero(benchExRir, benchCompleteSets.map((s) => ({ ...s, rir: 0 }))) === false
+);
+check(
+  "failedAtRirZero: niekomplet + ostatnia seria RIR 0 -> true",
+  failedAtRirZero(benchExRir, benchIncompleteSets) === true
+);
+check(
+  "failedAtRirZero: niekomplet + ostatnia seria RIR 2 -> false",
+  failedAtRirZero(benchExRir, [
+    { weight: 45, reps: 6, done: true, rir: 2 },
+    { weight: 45, reps: 6, done: true, rir: 2 },
+    { weight: 45, reps: 6, done: true, rir: 2 },
+  ]) === false
+);
+check("failedAtRirZero: brak zaliczonych serii -> false", failedAtRirZero(benchExRir, []) === false);
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

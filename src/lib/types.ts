@@ -64,6 +64,10 @@ export interface SetLog {
   weight: number;
   reps: number;
   done: boolean;
+  /** P4-4: RIR (powtórzenia w zapasie) zgłoszony po ostatniej serii roboczej
+   * ćwiczenia — 0 (upadek) do 3 (3+ w zapasie). Opcjonalne: pominięcie = dzisiejsze
+   * zachowanie progresji (patrz computeProgression). */
+  rir?: number;
 }
 
 export interface ExerciseLog {

@@ -352,14 +352,42 @@ export interface ProgressionResult {
 const round25 = (x: number) => Math.round(x * 100) / 100;
 
 /**
+ * P4-4: czy dana próba (serie) zakończyła się NIEKOMPLETEM powtórzeń z RIR 0
+ * na ostatniej serii roboczej — sygnał "blisko upadku, a i tak nie wyszło".
+ * Używane zarówno wewnątrz `computeProgression` (bieżąca sesja) jak i przez
+ * wywołującego (`store.finishSession`) na POPRZEDNIEJ sesji, żeby wykryć
+ * dwa takie treningi z rzędu. Sukces (allAtTop) nigdy nie liczy się jako fail.
+ */
+export function failedAtRirZero(ex: Exercise, sets: SetLog[]): boolean {
+  const working = sets.filter((s) => s.done).slice(0, ex.targetSets);
+  if (working.length === 0) return false;
+  const allAtTop = working.length >= ex.targetSets && working.every((s) => s.reps >= ex.repMax);
+  if (allAtTop) return false;
+  return working[working.length - 1].rir === 0;
+}
+
+/**
  * Ciężar rośnie o increment dopiero, gdy WSZYSTKIE serie robocze (targetSets)
  * osiągną repMax. Jeśli >=2 serie poniżej repMin -> sygnał deloadu, ciężar zostaje.
  * Dla isHold (plank) próg to sekundy, progresja dokłada obciążenie.
+ *
+ * P4-4: `lastRir` (RIR zgłoszony po ostatniej serii roboczej BIEŻĄCEJ sesji)
+ * modyfikuje wynik TYLKO gdy komplet powtórzeń już i tak podnosi ciężar —
+ * 3+ w zapasie daje podwójny skok (z limitem bezpieczeństwa: tylko gdy
+ * 2×increment nie przekracza 15% ciężaru I ćwiczenie nie jest martwym ciągiem
+ * — inaczej lekkie hantle/izolacje dostałyby nieproporcjonalny skok), 0–1
+ * w zapasie dokłada ostrzeżenie. Pominięcie RIR (`undefined`) = zachowanie
+ * sprzed P4-4, bez zmian. `priorSessionFailedWithRir0` (z `failedAtRirZero`
+ * na POPRZEDNIEJ sesji, liczone przez wywołującego) + RIR 0 w bieżącej,
+ * niekompletnej sesji -> sygnał deloadu (dwa treningi z rzędu na krawędzi
+ * bez postępu).
  */
 export function computeProgression(
   ex: Exercise,
   targetWeight: number,
-  sets: SetLog[]
+  sets: SetLog[],
+  lastRir?: number,
+  priorSessionFailedWithRir0?: boolean
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -378,14 +406,24 @@ export function computeProgression(
   const belowMin = working.filter((s) => s.reps < ex.repMin).length;
 
   if (allAtTop) {
-    const next = round25(targetWeight + ex.increment);
-    return {
-      status: "up",
-      nextWeight: next,
-      message: ex.isHold
-        ? `Wszystkie serie po ${ex.repMax} ${unitWord} — dokładasz obciążenie: ${next} kg.`
-        : `Wszystkie serie po ${ex.repMax} ${unitWord} — nowy ciężar ${next} kg, wracasz do ${ex.repMin} ${unitWord}`,
-    };
+    let next = round25(targetWeight + ex.increment);
+    let message = ex.isHold
+      ? `Wszystkie serie po ${ex.repMax} ${unitWord} — dokładasz obciążenie: ${next} kg.`
+      : `Wszystkie serie po ${ex.repMax} ${unitWord} — nowy ciężar ${next} kg, wracasz do ${ex.repMin} ${unitWord}`;
+
+    if (lastRir !== undefined) {
+      const doubleJumpSafe = ex.id !== "deadlift" && 2 * ex.increment <= 0.15 * targetWeight;
+      if (lastRir >= 3 && doubleJumpSafe) {
+        next = round25(targetWeight + 2 * ex.increment);
+        message = ex.isHold
+          ? `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok obciążenia: ${next} kg.`
+          : `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok: nowy ciężar ${next} kg.`;
+      } else if (lastRir <= 1) {
+        message += " Blisko upadku — jeśli następny raz nie wyjdzie, zostań na tym ciężarze.";
+      }
+    }
+
+    return { status: "up", nextWeight: next, message };
   }
 
   if (belowMin >= 2) {
@@ -393,6 +431,14 @@ export function computeProgression(
       status: "deload",
       nextWeight: targetWeight,
       message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj powtórzenia na tym ciężarze.`,
+    };
+  }
+
+  if (lastRir === 0 && priorSessionFailedWithRir0) {
+    return {
+      status: "deload",
+      nextWeight: targetWeight,
+      message: `RIR 0 dwa treningi z rzędu bez kompletu ${unitWord} — rozważ tydzień deloadu na tym ćwiczeniu.`,
     };
   }
 

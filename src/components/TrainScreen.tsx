@@ -392,7 +392,7 @@ export function TrainScreen() {
     });
   }
 
-  function updateSet(entryIdx: number, setIdx: number, patch: Partial<{ weight: number; reps: number; done: boolean }>) {
+  function updateSet(entryIdx: number, setIdx: number, patch: Partial<{ weight: number; reps: number; done: boolean; rir: number }>) {
     setDraft((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -1085,9 +1085,13 @@ export function TrainScreen() {
                 {entry.sets.map((set, si) => {
                   const best = personalBestsByExercise.get(ex.id);
                   const recordKind = best ? isSetRecord(ex, set, best) : null;
+                  // P4-4: pytamy o RIR TYLKO po ostatniej serii ROBOCZEJ (nie po
+                  // każdej, nie po dodatkowych seriach z "Dodaj serię") i tylko
+                  // gdy progresja w ogóle liczy się w tym trybie (deload - nie).
+                  const isLastWorkingSet = si === setsForMode(ex, draft.mode) - 1;
                   return (
+                  <div key={si}>
                   <div
-                    key={si}
                     className={cn(
                       "flex items-center gap-1 rounded-md",
                       recordKind && "ring-1 ring-amber-400/70"
@@ -1158,6 +1162,30 @@ export function TrainScreen() {
                         <Trash2 size={14} />
                       </button>
                     )}
+                  </div>
+                  {isLastWorkingSet && set.done && draft.mode !== "deload" && (
+                    <div className="ml-5 flex flex-col gap-1 pb-1.5 pt-1">
+                      <span className="text-[10px] text-muted-foreground">Ile zostało w baku (RIR)?</span>
+                      <div className="flex gap-1.5">
+                        {([0, 1, 2, 3] as const).map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => updateSet(ei, si, { rir: set.rir === n ? undefined : n })}
+                            className={cn(
+                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-xs font-semibold transition-colors",
+                              set.rir === n
+                                ? "border-primary bg-primary/20 text-primary"
+                                : "border-border text-muted-foreground hover:bg-accent"
+                            )}
+                            aria-label={n === 0 ? "RIR 0 - upadek" : n === 3 ? "RIR 3 lub więcej" : `RIR ${n}`}
+                          >
+                            {n === 3 ? "3+" : n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   </div>
                   );
                 })}

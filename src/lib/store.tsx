@@ -25,7 +25,7 @@ import {
   SCHEMA_VERSION,
   STORAGE_KEY,
 } from "./seed";
-import { computeProgression, exerciseForMode, type ProgressionResult } from "./logic";
+import { computeProgression, exerciseForMode, failedAtRirZero, type ProgressionResult } from "./logic";
 import { validateBackup } from "./validate";
 import { uid } from "./utils";
 
@@ -166,6 +166,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // TrainScreen.startDay) — liczony PRZED mutate, żeby StrictMode (dev)
         // podwajające wywołanie updatera nie dało dwóch różnych znaczników czasu.
         const finishedAt = new Date().toISOString();
+        // P4-4: sesje ukończone wcześniej niż ta bieżąca, najnowsza pierwsza -
+        // do wykrycia "dwa treningi z rzędu RIR 0 bez kompletu" per ćwiczenie.
+        const priorSessions = [...state.sessions].filter((s) => s.completed).sort((a, b) => b.date.localeCompare(a.date));
         const summaries: FinishSummary[] = [];
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
@@ -173,7 +176,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // Progresja liczona na ćwiczeniu przeliczonym pod tryb tygodnia (zakres
           // powtórzeń), ale zapisywana pod ID oryginalnego ćwiczenia.
           const modeEx = exerciseForMode(ex, mode);
-          summaries.push({ exercise: ex, result: computeProgression(modeEx, entry.targetWeight, entry.sets) });
+          const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
+          const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
+          // P4-4: poprzednia sesja liczona w JEJ WŁASNYM trybie tygodnia (repMax/
+          // targetSets różnią się między Siła/Hipertrofia) - inaczej "sukces" z
+          // zeszłego tygodnia mógłby wyglądać jak fail przez sam próg zakresu.
+          const prevSession = priorSessions.find((s) => s.entries.some((e) => e.exerciseId === ex.id && e.sets.some((st) => st.done)));
+          const prevEntry = prevSession?.entries.find((e) => e.exerciseId === ex.id);
+          const priorSessionFailedWithRir0 =
+            prevSession && prevEntry
+              ? failedAtRirZero(exerciseForMode(ex, prevSession.mode ?? "strength"), prevEntry.sets)
+              : false;
+          summaries.push({
+            exercise: ex,
+            result: computeProgression(modeEx, entry.targetWeight, entry.sets, lastRir, priorSessionFailedWithRir0),
+          });
         }
         // P2-9: id i snapshot celów SPRZED zapisu — wygenerowane tutaj (nie w
         // mutate) z tego samego powodu co finishedAt: updater musi być czysty.
