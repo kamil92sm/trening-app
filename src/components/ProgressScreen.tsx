@@ -308,6 +308,15 @@ export function ProgressScreen() {
                   } · ${fmtDateShort(actualWindow.fromIso)}–${fmtDateShort(actualWindow.toIso)}`}
             </p>
           )}
+          {/* P6-6: wyjasnienie "(plan X)" - tylko tam, gdzie sie faktycznie pojawia
+              (widok Wykonane + metryka Serie; tonaz nie pokazuje planu). */}
+          {volumeView === "actual" && volumeMetric === "sets" && (
+            <p className="text-[10px] text-muted-foreground">
+              <span className="font-medium text-foreground/80">Kolorowa liczba</span> = serie
+              zrobione w ostatnich 7 dniach · <span className="font-medium text-foreground/80">plan</span>{" "}
+              = serie zaplanowane na tydzień. Równe wartości = zrobiłeś dokładnie to, co przewiduje plan.
+            </p>
+          )}
           {(() => {
             const maxTonnage = Math.max(1, ...volumes.map((v) => v.tonnage));
             return volumes.map((v) => {
@@ -383,26 +392,29 @@ export function ProgressScreen() {
                       </button>
                     </div>
                   ) : (
-                    <span className="tabular-nums text-muted-foreground">
+                    <span className="min-w-0 shrink text-right tabular-nums text-muted-foreground">
                       <span className="font-semibold" style={{ color: STATUS_COLORS[v.status] }}>
                         {v.sets}
                       </span>{" "}
                       / {range.min}–{range.max}
                       {hasOverride && <span className="ml-1 text-[9px] text-purple-300">wł.</span>}
-                      {planned !== null && (
-                        <span className="ml-1 text-[10px]">
-                          (plan {planned}
-                          {delta !== 0 && (
-                            <span className={delta > 0 ? "text-sky-400" : "text-amber-400"}>
-                              {delta > 0 ? `, +${delta}` : `, ${delta}`}
-                            </span>
-                          )}
-                          )
-                        </span>
-                      )}
                     </span>
                   )}
                 </div>
+                {/* P6-6: "(plan X)" na wlasnej, wyrownanej do prawej linii - w jednym
+                    wierszu z liczba/zakresem wychodzilo poza karte przy dluzszych
+                    etykietach (np. "Barki 10.5 / 5-12 (plan 10.5)" na 320px). */}
+                {!editingRanges && planned !== null && (
+                  <p className="text-right text-[10px] text-muted-foreground">
+                    (plan {planned}
+                    {delta !== 0 && (
+                      <span className={delta > 0 ? "text-sky-400" : "text-amber-400"}>
+                        {delta > 0 ? `, +${delta}` : `, ${delta}`}
+                      </span>
+                    )}
+                    )
+                  </p>
+                )}
                 <div className="relative mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full transition-all"

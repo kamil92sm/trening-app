@@ -2757,7 +2757,7 @@ spoza seeda → bez zmian).
 
 ---
 
-### [ ] P6-6. „(plan 9)" ucięte poza krawędź ekranu i nie wiadomo, co znaczy
+### [x] P6-6. „(plan 9)" ucięte poza krawędź ekranu i nie wiadomo, co znaczy (2026-07-27)
 
 **Zgłoszenie Kamila (zakreślone na screenie):** „co oznacza ten »plan« w nawiasie i dlaczego
 jest taki sam jak te kolorowe cyfry (wykonane serie?)"
