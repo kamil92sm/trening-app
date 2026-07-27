@@ -32,6 +32,8 @@ import {
   weeksSinceDeload,
   failedAtRirZero,
   estimateGoalEta,
+  mesocycleWeek,
+  volumeProgressionSuggestions,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -1022,6 +1024,82 @@ check(
   "weeksSinceDeload: liczy od OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (2 tygodnie)",
   weeksSinceDeload(stWeeksB, "2026-07-27") === 2,
   weeksSinceDeload(stWeeksB, "2026-07-27")
+);
+
+// P4-5: progresja objetosci w mezocyklu
+check("mesocycleWeek: sam start -> tydzien 1", mesocycleWeek("2026-06-15", "2026-06-15") === 1);
+check(
+  "mesocycleWeek: 14 dni pozniej -> tydzien 3",
+  mesocycleWeek("2026-06-15", "2026-06-29") === 3,
+  mesocycleWeek("2026-06-15", "2026-06-29")
+);
+
+const stVolOff = defaultState();
+check(
+  "volumeProgressionSuggestions: wylaczone (brak flagi) -> []",
+  volumeProgressionSuggestions(stVolOff, "2026-06-29").length === 0
+);
+
+const stVolStrength = defaultState();
+stVolStrength.settings.volumeProgression = true;
+stVolStrength.settings.mesoStartIso = "2026-06-15";
+stVolStrength.settings.trainingMode = "strength";
+check(
+  "volumeProgressionSuggestions: tryb sila (nie hipertrofia) -> []",
+  volumeProgressionSuggestions(stVolStrength, "2026-06-29").length === 0
+);
+
+const stVolNoMeso = defaultState();
+stVolNoMeso.settings.volumeProgression = true;
+stVolNoMeso.settings.trainingMode = "hypertrophy";
+check(
+  "volumeProgressionSuggestions: brak mesoStartIso -> []",
+  volumeProgressionSuggestions(stVolNoMeso, "2026-06-29").length === 0
+);
+
+const stVolWeek1 = defaultState();
+stVolWeek1.settings.volumeProgression = true;
+stVolWeek1.settings.trainingMode = "hypertrophy";
+stVolWeek1.settings.mesoStartIso = "2026-06-15";
+check(
+  "volumeProgressionSuggestions: tydzien 1 (0 narosnietych tygodni) -> []",
+  volumeProgressionSuggestions(stVolWeek1, "2026-06-15").length === 0
+);
+
+const stVolWeek3 = defaultState();
+stVolWeek3.settings.volumeProgression = true;
+stVolWeek3.settings.trainingMode = "hypertrophy";
+stVolWeek3.settings.mesoStartIso = "2026-06-15";
+const week3 = volumeProgressionSuggestions(stVolWeek3, "2026-06-29");
+const chestWeek3 = week3.find((s) => s.muscle === "Klatka");
+check(
+  "volumeProgressionSuggestions: tydzien 3, Klatka 9 -> +2 (11 serii)",
+  !!chestWeek3 && chestWeek3.proposedAdd === 2 && chestWeek3.newTotal === 11,
+  chestWeek3
+);
+
+const stVolFar = defaultState();
+stVolFar.settings.volumeProgression = true;
+stVolFar.settings.trainingMode = "hypertrophy";
+stVolFar.settings.mesoStartIso = "2026-06-15";
+const farSuggestions = volumeProgressionSuggestions(stVolFar, "2027-06-15");
+const chestFar = farSuggestions.find((s) => s.muscle === "Klatka");
+check(
+  "volumeProgressionSuggestions: nigdy powyzej max (Klatka max 20)",
+  !!chestFar && chestFar.newTotal === 20 && chestFar.proposedAdd === 11,
+  chestFar
+);
+
+const stVolInRange = defaultState();
+stVolInRange.settings.volumeProgression = true;
+stVolInRange.settings.trainingMode = "hypertrophy";
+stVolInRange.settings.mesoStartIso = "2026-06-15";
+stVolInRange.settings.muscleRanges = { Klatka: { min: 5, max: 20 } };
+const inRangeSuggestions = volumeProgressionSuggestions(stVolInRange, "2026-06-29");
+check(
+  "volumeProgressionSuggestions: partia juz w zakresie -> znika z listy",
+  !inRangeSuggestions.some((s) => s.muscle === "Klatka"),
+  inRangeSuggestions
 );
 
 // P0-7: przywroc standardowy plan dnia

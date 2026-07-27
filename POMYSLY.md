@@ -1927,7 +1927,7 @@ pyta, ile faktycznie zostało w baku.
 
 ---
 
-### [ ] P4-5. Progresja OBJĘTOŚCI w mezocyklu (nie tylko ciężaru)
+### [~] P4-5. Progresja OBJĘTOŚCI w mezocyklu (nie tylko ciężaru) — CZĘŚĆ 1 WDROŻONA (27.07.2026)
 
 **Dlaczego:** ciężar rośnie co tydzień, liczba serii stoi w miejscu od pierwszego dnia.
 Objętość to główny sterownik hipertrofii, a apka już wie wszystko, co potrzebne:
@@ -1948,6 +1948,37 @@ tryb deload (P2-8) i licznik tygodni od deloadu (`weeksSinceDeload`).
 
 **Kryteria akceptacji:** wyłączone = zero zmian w UI; włączone nie modyfikuje nigdy
 `state.days`/`exercises`; propozycja znika, gdy partia wejdzie w zakres.
+
+**Część 1 wdrożona (27.07.2026) — silnik, bez UI:**
+- `types.ts`: `Settings.volumeProgression?: boolean`, `Settings.mesoStartIso?: string` (obie
+  opcjonalne, brak bumpa `SCHEMA_VERSION`).
+- `logic.ts`: `mesocycleWeek(mesoStartIso, nowIso?)` — numer tygodnia mezocyklu (1-indeksowany,
+  granice poniedziałkowe jak `weeksSinceDeload`, żeby oba liczniki nie rozjeżdżały się).
+  `volumeProgressionSuggestions(state, nowIso?)` — zwraca `VolumeProgressionSuggestion[]`
+  (`muscle, currentSets, min, max, proposedAdd, newTotal`), posortowane po największym
+  deficycie; `[]` gdy wyłączone, tryb ≠ hipertrofia, brak `mesoStartIso` albo tydzień 1
+  (jeszcze 0 narosłych tygodni). `proposedAdd` liczony z **planu** (`weeklyMuscleVolume`),
+  nigdy nie przekracza `max`, znika (filtrowany) gdy partia i tak jest ≥ `min`.
+- **Świadoma zmiana względem specu:** licznik tygodni startuje od `settings.mesoStartIso`
+  (ustawianego przez store przy PRZEŁĄCZENIU `volumeProgression` na `true`), NIE od
+  `weeksSinceDeload` wprost — inaczej włączenie przełącznika na koncie z długą historią
+  odpaliłoby od razu wielotygodniowy skok objętości zamiast łagodnego +1/tydzień od teraz.
+  `weeksSinceDeload` i tak istnieje i jest reużywalne gdyby potrzebny był inny licznik.
+- `store.tsx`: `updateSettings` ustawia `mesoStartIso = now` TYLKO przy przejściu
+  `false/undefined -> true` i tylko gdy jeszcze go nie ma (nie nadpisuje przy każdym zapisie
+  ustawień). `finishSession` przy `mode === "deload"` zeruje `mesoStartIso` do daty tej sesji
+  (mezocykl wraca do zera po deloadzie, objętość znów startuje z planu bazowego).
+  `UndoSnapshot` dostał `mesoStartIso?` (P2-9 cofnięcie sesji poprawnie przywraca też ten
+  licznik, nie tylko `targets`/`hyperTargets`).
+- **Świadomie POZA częścią 1 (do części 2):** UI — karta/nudge na ekranie wyboru dnia,
+  przycisk „Dodaj serię do {ćwiczenie}" (wymaga zmapowania partii → konkretne ćwiczenie
+  w drafcie sesji, dziś silnik zwraca tylko poziom partii), karta „Mezocykl: tydzień X/Y"
+  w Progresie, przełącznik `volumeProgression` w ustawieniach (dziś włączalny tylko
+  programistycznie/w testach, nie z UI).
+- **Zweryfikowane:** 9 nowych testów w `tests/logic.test.ts` (wyłączone/tryb siła/brak startu/
+  tydzień 1 → `[]`; tydzień 3 → Klatka 9→11 serii; capping przy max; zniknięcie po wejściu
+  w zakres przez `muscleRanges` override). `npm test` 100% OK, `npm run build` (tsc + vite +
+  singlefile) bez błędów.
 
 ---
 

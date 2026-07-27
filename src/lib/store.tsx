@@ -39,6 +39,8 @@ export interface UndoSnapshot {
   sessionId: string;
   targets: Record<string, number>;
   hyperTargets: Record<string, number>;
+  /** P4-5: mesoStartIso SPRZED zapisu — deload go zeruje, undo musi to cofnąć. */
+  mesoStartIso?: string;
 }
 
 export interface FinishResult {
@@ -199,6 +201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           sessionId,
           targets: { ...state.targets },
           hyperTargets: { ...(state.hyperTargets ?? {}) },
+          mesoStartIso: state.settings.mesoStartIso,
         };
         mutate((d) => {
           const session: Session = { ...sessionData, id: sessionId, completed: true, finishedAt };
@@ -206,7 +209,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // P2-8: deload NIE zapisuje progresji — cele zamrożone, wracasz do
           // swoich ciężarów w przyszłym tygodniu. `summaries` i tak wracają do
           // TrainScreen (dla ewentualnego info), po prostu nigdy nie są tu stosowane.
-          if (mode === "deload") return d;
+          if (mode === "deload") {
+            // P4-5: tydzień deloadu zeruje licznik mezocyklu — objętość po
+            // powrocie znów startuje od planu bazowego, nie od narosłych +1/tydzień.
+            d.settings = { ...d.settings, mesoStartIso: session.date };
+            return d;
+          }
           for (const s of summaries) {
             if (mode === "hypertrophy") {
               d.hyperTargets = d.hyperTargets ?? {};
@@ -225,6 +233,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           d.sessions = d.sessions.filter((s) => s.id !== undo.sessionId);
           d.targets = { ...undo.targets };
           d.hyperTargets = { ...undo.hyperTargets };
+          d.settings = { ...d.settings, mesoStartIso: undo.mesoStartIso };
           return d;
         });
       },
@@ -284,7 +293,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       updateSettings(patch) {
         mutate((d) => {
+          // P4-5: włączenie przełącznika startuje mezocykl OD TERAZ (nie od
+          // historii) — inaczej stare konto dostałoby od razu wielotygodniowy
+          // skok objętości. Ustawiane tylko przy przejściu false/undefined -> true
+          // i tylko gdy jeszcze nie ma startu (nie nadpisuje przy kolejnych zapisach).
+          const startingMeso = patch.volumeProgression === true && !d.settings.volumeProgression && !d.settings.mesoStartIso;
           d.settings = { ...d.settings, ...patch };
+          if (startingMeso) d.settings.mesoStartIso = new Date().toISOString();
           return d;
         });
       },

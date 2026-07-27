@@ -720,6 +720,72 @@ export function weeksSinceDeload(state: AppState, nowIso?: string): number {
 }
 
 /**
+ * P4-5: numer tygodnia bieżącego mezocyklu (1-indeksowany), liczony od
+ * poniedziałku tygodnia `mesoStartIso` do poniedziałku tygodnia `nowIso`
+ * (te same granice tygodnia — poniedziałek — co `weeksSinceDeload`, żeby
+ * oba liczniki zgadzały się ze sobą).
+ */
+export function mesocycleWeek(mesoStartIso: string, nowIso?: string): number {
+  const startMonday = new Date(mondayOf(mesoStartIso) + "T12:00:00").getTime();
+  const nowMonday = new Date(mondayOf(nowIso ?? new Date().toISOString()) + "T12:00:00").getTime();
+  return Math.max(0, Math.floor((nowMonday - startMonday) / (7 * 86400000))) + 1;
+}
+
+export interface VolumeProgressionSuggestion {
+  muscle: Muscle;
+  currentSets: number;
+  min: number;
+  max: number;
+  proposedAdd: number;
+  newTotal: number;
+}
+
+/**
+ * P4-5: propozycje +1 serii/tydzień dla partii poniżej minimum swojego zakresu,
+ * w mezocyklu hipertrofii (`settings.volumeProgression` + `trainingMode ===
+ * "hypertrophy"`). Licznik tygodni startuje od `settings.mesoStartIso` (zerowany
+ * przez store przy zakończeniu sesji w trybie deload) — NIE od
+ * `weeksSinceDeload`, żeby włączenie przełącznika na starym koncie nie
+ * odpaliło od razu wielotygodniowego skoku. Propozycja to sugerowany TOTAL
+ * serii dla partii (bazowy plan + narosłe tygodnie), nigdy powyżej `max`;
+ * znika, gdy plan sam osiągnie `min` (regularna edycja planu w Plan) albo
+ * gdy narosłe tygodnie domkną deficyt. Nie modyfikuje `state.days`/`exercises`
+ * — to tylko dane do przycisku "Dodaj serię" w UI (draft sesji).
+ */
+export function volumeProgressionSuggestions(
+  state: AppState,
+  nowIso?: string
+): VolumeProgressionSuggestion[] {
+  if (!state.settings.volumeProgression) return [];
+  if ((state.settings.trainingMode ?? "strength") !== "hypertrophy") return [];
+  if (!state.settings.mesoStartIso) return [];
+
+  const week = mesocycleWeek(state.settings.mesoStartIso, nowIso);
+  const bonusWeeks = week - 1;
+  if (bonusWeeks <= 0) return [];
+
+  const ranges = muscleRangesFor("hypertrophy", state.settings.muscleRanges);
+  const planned = weeklyMuscleVolume(state, "hypertrophy");
+
+  return planned
+    .filter((v) => v.sets < ranges[v.muscle].min)
+    .map((v) => {
+      const r = ranges[v.muscle];
+      const proposedAdd = Math.max(0, Math.min(bonusWeeks, r.max - v.sets));
+      return {
+        muscle: v.muscle,
+        currentSets: v.sets,
+        min: r.min,
+        max: r.max,
+        proposedAdd: +proposedAdd.toFixed(1),
+        newTotal: +(v.sets + proposedAdd).toFixed(1),
+      };
+    })
+    .filter((s) => s.proposedAdd > 0)
+    .sort((a, b) => (b.min - b.currentSets) - (a.min - a.currentSets));
+}
+
+/**
  * Regresja liniowa (najmniejsze kwadraty) e1RM po ostatnich do 6 punktach
  * historii + średni odstęp między WSZYSTKIMI sesjami tego ćwiczenia. Wspólne
  * dla `projectHistory` (ekstrapolacja punktów na wykres) i `estimateGoalEta`

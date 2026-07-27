@@ -142,6 +142,10 @@ export interface Settings {
   loggerLayout?: "list" | "focus";
   /** P4-9: cel per ćwiczenie (ta sama jednostka co wykres — e1RM w kg, sekundy dla isHold). */
   liftGoals?: Record<string, number>;
+  /** P4-5: czy proponować +1 serię/tydzień partiom poniżej minimum w mezocyklu hipertrofii. Domyślnie false. */
+  volumeProgression?: boolean;
+  /** P4-5: ISO data startu bieżącego mezocyklu (zerowana przy zakończeniu sesji w trybie deload). */
+  mesoStartIso?: string;
 }
 
 export interface AppState {
