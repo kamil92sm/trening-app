@@ -146,6 +146,8 @@ export interface Settings {
   volumeProgression?: boolean;
   /** P4-5: ISO data startu bieżącego mezocyklu (zerowana przy zakończeniu sesji w trybie deload). */
   mesoStartIso?: string;
+  /** P6-1: kill switch dla animowanego ludzika w "Jak wykonać?" — brak/undefined = true. */
+  showExerciseAnim?: boolean;
 }
 
 export interface AppState {

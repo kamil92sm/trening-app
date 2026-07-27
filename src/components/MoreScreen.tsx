@@ -520,6 +520,18 @@ export function MoreScreen() {
               onCheckedChange={(v) => store.updateSettings({ sound: v })}
             />
           </div>
+          <div className="flex items-center justify-between rounded-md border border-border p-2.5">
+            <div>
+              <p className="text-xs font-medium">Animacja ćwiczenia (ludzik)</p>
+              <p className="text-[10px] text-muted-foreground">
+                W "Jak wykonać?" w Treningu — tekst zostaje, nawet gdy wyłączona.
+              </p>
+            </div>
+            <Switch
+              checked={state.settings.showExerciseAnim !== false}
+              onCheckedChange={(v) => store.updateSettings({ showExerciseAnim: v })}
+            />
+          </div>
         </CardContent>
       </Card>
 

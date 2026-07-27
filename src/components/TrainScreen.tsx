@@ -1028,7 +1028,10 @@ export function TrainScreen() {
     if (!ex) return null;
     const hEx = exerciseForMode(ex, draft.mode);
           const guide = guideFor(ex);
-          const guidePattern = guide ? MOVE_PATTERNS[guide.pattern] : undefined;
+          // P6-1 pkt 4 (kill switch): tekst "Jak wykonać?" zostaje zawsze,
+          // ale samego ludzika da sie wylaczyc w Wiecej -> Ustawienia.
+          const guidePattern =
+            guide?.pattern && state.settings.showExerciseAnim !== false ? MOVE_PATTERNS[guide.pattern] : undefined;
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const last = lastByExercise.get(ex.id) ?? null;
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1214,7 +1217,9 @@ export function TrainScreen() {
                     </button>
                     {openGuide.has(ei) && (
                       <div className="mt-1 flex gap-3 rounded-md border border-border p-2">
-                        {guidePattern && <ExerciseAnim pattern={guidePattern} size={88} />}
+                        {guidePattern && (
+                          <ExerciseAnim pattern={guidePattern} size={88} loadOverride={guide?.loadOverride} />
+                        )}
                         <div className="min-w-0 flex-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
                           <div>
                             <p className="font-medium text-foreground/80">Ustawienie</p>

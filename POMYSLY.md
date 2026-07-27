@@ -2513,7 +2513,7 @@ zadanie w POMYSLY.md, uruchom npm test + npm run build i zrób commit.
 
 ---
 
-### [ ] P6-1. Animowane ludziki pokazują NIE TEN ruch, co nazwa ćwiczenia
+### [~] P6-1. Animowane ludziki pokazują NIE TEN ruch, co nazwa ćwiczenia — ETAP A WDROŻONY (27.07.2026)
 
 **Zgłoszenie Kamila:** „te ludziki pokazują głupoty, to nie są te ruchy co w nazwie
 ćwiczenia. Są to randomowe ruchy nie pokazujące prawdziwego ćwiczenia."
@@ -2551,7 +2551,7 @@ wyciskanie leżąc, każdemu na plecy wiosłowanie w opadzie itd. Przy 90-pozycy
 **Fix:** usuń `FALLBACK_PATTERN_BY_MUSCLE` całkowicie. Tekstowy `FALLBACK_GUIDE_TEXT`
 (ogólne zasady wykonania) może zostać — ale bez animacji.
 
-#### Etap A (najpierw, mały commit): naprawa + uczciwe mapowanie
+#### [x] Etap A (najpierw, mały commit): naprawa + uczciwe mapowanie — WDROŻONE (27.07.2026)
 1. Fix `--dur` (przyczyna 1).
 2. `ExerciseGuide.pattern` → opcjonalny; wywal proxy i fallback po partii (przyczyny 2, 3).
    Po tym etapie animację mają TYLKO: `bench_bb`, `squat`, `deadlift`, `rdl`, `row_bb`,

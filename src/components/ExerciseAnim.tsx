@@ -23,7 +23,7 @@ function jointVars(a: number, b: number, durationMs?: number): CSSProperties {
   } as CSSProperties;
 }
 
-function rootVars(a: Pose, b: Pose): CSSProperties {
+function rootVars(a: Pose, b: Pose, durationMs?: number): CSSProperties {
   return {
     ["--ax" as string]: `${a.rootX}px`,
     ["--ay" as string]: `${a.rootY}px`,
@@ -31,6 +31,11 @@ function rootVars(a: Pose, b: Pose): CSSProperties {
     ["--bx" as string]: `${b.rootX}px`,
     ["--by" as string]: `${b.rootY}px`,
     ["--br" as string]: `${b.rootRot}deg`,
+    // P6-1: BEZ tego root jechal zawsze na fallbacku 2.4s (index.css), a stawy
+    // na wlasnym durationMs wzorca - dwie animacje o roznych okresach i
+    // "alternate" rozjezdzaly sie w fazie w sposob nieokresowy (efekt
+    // "losowego ruchu": biodra w dol gdy kolana sie prostuja, itd).
+    ...(durationMs ? { ["--dur" as string]: `${durationMs}ms` } : {}),
   } as CSSProperties;
 }
 
@@ -59,11 +64,23 @@ function Decoration({ decor }: { decor: Decor[] }) {
 /**
  * `<ExerciseAnim pattern={id} />` — szkielet z `MOVE_PATTERNS[pattern]`. Zwraca
  * `null`, gdy wzorzec jeszcze nie istnieje w bazie (etap 3b go doda) — UI po
- * prostu nie renderuje animacji, zamiast pustej klatki.
+ * prostu nie renderuje animacji, zamiast pustej klatki. `loadOverride` (P6-1)
+ * pozwala cwiczeniu dzielacemu wzorzec z innym sprzetem (np. `bench_db`
+ * dzielacy `bench_press`) pokazac wlasciwy sprzet w dloni, mimo ze sama
+ * sciezka ruchu (katy w stawach) zostaje ta sama.
  */
-export function ExerciseAnim({ pattern, size = 96 }: { pattern: MovePattern | undefined; size?: number }) {
+export function ExerciseAnim({
+  pattern,
+  size = 96,
+  loadOverride,
+}: {
+  pattern: MovePattern | undefined;
+  size?: number;
+  loadOverride?: Load;
+}) {
   if (!pattern) return null;
-  const { a, b, load, decor, durationMs } = pattern;
+  const { a, b, load: patternLoad, decor, durationMs } = pattern;
+  const load = loadOverride ?? patternLoad;
 
   return (
     <svg
@@ -75,7 +92,7 @@ export function ExerciseAnim({ pattern, size = 96 }: { pattern: MovePattern | un
       aria-label={pattern.label}
     >
       <Decoration decor={decor} />
-      <g className="tt-root" style={rootVars(a, b)}>
+      <g className="tt-root" style={rootVars(a, b, durationMs)}>
         {/* noga: udo -> podudzie -> stopa */}
         <g className="tt-j" style={jointVars(a.hip, b.hip, durationMs)}>
           <line x1={0} y1={0} x2={0} y2={LEN.thigh} stroke="currentColor" strokeWidth={3} strokeLinecap="round" />

@@ -1217,7 +1217,10 @@ check(
 const scaleNaN = niceScale(NaN, 5);
 check("niceScale(NaN, 5): fallback, bez wyjatku", scaleNaN.step > 0 && scaleNaN.ticks.length >= 2, scaleNaN);
 
-// P5-3a: instrukcje "Jak wykonac?" (guideFor + MOVE_PATTERNS)
+// P5-3a/P6-1: instrukcje "Jak wykonac?" (guideFor + MOVE_PATTERNS). `pattern`
+// jest teraz OPCJONALNY (P6-1 - lepiej brak animacji niz zla animacja), wiec
+// tu sprawdzamy tylko: kazdy wpis ma tekst (>=3 kroki, >=2 bledy), a jesli MA
+// `pattern`, to musi wskazywac na ISTNIEJACY wzorzec (bez dangling referencji).
 let guideCoverageOk = true;
 let guideCoverageDetail = "";
 for (const [exId, guide] of Object.entries(GUIDES)) {
@@ -1228,17 +1231,34 @@ for (const [exId, guide] of Object.entries(GUIDES)) {
     break;
   }
   const resolved = guideFor(ex);
-  const pattern = resolved ? MOVE_PATTERNS[resolved.pattern] : undefined;
-  if (!resolved || !pattern || resolved.steps.length < 3 || resolved.mistakes.length < 2) {
+  const patternExists = !resolved?.pattern || !!MOVE_PATTERNS[resolved.pattern];
+  if (!resolved || !patternExists || resolved.steps.length < 3 || resolved.mistakes.length < 2) {
     guideCoverageOk = false;
-    guideCoverageDetail = `${exId}: resolved=${!!resolved} pattern=${!!pattern} steps=${resolved?.steps.length} mistakes=${resolved?.mistakes.length}`;
+    guideCoverageDetail = `${exId}: resolved=${!!resolved} patternExists=${patternExists} steps=${resolved?.steps.length} mistakes=${resolved?.mistakes.length}`;
     break;
   }
 }
 check(
-  "guideFor: kazdy wpis w GUIDES ma istniejacy wzorzec, >=3 kroki, >=2 bledy",
+  "guideFor: kazdy wpis w GUIDES ma tekst (>=3 kroki, >=2 bledy), pattern (jesli jest) istnieje w MOVE_PATTERNS",
   guideCoverageOk,
   guideCoverageDetail
+);
+
+// P6-1: lista "uczciwych" animacji po naprawie - TYLKO tam, gdzie wzorzec
+// faktycznie odpowiada ruchowi. Reszta (dawne proxy) ma pattern===undefined.
+// Ten test ma pilnowac, zeby nikt przypadkiem nie przywrocil proxy.
+const expectAnimated = ["bench_bb", "bench_db", "squat", "deadlift", "rdl", "row_bb", "row_db", "ohp", "curl_bb"];
+const expectTextOnly = ["incline_db", "lunges", "hipthrust", "pulldown", "lateral", "face_pull", "french"];
+for (const exId of expectAnimated) {
+  check(`guideFor: ${exId} MA animacje (uczciwy wzorzec)`, GUIDES[exId]?.pattern !== undefined, GUIDES[exId]);
+}
+for (const exId of expectTextOnly) {
+  check(`guideFor: ${exId} BEZ animacji (dawne proxy usuniete - sam tekst)`, GUIDES[exId]?.pattern === undefined, GUIDES[exId]);
+}
+check(
+  "guideFor: bench_db dzieli wzorzec bench_press ale z loadOverride dumbbell",
+  GUIDES.bench_db?.pattern === "bench_press" && GUIDES.bench_db?.loadOverride === "dumbbell",
+  GUIDES.bench_db
 );
 
 const syntheticChestExercise = {
@@ -1258,8 +1278,8 @@ const syntheticChestExercise = {
 };
 const fallbackGuide = guideFor(syntheticChestExercise);
 check(
-  "guideFor: cwiczenie spoza GUIDES z primaryMuscle Klatka -> fallback, nie null",
-  fallbackGuide !== null && fallbackGuide.pattern === "bench_press" && fallbackGuide.steps.length >= 3,
+  "guideFor: cwiczenie spoza GUIDES z primaryMuscle Klatka -> fallback TEKSTOWY (bez wzorca po partii, P6-1)",
+  fallbackGuide !== null && fallbackGuide.pattern === undefined && fallbackGuide.steps.length >= 3,
   fallbackGuide
 );
 

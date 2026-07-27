@@ -1,11 +1,19 @@
 // P5-3a: instrukcje "Jak wykonać?" — czyste dane (bez Reacta, testowalne bez
 // DOM-u). Teksty NIE powielają `Exercise.note` (cue trenera "na ten tydzień",
 // wyświetlany osobno w TrainScreen) — tu opisujemy sam ruch.
-import type { Exercise, Muscle } from "./types";
-import type { MovePatternId } from "./anim-poses";
+import type { Exercise } from "./types";
+import type { Load, MovePatternId } from "./anim-poses";
 
 export interface ExerciseGuide {
-  pattern: MovePatternId;
+  /** P6-1: OPCJONALNY — animacja tylko tam, gdzie wzorzec FAKTYCZNIE odpowiada
+   * ruchowi. Zasada nadrzedna: lepiej brak animacji niz zla animacja (bylo:
+   * proxy typu "wznosy boki" -> wzorzec wyciskania nad glowe - wygladalo jak
+   * losowy ruch, patrz POMYSLY.md P6-1). Brak pattern -> UI pokazuje sam tekst. */
+  pattern?: MovePatternId;
+  /** Nadpisanie sprzetu z wzorca (np. `bench_db` dzieli wzorzec `bench_press`,
+   * ktory rysuje sztange - to TA SAMA sciezka ruchu innym sprzetem, wiec
+   * proxy jest tu uczciwe, ale ludzik ma trzymac hantel, nie sztange). */
+  loadOverride?: Load;
   /** 1-2 zdania: ustawienie przed pierwszym powtórzeniem. */
   setup: string[];
   /** 3-5 kroków samego powtórzenia (koncentryka + ekscentryka). */
@@ -17,11 +25,13 @@ export interface ExerciseGuide {
 }
 
 /**
- * Etap 3a: ~15 pozycji z trzech dni planu (§6 CLAUDE.md) — mapowane na 6
- * wzorców już dostępnych w `MOVE_PATTERNS`. Część mapowań to celowe PROXY
- * (np. `incline_db`/`hipthrust`/`pulldown` na wzorce wizualnie najbliższe
- * dostępnym 6, nie idealne) — dokładniejsze/dedykowane wzorce (incline_press,
- * pulldown, lateral_raise…) dochodzą w etapie 3b razem z resztą 90 ćwiczeń.
+ * Etap 3a: ~15 pozycji z trzech dni planu (§6 CLAUDE.md). `pattern` jest
+ * podpiety TYLKO tam, gdzie jeden z 6 wzorcow z `MOVE_PATTERNS` faktycznie
+ * odpowiada ruchowi cwiczenia (P6-1 - wczesniej bylo tu ~7 proxy "na oko",
+ * ktore w praktyce pokazywaly INNY ruch niz nazwa cwiczenia). Reszta ma sam
+ * tekst (setup/steps/mistakes) - dedykowane wzorce (incline_press, pulldown,
+ * lateral_raise…) dochodza dopiero w etapie 3b, KAZDY wizualnie zweryfikowany
+ * przed wpieciem.
  */
 export const GUIDES: Record<string, ExerciseGuide> = {
   bench_bb: {
@@ -36,6 +46,7 @@ export const GUIDES: Record<string, ExerciseGuide> = {
   },
   bench_db: {
     pattern: "bench_press",
+    loadOverride: "dumbbell",
     setup: ["Usiądź z hantlami na udach, połóż się, wprowadzając je nad barki."],
     steps: [
       "Opuszczaj hantle po łuku do wysokości klatki.",
@@ -45,7 +56,9 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     mistakes: ["Zbyt niskie schodzenie kosztem barków.", "Stukanie hantlami o siebie zamiast kontroli."],
   },
   incline_db: {
-    pattern: "bench_press",
+    // P6-1: BYLO proxy na bench_press (leżenie plasko) - kat lawki 30-45° to
+    // inna sylwetka/tor ruchu, wygladaloby jak zle wyciskanie plaskie. Brak
+    // dedykowanego "incline_press" w tym etapie -> sam tekst (etap 3b).
     setup: ["Ustaw ławkę na skos 30-45°, hantle startowo nad barkami."],
     steps: [
       "Opuszczaj hantle do górnej części klatki.",
@@ -67,7 +80,9 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     safety: "Nie walcz o powtórzenie kosztem techniki — przy wątpliwościach zejdź z ciężaru.",
   },
   lunges: {
-    pattern: "squat",
+    // P6-1: BYLO proxy na squat (przysiad w miejscu, symetryczny) - zakrok to
+    // ruch W PRZOD, jedna noga na raz, zupelnie inna sylwetka. Dedykowany
+    // "lunge" dochodzi w etapie 3b.
     setup: ["Stań prosto, hantle po bokach, wzrok przed siebie."],
     steps: [
       "Zrób krok do przodu (lub w tył), opuszczając biodra pionowo w dół.",
@@ -100,7 +115,9 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     safety: "Schodź tylko do granicy, w której plecy zostają proste — dalej to już zaokrąglenie, nie zakres ruchu.",
   },
   hipthrust: {
-    pattern: "hinge",
+    // P6-1: BYLO proxy na hinge (zawiasowanie w biodrach na stojaco) - hip
+    // thrust to ruch NA LEZACO/OPARCIU o lawke, biodra w gore. Dedykowany
+    // wzorzec z lawka dochodzi w etapie 3b.
     setup: ["Oprzyj górną część pleców o ławkę, sztanga nad biodrami, stopy płasko."],
     steps: [
       "Wypchnij biodra w górę, aż tułów i uda utworzą linię prostą.",
@@ -131,7 +148,9 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     mistakes: ["Skręcanie tułowia zamiast pracy ramienia.", "Zbyt szybkie opuszczanie ciężaru."],
   },
   pulldown: {
-    pattern: "row_bent",
+    // P6-1: BYLO proxy na row_bent (opad tulowia, ciagniecie do brzucha) -
+    // sciaganie drazka to ruch W PIONIE, siedzac, ciagniecie w dol do klatki.
+    // Dedykowany "pulldown" dochodzi w etapie 3b.
     setup: ["Usiądź, uda zablokowane pod wałkiem, chwyt szerszy niż barki."],
     steps: [
       "Ściągnij drążek do górnej części klatki, prowadząc łokciami w dół.",
@@ -152,7 +171,10 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     safety: "Trzymaj spięty brzuch i pośladki przez cały ruch — to chroni odcinek lędźwiowy przy wypychaniu nad głowę.",
   },
   lateral: {
-    pattern: "press_overhead",
+    // P6-1: BYLO proxy na press_overhead (wyciskanie w gore) - wznosy bokiem
+    // to ruch W BOK do wysokosci barkow, bez wyprostu ramienia nad glowa -
+    // to jest DOKLADNIE ten blad, ktory zglosil Kamil. Dedykowany
+    // "lateral_raise" dochodzi w etapie 3b.
     setup: ["Stań prosto, hantle po bokach, lekko ugięte łokcie."],
     steps: [
       "Unieś hantle bokiem do wysokości barków, prowadząc łokciem.",
@@ -162,7 +184,9 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     mistakes: ["Zarzucanie ciężaru pędem tułowia.", "Unoszenie zbyt wysoko kosztem barku."],
   },
   face_pull: {
-    pattern: "press_overhead",
+    // P6-1: BYLO proxy na press_overhead (wypychanie w gore) - face pull to
+    // CIAGNIECIE liny do twarzy z wyciagu, przeciwny kierunek ruchu.
+    // Dedykowany "face_pull" dochodzi w etapie 3b.
     setup: ["Wyciąg na wysokości twarzy, chwyt liny, lekki odkrok do tyłu."],
     steps: [
       "Ciągnij linę do twarzy, rozciągając ją na końcu ruchu.",
@@ -182,7 +206,10 @@ export const GUIDES: Record<string, ExerciseGuide> = {
     mistakes: ["Bujanie tułowiem, żeby „pomóc” sztandze.", "Wysuwanie łokci do przodu w trakcie ruchu."],
   },
   french: {
-    pattern: "curl",
+    // P6-1: BYLO proxy na curl (uginanie od dolu, lokcie przy tulowiu) -
+    // francuz to ruch znad glowy, lokcie skierowane w sufit - to jest
+    // DOKLADNIE ten blad, ktory zglosil Kamil ("francuz pokazuje uginanie
+    // bicepsa"). Dedykowany "triceps_ext" dochodzi w etapie 3b.
     setup: ["Sztanga/hantle nad klatką przy wyprostowanych ramionach, łokcie skierowane w sufit."],
     steps: [
       "Ugnij łokcie, opuszczając ciężar w stronę czoła.",
@@ -194,24 +221,14 @@ export const GUIDES: Record<string, ExerciseGuide> = {
 };
 
 /**
- * Fallback po `primaryMuscle`, gdy ćwiczenie (np. dodane ręcznie przez
- * użytkownika) nie ma wpisu w `GUIDES`. Celowo obejmuje TYLKO partie, dla
- * których jeden z 6 wzorców etapu 3a jest sensownym przybliżeniem — Łydki i
- * Brzuch czekają na `calf_raise`/`crunch`/`plank` w etapie 3b (do tego czasu
- * `guideFor` zwraca `null`, UI po prostu nie pokazuje przycisku).
+ * P6-1: fallback po partii mieśniowej (`FALLBACK_PATTERN_BY_MUSCLE`) zostal
+ * CALKOWICIE usuniety — dawal KAZDEMU cwiczeniu na dana partie jeden z 6
+ * wzorcow etapu 3a (np. KAZDY triceps dostawal wyciskanie lezac), co przy
+ * 90-pozycyjnej bazie (P3-8) rozlewalo bledne animacje najszerzej. Tekst
+ * ogolny zostaje - "Jak wykonac?" bez ludzika dalej ma sens dla cwiczen
+ * spoza `GUIDES`.
  */
-const FALLBACK_PATTERN_BY_MUSCLE: Partial<Record<Muscle, MovePatternId>> = {
-  Klatka: "bench_press",
-  Plecy: "row_bent",
-  Barki: "press_overhead",
-  Nogi: "squat",
-  Pośladki: "hinge",
-  "Tył uda": "hinge",
-  Biceps: "curl",
-  Triceps: "bench_press",
-};
-
-const FALLBACK_GUIDE_TEXT: Omit<ExerciseGuide, "pattern"> = {
+const FALLBACK_GUIDE_TEXT: Omit<ExerciseGuide, "pattern" | "loadOverride"> = {
   setup: ["Ustaw ciężar tak, by kontrolować cały zakres ruchu od pierwszego powtórzenia."],
   steps: [
     "Wykonaj ruch płynnie, bez szarpania.",
@@ -221,12 +238,11 @@ const FALLBACK_GUIDE_TEXT: Omit<ExerciseGuide, "pattern"> = {
   mistakes: ["Zbyt duży ciężar kosztem techniki.", "Urywanie zakresu ruchu."],
 };
 
-/** `id` -> `GUIDES`, fallback -> wzorzec z `primaryMuscle`, brak dopasowania -> `null`. */
+/** `id` -> `GUIDES` (bezposrednio, z ewentualnym `pattern`), brak wpisu ale
+ * jest `primaryMuscle` -> ogolny tekst BEZ animacji, brak obu -> `null`. */
 export function guideFor(ex: Exercise): ExerciseGuide | null {
   const direct = GUIDES[ex.id];
   if (direct) return direct;
   if (!ex.primaryMuscle) return null;
-  const pattern = FALLBACK_PATTERN_BY_MUSCLE[ex.primaryMuscle];
-  if (!pattern) return null;
-  return { pattern, ...FALLBACK_GUIDE_TEXT };
+  return { ...FALLBACK_GUIDE_TEXT };
 }
