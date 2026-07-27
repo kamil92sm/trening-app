@@ -158,12 +158,72 @@ export function TrainScreen() {
     const idx = d.entries.findIndex((e) => e.sets.some((s) => !s.done));
     return idx === -1 ? Math.max(0, d.entries.length - 1) : idx;
   });
-  const focusAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // P6-4: przejscie do kolejnego cwiczenia w trybie skupienia - NIGDY zaskakujace.
+  // `autoAdvance` = WIDOCZNE odliczanie (deload / RIR juz odpowiedziane), z
+  // mozliwoscia anulowania ("Zostań"); `quickAdvanceTimer` = krotkie, ciche
+  // przejscie (~600ms) po JAWNYM potwierdzeniu (wybor RIR albo tap "Nastepne
+  // cwiczenie") - bez UI do anulowania, bo to juz swiadoma decyzja.
+  const [autoAdvance, setAutoAdvance] = useState<{ entryIdx: number; secondsLeft: number } | null>(null);
+  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quickAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function cancelAutoAdvance() {
+    if (autoAdvanceTimer.current) {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = null;
+    }
+    setAutoAdvance(null);
+  }
+
+  function tickAutoAdvance(entryIdx: number, secondsLeft: number) {
+    if (secondsLeft <= 0) {
+      autoAdvanceTimer.current = null;
+      setAutoAdvance(null);
+      setFocusIdx((cur) => (cur === entryIdx ? cur + 1 : cur));
+      return;
+    }
+    setAutoAdvance({ entryIdx, secondsLeft });
+    autoAdvanceTimer.current = setTimeout(() => tickAutoAdvance(entryIdx, secondsLeft - 1), 1000);
+  }
+
+  // P6-4 pkt 3+4: widoczne odliczanie 3s (bylo: slepy setTimeout 900ms) - dla
+  // deloadu (bez pytania o RIR) i dla przypadku, gdy RIR jest juz odpowiedziane
+  // (np. dodatkowa seria dolozona PO odpowiedzi na RIR).
+  function scheduleVisibleAdvance(entryIdx: number) {
+    if (quickAdvanceTimer.current) {
+      clearTimeout(quickAdvanceTimer.current);
+      quickAdvanceTimer.current = null;
+    }
+    cancelAutoAdvance();
+    tickAutoAdvance(entryIdx, 3);
+  }
+
+  // P6-4 pkt 2: po wyborze RIR albo recznym tapie "Nastepne cwiczenie" -
+  // krotkie przejscie bez widocznego odliczania (to juz swiadoma decyzja).
+  function scheduleQuickAdvance(entryIdx: number) {
+    cancelAutoAdvance();
+    if (quickAdvanceTimer.current) clearTimeout(quickAdvanceTimer.current);
+    quickAdvanceTimer.current = setTimeout(() => {
+      quickAdvanceTimer.current = null;
+      setFocusIdx((cur) => (cur === entryIdx ? cur + 1 : cur));
+    }, 600);
+  }
+
   useEffect(() => {
     return () => {
-      if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
+      if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
+      if (quickAdvanceTimer.current) clearTimeout(quickAdvanceTimer.current);
     };
   }, []);
+
+  // P6-4 pkt 3: scroll to tez "interakcja z karta" - anuluje widoczne odliczanie.
+  useEffect(() => {
+    if (!autoAdvance) return;
+    const cancel = () => cancelAutoAdvance();
+    window.addEventListener("scroll", cancel, { passive: true });
+    return () => window.removeEventListener("scroll", cancel);
+  }, [autoAdvance]);
+
   const pendingBackup = useRef(false);
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
@@ -309,6 +369,13 @@ export function TrainScreen() {
     const entry = draft.entries[focusIdx];
     const ex = entry ? state.exercises.find((e) => e.id === entry.exerciseId) : undefined;
     restTimer.stop(ex?.restSeconds ?? state.settings.restSeconds, ex?.name ?? null);
+    // P6-4: kazde przejscie na inne cwiczenie (auto albo reczne) uniewaznia
+    // ewentualne odliczanie/przejscie zaplanowane dla POPRZEDNIEGO cwiczenia.
+    cancelAutoAdvance();
+    if (quickAdvanceTimer.current) {
+      clearTimeout(quickAdvanceTimer.current);
+      quickAdvanceTimer.current = null;
+    }
   }, [focusIdx, layout]);
 
   function toggleWarmup(entryIdx: number) {
@@ -444,19 +511,35 @@ export function TrainScreen() {
         }
       }
 
-      // P3-6: tryb skupienia - auto-przejscie do kolejnego cwiczenia, gdy ten
-      // klik zaliczyl WSZYSTKIE serie biezacego cwiczenia (nie tylko przy juz
-      // kompletnym). Nie z ostatniego cwiczenia (tam czeka "Zakoncz trening").
+      // P6-4: tryb skupienia - gdy ten klik zaliczyl WSZYSTKIE serie biezacego
+      // cwiczenia (nie tylko przy juz kompletnym; nie z ostatniego cwiczenia,
+      // tam czeka "Zakoncz trening"). Auto-przejscie NIGDY nie jest zaskakujace:
+      // deload (bez pytania o RIR) i przypadek, gdy RIR jest juz odpowiedziane
+      // (np. dodatkowa seria dolozona PO odpowiedzi) dostaja WIDOCZNE odliczanie
+      // 3s z "Zostań"; sila/hipertrofia z RIR jeszcze bez odpowiedzi NIE dostaja
+      // zadnego auto-przejscia - czekamy na wybor RIR (nizej) albo reczny tap.
       const sets = draft?.entries[entryIdx]?.sets ?? [];
-      const othersAlreadyDone = sets.length > 0 && sets.every((s, i) => i === setIdx || s.done);
+      const exerciseNowComplete = sets.length > 0 && sets.every((s, i) => i === setIdx || s.done);
       const totalEntries = draft?.entries.length ?? 0;
-      if (layout === "focus" && entryIdx === focusIdx && othersAlreadyDone && entryIdx < totalEntries - 1) {
-        if (focusAdvanceTimer.current) clearTimeout(focusAdvanceTimer.current);
-        const idxAtSchedule = entryIdx;
-        focusAdvanceTimer.current = setTimeout(() => {
-          focusAdvanceTimer.current = null;
-          setFocusIdx((cur) => (cur === idxAtSchedule ? cur + 1 : cur));
-        }, 900);
+      const draftMode = draft?.mode;
+      if (layout === "focus" && entryIdx === focusIdx && exerciseNowComplete && entryIdx < totalEntries - 1 && draftMode) {
+        const lastWorkingIdx = ex ? setsForMode(ex, draftMode) - 1 : -1;
+        const rirAnswered = lastWorkingIdx >= 0 ? sets[lastWorkingIdx]?.rir !== undefined : false;
+        if (draftMode === "deload" || rirAnswered) {
+          scheduleVisibleAdvance(entryIdx);
+        }
+      }
+    }
+
+    // P6-4 pkt 2: wybor RIR (gdy cwiczenie jest juz kompletne) - krotkie, ciche
+    // przejscie zamiast czekania na kolejny klik. Osobny warunek od `done`
+    // powyzej - przyciski RIR wysylaja patch WYLACZNIE z polem `rir`.
+    if (patch.rir !== undefined && layout === "focus" && entryIdx === focusIdx && draft?.mode !== "deload") {
+      const sets = draft?.entries[entryIdx]?.sets ?? [];
+      const allDone = sets.length > 0 && sets.every((s) => s.done);
+      const totalEntries = draft?.entries.length ?? 0;
+      if (allDone && entryIdx < totalEntries - 1) {
+        scheduleQuickAdvance(entryIdx);
       }
     }
   }
@@ -1283,6 +1366,11 @@ export function TrainScreen() {
 
   if (layout === "focus") {
     // ── Tryb skupienia (P3-6): jedno ćwiczenie na ekran ─────────────────────
+    // P6-4: pasek "Ćwiczenie zrobione" - widoczny gdy WSZYSTKIE serie biezacego
+    // cwiczenia sa zaliczone i jest jeszcze cos, do czego przejsc.
+    const focusEntry = draft.entries[focusIdx];
+    const currentExerciseDone = !!focusEntry && focusEntry.sets.length > 0 && focusEntry.sets.every((s) => s.done);
+    const isLastFocusEntry = focusIdx >= draft.entries.length - 1;
     return (
       <div className="pb-16">
         <div
@@ -1317,7 +1405,31 @@ export function TrainScreen() {
         </div>
 
         <div className="space-y-3 p-4">
-          {renderExerciseCard(focusIdx)}
+          {/* P6-4: kazda interakcja z karta (pole, +/-) anuluje widoczne
+              odliczanie do nastepnego cwiczenia - "capture", zeby zlapac
+              klikniecie zanim zrobi cokolwiek innego. */}
+          <div onPointerDownCapture={() => autoAdvance && cancelAutoAdvance()}>
+            {renderExerciseCard(focusIdx)}
+          </div>
+          {currentExerciseDone && !isLastFocusEntry && (
+            <div className="rounded-lg border border-green-500/40 bg-green-500/5 p-3">
+              <p className="text-sm font-medium text-green-400">Ćwiczenie zrobione</p>
+              {autoAdvance ? (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Następne ćwiczenie za {autoAdvance.secondsLeft}…
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={cancelAutoAdvance}>
+                    Zostań
+                  </Button>
+                </div>
+              ) : (
+                <Button className="mt-2 w-full" onClick={() => scheduleQuickAdvance(focusIdx)}>
+                  Następne ćwiczenie <ChevronRight size={16} />
+                </Button>
+              )}
+            </div>
+          )}
           <div className="rounded-lg border border-border bg-card p-3">
             {/* P6-3: po ostatniej serii calego treningu nie ma juz czego
                 odmierzac - podpowiedz zamiast (juz zatrzymanego) panelu. */}

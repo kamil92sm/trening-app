@@ -2680,7 +2680,7 @@ przerwa uruchomiona ręcznie przyciskiem Start nadal działa normalnie.
 
 ---
 
-### [ ] P6-4. Tryb skupienia: karta ćwiczenia znika za szybko (najbardziej w deloadzie)
+### [x] P6-4. Tryb skupienia: karta ćwiczenia znika za szybko (najbardziej w deloadzie) (2026-07-27)
 
 **Zgłoszenie Kamila:** „Deload w widoku focus pokazuje się, ale szybko znika i przełącza
 się na następną."
