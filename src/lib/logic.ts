@@ -1279,3 +1279,74 @@ export function nextDaySuggestion(state: AppState): string | null {
   const idx = rotation.findIndex((d) => d.id === last.dayId);
   return rotation[(idx + 1) % rotation.length].id;
 }
+
+// ── Etap 6/P6-8: eksport historii do CSV ────────────────────────────────────
+
+const TRAINING_MODE_LABEL: Record<TrainingMode, string> = {
+  strength: "Siła",
+  hypertrophy: "Hipertrofia",
+  deload: "Deload",
+};
+
+/** Ucieczka pola CSV (dialekt średnikowy: separator to `;`, nie `,`) — cudzysłów
+ * tylko gdy pole zawiera separator, cudzysłów albo nową linię; wewnętrzne
+ * cudzysłowy podwojone (RFC 4180). */
+function csvField(v: string): string {
+  return /[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/**
+ * Eksport historii treningów do czytelnego CSV — jedna linia na ZALICZONĄ
+ * serię z UKOŃCZONEJ sesji (nieukończone sesje i niezaznaczone serie pomijane
+ * całkowicie). Hantle: `ciężar_kg` zostaje "na rękę" (tak jak logowane),
+ * `tonaż_kg` liczy `setVolume()` (już z ×2 dla hantli, patrz §4 CLAUDE.md
+ * `perHand`). Separator `;` i przecinek dziesiętny (`fmtNumPl`) — konwencja
+ * polskiego Excela; BOM na początku, żeby polskie znaki nie rozjechały się
+ * przy otwarciu. Dotyka WYŁĄCZNIE historii sesji/planu — żadnych `settings`
+ * (token, Gist ID i inne ustawienia nigdy nie trafiają do pliku).
+ */
+export function sessionsToCsv(state: AppState): string {
+  const HEADER = [
+    "data",
+    "dzień",
+    "tryb",
+    "ćwiczenie",
+    "numer_serii",
+    "ciężar_kg",
+    "powtórzenia_lub_sekundy",
+    "RIR",
+    "tonaż_kg",
+  ];
+  const exById = new Map(state.exercises.map((e) => [e.id, e]));
+  const dayById = new Map(state.days.map((d) => [d.id, d]));
+
+  const rows: string[][] = [];
+  const sorted = [...state.sessions].filter((s) => s.completed).sort((a, b) => a.date.localeCompare(b.date));
+  for (const session of sorted) {
+    const dayName = dayById.get(session.dayId)?.name ?? session.dayId;
+    const modeLabel = TRAINING_MODE_LABEL[session.mode ?? "strength"];
+    for (const entry of session.entries) {
+      const ex = exById.get(entry.exerciseId);
+      const exName = ex?.name ?? entry.exerciseId;
+      entry.sets.forEach((set, i) => {
+        if (!set.done) return;
+        const tonnage = ex ? Math.round(setVolume(ex, set) * 100) / 100 : 0;
+        rows.push([
+          session.date.slice(0, 10),
+          dayName,
+          modeLabel,
+          exName,
+          String(i + 1),
+          fmtNumPl(set.weight),
+          String(set.reps),
+          set.rir !== undefined ? String(set.rir) : "",
+          fmtNumPl(tonnage),
+        ]);
+      });
+    }
+  }
+
+  const lines = [HEADER, ...rows].map((cols) => cols.map(csvField).join(";"));
+  const BOM = "﻿";
+  return BOM + lines.join("\r\n");
+}

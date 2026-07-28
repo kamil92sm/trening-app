@@ -34,6 +34,7 @@ import {
   weeksSinceDeload,
   weeklyReport,
   weeklyReportDefaultExpanded,
+  sessionsToCsv,
   mondayOf,
   failedAtRirZero,
   estimateGoalEta,
@@ -1925,6 +1926,97 @@ check(
   tuesday.setDate(tuesday.getDate() + 1);
   const tuesdayExpanded = weeklyReportDefaultExpanded(tuesday.toISOString());
   check("weeklyReportDefaultExpanded: wtorek -> zwinieta", tuesdayExpanded === false);
+}
+
+// Etap 6: eksport historii do CSV.
+{
+  const stCsv = defaultState();
+  stCsv.settings.gistToken = "github_pat_TEST_SECRET";
+  stCsv.settings.gistId = "abc123secret";
+  stCsv.sessions.push(
+    {
+      id: "csv1",
+      dayId: "mon",
+      date: "2026-07-06T10:00:00.000Z",
+      completed: true,
+      mode: "hypertrophy",
+      entries: [
+        {
+          exerciseId: "bench_bb",
+          targetWeight: 45,
+          sets: [
+            { weight: 45, reps: 8, done: true, rir: 2 },
+            { weight: 45, reps: 7, done: false }, // niezaliczona - MUSI byc pominieta
+            { weight: 45, reps: 6, done: true },
+          ],
+        },
+        {
+          exerciseId: "bench_db",
+          targetWeight: 17.5,
+          sets: [{ weight: 17.5, reps: 10, done: true }],
+        },
+      ],
+    },
+    {
+      id: "csv2",
+      dayId: "wed",
+      date: "2026-07-08",
+      completed: false, // nieukonczona sesja - MUSI byc pominieta w calosci
+      entries: [{ exerciseId: "squat", targetWeight: 60, sets: [{ weight: 60, reps: 5, done: true }] }],
+    }
+  );
+  const before = JSON.stringify(stCsv);
+  const csv = sessionsToCsv(stCsv);
+  const after = JSON.stringify(stCsv);
+  check("sessionsToCsv: nie mutuje przekazanego state", before === after);
+  check("sessionsToCsv: zaczyna sie od BOM (UTF-8)", csv.charCodeAt(0) === 0xfeff);
+  const body = csv.slice(1); // bez BOM, zeby latwo porownywac tekst
+  const lines = body.split("\r\n"); // [naglowek, wiersz1, wiersz2, wiersz3]
+  check("sessionsToCsv: naglowek uzywa srednika jako separatora", lines[0].startsWith("data;dzień;tryb;"), lines[0]);
+  check("sessionsToCsv: naglowek ma wszystkie 9 kolumn", lines[0].split(";").length === 9, lines[0]);
+  check("sessionsToCsv: pomija niezaliczona serie (3 wiersze danych, nie 4)", lines.length === 4, lines);
+  check(
+    "sessionsToCsv: pomija CALA nieukonczona sesje (squat sie nie pojawia)",
+    !body.includes("squat") && !body.includes("Przysiad"),
+    body
+  );
+  check("sessionsToCsv: tryb po polsku (Hipertrofia)", lines[1].includes(";Hipertrofia;") && lines[2].includes(";Hipertrofia;"), lines);
+  check(
+    "sessionsToCsv: hantle - ciezar NA REKE w kolumnie ciezar_kg (17,5, nie 35)",
+    lines[3].includes(";17,5;"),
+    lines[3]
+  );
+  check("sessionsToCsv: hantle - tonaz_kg liczony x2 (17,5*10*2=350)", lines[3].trim().endsWith(";350"), lines[3]);
+  check("sessionsToCsv: RIR obecny gdy zapisany (2)", lines[1].includes(";2;"), lines[1]);
+  check(
+    "sessionsToCsv: numer_serii zachowuje POZYCJE w sesji (1 i 3, seria 2 pominieta)",
+    lines[1].split(";")[4] === "1" && lines[2].split(";")[4] === "3",
+    lines
+  );
+  check(
+    "sessionsToCsv: bez tokenu/Gist ID/innych ustawien w pliku",
+    !body.includes("github_pat_TEST_SECRET") && !body.includes("abc123secret") && !body.includes("gistToken"),
+    body
+  );
+
+  // Escapowanie: cwiczenie z separatorem/cudzyslowem w nazwie musi trafic w cudzyslow.
+  const stEscape = defaultState();
+  stEscape.days = [{ id: "d", name: "Dzień; specjalny \"X\"", short: "D", exerciseIds: ["bench_bb"] }];
+  stEscape.sessions.push({
+    id: "esc1",
+    dayId: "d",
+    date: "2026-07-06",
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }],
+  });
+  const csvEscaped = sessionsToCsv(stEscape);
+  check(
+    "sessionsToCsv: pole z separatorem/cudzyslowem w cudzyslowie, wewnetrzny cudzyslow podwojony",
+    csvEscaped.includes('"Dzień; specjalny ""X"""'),
+    csvEscaped
+  );
+
+  check("sessionsToCsv: pusta historia -> tylko naglowek", sessionsToCsv(defaultState()).slice(1).split("\r\n").length === 1);
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus, RotateCcw, X } from "lucide-react";
+import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus, RotateCcw, X, FileSpreadsheet } from "lucide-react";
 import { useStore, readAutoBackupSnapshot } from "@/lib/store";
 import type { GymProfile } from "@/lib/types";
-import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
+import { fmtDate, fmtDateShort, fmtKg, sessionsToCsv } from "@/lib/logic";
 import { gistBackup, gistRestore, GistApiError } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -154,6 +154,19 @@ export function MoreScreen() {
     a.click();
     URL.revokeObjectURL(url);
     toast("Backup wyeksportowany", a.download);
+  }
+
+  // Etap 6/P6-8: eksport historii do CSV - czytelny w Excelu/Numbers, przetrwa
+  // nawet gdyby ta konkretna wersja apki kiedyś przestała istnieć.
+  function exportCsv() {
+    const blob = new Blob([sessionsToCsv(state)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trening-historia-${today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("CSV wyeksportowany", a.download);
   }
 
   function importBackup(file: File) {
@@ -656,6 +669,9 @@ export function MoreScreen() {
               }}
             />
           </div>
+          <Button variant="outline" className="w-full" onClick={exportCsv}>
+            <FileSpreadsheet size={15} /> Eksport CSV (historia treningów)
+          </Button>
           {(() => {
             const autoBackup = readAutoBackupSnapshot();
             return (
