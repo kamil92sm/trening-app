@@ -1150,6 +1150,117 @@ export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): We
   }));
 }
 
+// ── Etap 5: raport tygodniowy — "Ten tydzień", jedna karta, cztery liczby ──
+
+export type WeeklyRecommendation = "deload" | "adherence" | "bonus" | "onTrack";
+
+export interface WeeklyReport {
+  weekMonday: string;
+  sessionsDone: number;
+  sessionsPlanned: number;
+  tonnageCurrent: number;
+  /** `null` = brak sesji w poprzednim tygodniu — "brak porównania", nigdy Infinity/NaN. */
+  tonnagePrevious: number | null;
+  /** Procentowa zmiana tonażu vs poprzedni tydzień, `null` gdy `tonnagePrevious` to `null`. */
+  tonnageChangePct: number | null;
+  /** Ćwiczenia, których e1RM w TYM tygodniu przebił najlepsze e1RM SPRZED tego tygodnia. */
+  strengthImproved: number;
+  /** Ćwiczenia w zastoju (detectPlateau) — sygnał niezależny od tygodnia, ten sam co nudge deloadu. */
+  strengthPlateaued: number;
+  /** Partie poniżej zakresu w oknie "Wykonane (7 dni)" (actualWeeklyMuscleVolume). */
+  lowVolumeMuscles: number;
+  recommendation: WeeklyRecommendation;
+}
+
+/**
+ * Etap 5/P4-7/P6-11: sklejenie z ISTNIEJĄCYCH funkcji (weeklyAdherence,
+ * sessionVolume, bestE1rm, detectPlateau, actualWeeklyMuscleVolume) — zero
+ * nowej matematyki poza samym sklejeniem i wyborem rekomendacji. `nowIso`
+ * testowalne, jak reszta modułu.
+ */
+export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
+  const now = nowIso ?? new Date().toISOString();
+  const monday = mondayOf(now);
+  const prevMondayDate = new Date(monday + "T12:00:00");
+  prevMondayDate.setDate(prevMondayDate.getDate() - 7);
+  const prevMonday = prevMondayDate.toISOString().slice(0, 10);
+
+  const [thisWeekAdherence] = weeklyAdherence(state, 1, now);
+
+  let tonnageCurrent = 0;
+  let tonnagePrevious = 0;
+  let hasPrevious = false;
+  for (const s of state.sessions) {
+    if (!s.completed) continue;
+    const week = mondayOf(s.date);
+    if (week === monday) tonnageCurrent += sessionVolume(state, s);
+    else if (week === prevMonday) {
+      tonnagePrevious += sessionVolume(state, s);
+      hasPrevious = true;
+    }
+  }
+  // Brak sesji w poprzednim tygodniu ALBO tonaż zerowy -> "brak porównania",
+  // nigdy dzielenie przez zero (Infinity/NaN).
+  const tonnageChangePct =
+    hasPrevious && tonnagePrevious > 0 ? ((tonnageCurrent - tonnagePrevious) / tonnagePrevious) * 100 : null;
+
+  // Poprawa e1RM: najlepszy wynik W TYM TYGODNIU vs najlepszy SPRZED tego
+  // tygodnia — liczone TYLKO dla ćwiczeń z historią sprzed tygodnia (bez tego
+  // pierwszy trening nowego ćwiczenia wyglądałby jak "poprawa").
+  let strengthImproved = 0;
+  for (const ex of state.exercises) {
+    if (ex.archived || ex.isHold) continue;
+    let thisWeekBest = 0;
+    let beforeBest = 0;
+    let hasBefore = false;
+    for (const s of state.sessions) {
+      if (!s.completed) continue;
+      const entry = s.entries.find((e) => e.exerciseId === ex.id);
+      if (!entry) continue;
+      const e = bestE1rm(ex, entry);
+      if (e <= 0) continue;
+      if (mondayOf(s.date) >= monday) thisWeekBest = Math.max(thisWeekBest, e);
+      else {
+        beforeBest = Math.max(beforeBest, e);
+        hasBefore = true;
+      }
+    }
+    if (hasBefore && thisWeekBest > beforeBest) strengthImproved++;
+  }
+
+  const strengthPlateaued = state.exercises.filter((ex) => !ex.archived && detectPlateau(state, ex.id)).length;
+
+  const volumeGoal: VolumeGoal = state.settings.volumeGoal ?? "hypertrophy";
+  const lowVolumeMuscles = actualWeeklyMuscleVolume(state, volumeGoal, now).filter((v) => v.status === "low").length;
+
+  let recommendation: WeeklyRecommendation;
+  if (strengthPlateaued >= 3) recommendation = "deload";
+  else if (thisWeekAdherence.done < thisWeekAdherence.planned) recommendation = "adherence";
+  else if (lowVolumeMuscles >= 2) recommendation = "bonus";
+  else recommendation = "onTrack";
+
+  return {
+    weekMonday: monday,
+    sessionsDone: thisWeekAdherence.done,
+    sessionsPlanned: thisWeekAdherence.planned,
+    tonnageCurrent,
+    tonnagePrevious: hasPrevious ? tonnagePrevious : null,
+    tonnageChangePct,
+    strengthImproved,
+    strengthPlateaued,
+    lowVolumeMuscles,
+    recommendation,
+  };
+}
+
+/** Karta "Ten tydzień" domyślnie rozwinięta w niedzielę/poniedziałek (podsumowanie
+ * mijającego tygodnia / planowanie nowego), zwinięta w pozostałe dni. */
+export function weeklyReportDefaultExpanded(nowIso?: string): boolean {
+  const iso = (nowIso ?? new Date().toISOString()).slice(0, 10);
+  const day = new Date(iso + "T12:00:00").getDay(); // 0 = niedziela, 1 = poniedziałek
+  return day === 0 || day === 1;
+}
+
 /**
  * Podpowiedź kolejnego dnia w rotacji planu (P2-10) — id dnia z `state.days`,
  * NIE bonusowego. Bierze ostatnią ukończoną sesję spośród dni głównych

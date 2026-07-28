@@ -32,6 +32,9 @@ import {
   targetForMode,
   deloadTargetFor,
   weeksSinceDeload,
+  weeklyReport,
+  weeklyReportDefaultExpanded,
+  mondayOf,
   failedAtRirZero,
   estimateGoalEta,
   mesocycleWeek,
@@ -1806,6 +1809,122 @@ check(
     "Etap1: import ignoruje token z pliku i zachowuje lokalny",
     migratedImport.settings.gistToken === localToken
   );
+}
+
+// Etap 5: raport tygodniowy "Ten tydzien" - jedna karta, cztery liczby, jedna rekomendacja.
+{
+  const NOW = "2026-08-03T10:00:00.000Z"; // dowolny punkt odniesienia, nie zalezny od "dzis"
+  const monday = mondayOf(NOW);
+
+  // Pusty tydzien: 0 sesji, brak tonazu, brak porownania, rekomendacja "domknij regularnosc".
+  const empty = weeklyReport(defaultState(), NOW);
+  check("weeklyReport: pusty tydzien - 0 z zaplanowanych (3 dni glowne)", empty.sessionsDone === 0 && empty.sessionsPlanned === 3, empty);
+  check("weeklyReport: pusty tydzien - tonaz 0", empty.tonnageCurrent === 0, empty);
+  check("weeklyReport: pusty tydzien - brak porownania (null, nie Infinity/NaN)", empty.tonnagePrevious === null && empty.tonnageChangePct === null, empty);
+  check("weeklyReport: pusty tydzien - rekomendacja adherence (0<3)", empty.recommendation === "adherence", empty.recommendation);
+
+  // Pelne 3/3: trzy ukonczone sesje w TYM tygodniu, po jednej na kazdy dzien glowny.
+  const stFull = defaultState();
+  const mainDays = stFull.days.filter((d) => !d.optional);
+  stFull.sessions.push(
+    ...mainDays.map((d, i) => ({
+      id: `full-${i}`,
+      dayId: d.id,
+      date: monday,
+      completed: true,
+      entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }],
+    }))
+  );
+  const full = weeklyReport(stFull, NOW);
+  check("weeklyReport: pelne 3/3 - sessionsDone === sessionsPlanned", full.sessionsDone === 3 && full.sessionsPlanned === 3, full);
+  check("weeklyReport: pelne 3/3 - adherence NIE jest juz problemem", full.recommendation !== "adherence", full.recommendation);
+
+  // Brak poprzedniego tygodnia: sesje SA w tym tygodniu, ale zero w poprzednim.
+  const stNoPrev = defaultState();
+  stNoPrev.sessions.push({
+    id: "np1",
+    dayId: mainDays[0].id,
+    date: monday,
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }],
+  });
+  const noPrev = weeklyReport(stNoPrev, NOW);
+  check("weeklyReport: brak poprzedniego tygodnia - tonaz biezacy > 0", noPrev.tonnageCurrent > 0, noPrev);
+  check("weeklyReport: brak poprzedniego tygodnia - brak porownania", noPrev.tonnagePrevious === null && noPrev.tonnageChangePct === null, noPrev);
+
+  // Granica poniedzialek/niedziela: sesja w niedziele (koniec POPRZEDNIEGO tygodnia)
+  // i sesja w poniedzialek (poczatek TEGO tygodnia) NIE moga wpasc do tego samego kubelka.
+  const sundayBefore = new Date(monday + "T12:00:00");
+  sundayBefore.setDate(sundayBefore.getDate() - 1);
+  const sundayStr = sundayBefore.toISOString().slice(0, 10);
+  const stBoundary = defaultState();
+  stBoundary.sessions.push(
+    { id: "b-sun", dayId: mainDays[0].id, date: sundayStr, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [{ weight: 40, reps: 10, done: true }] }] },
+    { id: "b-mon", dayId: mainDays[0].id, date: monday, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 50, sets: [{ weight: 50, reps: 10, done: true }] }] }
+  );
+  const boundary = weeklyReport(stBoundary, NOW);
+  check("weeklyReport: granica pn/nd - niedziela liczy sie do POPRZEDNIEGO tygodnia", boundary.tonnagePrevious === 400, boundary);
+  check("weeklyReport: granica pn/nd - poniedzialek liczy sie do TEGO tygodnia", boundary.tonnageCurrent === 500, boundary);
+
+  // Sesja bonusowa NIE zwieksza liczby wymaganych dni (planned zostaje 3), ale
+  // liczy sie do "zrobione" (done).
+  const stBonus = defaultState();
+  stBonus.sessions.push({
+    id: "bonus1",
+    dayId: "bonus",
+    date: monday,
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }],
+  });
+  const bonusReport = weeklyReport(stBonus, NOW);
+  check("weeklyReport: sesja bonusowa - planned zostaje 3 (nie 4)", bonusReport.sessionsPlanned === 3, bonusReport);
+  check("weeklyReport: sesja bonusowa - liczy sie do done", bonusReport.sessionsDone === 1, bonusReport);
+
+  // Plateau >=3 cwiczenia -> rekomendacja deload (najwyzszy priorytet).
+  const stPlateau = defaultState();
+  const plateauExIds = ["bench_bb", "squat", "row_bb"];
+  const plateauDates = ["2026-06-01", "2026-06-08", "2026-06-15"];
+  for (const exId of plateauExIds) {
+    for (const date of plateauDates) {
+      stPlateau.sessions.push({
+        id: `plat-${exId}-${date}`,
+        dayId: mainDays[0].id,
+        date,
+        completed: true,
+        entries: [{ exerciseId: exId, targetWeight: 50, sets: [{ weight: 50, reps: 6, done: true }] }],
+      });
+    }
+  }
+  const plateauReport = weeklyReport(stPlateau, NOW);
+  check("weeklyReport: 3 cwiczenia w zastoju wykryte", plateauReport.strengthPlateaued === 3, plateauReport.strengthPlateaued);
+  check("weeklyReport: rekomendacja deload ma priorytet nad reszta", plateauReport.recommendation === "deload", plateauReport.recommendation);
+
+  // Niski wolumen (>=2 partie ponizej zakresu w oknie "Wykonane 7 dni") -> "bonus",
+  // gdy adherence pelne i brak plateau. Stan minimalny: JEDEN dzien, JEDNO cwiczenie -
+  // pozostale partie z definicji maja 0 serii w oknie, wiec sa "low".
+  const stLowVol = defaultState();
+  stLowVol.days = [{ id: "solo", name: "Solo", short: "Solo", exerciseIds: ["bench_bb"] }];
+  stLowVol.sessions.push({
+    id: "lv1",
+    dayId: "solo",
+    date: monday,
+    completed: true,
+    entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }],
+  });
+  const lowVolReport = weeklyReport(stLowVol, NOW);
+  check("weeklyReport: niski wolumen - co najmniej 2 partie ponizej zakresu", lowVolReport.lowVolumeMuscles >= 2, lowVolReport.lowVolumeMuscles);
+  check("weeklyReport: rekomendacja bonus (pelne adherence, bez plateau, niski wolumen)", lowVolReport.recommendation === "bonus", lowVolReport.recommendation);
+
+  // Domyslne rozwiniecie karty: niedziela/poniedzialek TAK, reszta tygodnia NIE.
+  // Uzywamy tej samej techniki co wyzej (mondayOf) zeby nie zgadywac dnia tygodnia recznie.
+  const mondayExpanded = weeklyReportDefaultExpanded(monday + "T10:00:00.000Z");
+  check("weeklyReportDefaultExpanded: poniedzialek -> rozwinieta", mondayExpanded === true);
+  const sundayExpanded = weeklyReportDefaultExpanded(sundayStr + "T10:00:00.000Z");
+  check("weeklyReportDefaultExpanded: niedziela -> rozwinieta", sundayExpanded === true);
+  const tuesday = new Date(monday + "T12:00:00");
+  tuesday.setDate(tuesday.getDate() + 1);
+  const tuesdayExpanded = weeklyReportDefaultExpanded(tuesday.toISOString());
+  check("weeklyReportDefaultExpanded: wtorek -> zwinieta", tuesdayExpanded === false);
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

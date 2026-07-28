@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, RotateCcw } from "lucide-react";
+import { Pencil, RotateCcw, ChevronDown, ChevronRight } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Muscle } from "@/lib/types";
 import {
@@ -23,7 +23,10 @@ import {
   bestE1rm,
   e1rm,
   detectPlateau,
+  weeklyReport,
+  weeklyReportDefaultExpanded,
   type VolumeGoal,
+  type WeeklyRecommendation,
 } from "@/lib/logic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, Input } from "@/components/ui/input";
@@ -40,6 +43,14 @@ function plWeeks(n: number): string {
   if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return "tygodnie";
   return "tygodni";
 }
+
+// Etap 5: teksty rekomendacji "Ten tydzień" - jedna, wybrana priorytetowo w weeklyReport().
+const RECOMMENDATION_TEXT: Record<WeeklyRecommendation, string> = {
+  deload: "Rozważ tydzień deloadu",
+  adherence: "Najpierw domknij regularność",
+  bonus: "Rozważ dzień bonusowy",
+  onTrack: "Trzymaj kurs — plan jest realizowany",
+};
 
 // P4-9: pole celu per ćwiczenie - lokalny raw string (wzorzec NumberField), ale
 // pusty string = BRAK celu (usuwa wpis), nie 0 - w przeciwienstwie do NumberField,
@@ -79,6 +90,11 @@ function GoalInput({ initial, onCommit }: { initial: number | undefined; onCommi
 
 export function ProgressScreen() {
   const { state, setDayActive, updateSettings } = useStore();
+
+  // Etap 5: karta "Ten tydzień" - domyślnie rozwinięta w niedzielę/poniedziałek,
+  // stan lokalny (bez nowego pola w AppState), useState inicjalizowany RAZ.
+  const [reportExpanded, setReportExpanded] = useState(() => weeklyReportDefaultExpanded());
+  const report = useMemo(() => weeklyReport(state), [state]);
 
   const volumeGoal: VolumeGoal = state.settings.volumeGoal ?? "hypertrophy";
   const [volumeView, setVolumeView] = useState<"planned" | "actual">("planned");
@@ -221,6 +237,61 @@ export function ProgressScreen() {
   return (
     <div className="space-y-3 p-4">
       <h1 className="text-lg font-bold">Progres</h1>
+
+      {/* Etap 5/P4-7/P6-11: "Ten tydzień" - cztery liczby + jedna rekomendacja,
+          sklejone z istniejących funkcji (zero nowego liczenia w UI). */}
+      <Card>
+        <CardHeader>
+          <button
+            type="button"
+            onClick={() => setReportExpanded((v) => !v)}
+            className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+            aria-expanded={reportExpanded}
+          >
+            <CardTitle>Ten tydzień</CardTitle>
+            {reportExpanded ? (
+              <ChevronDown size={16} className="shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+            )}
+          </button>
+        </CardHeader>
+        {reportExpanded && (
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              <span className="text-muted-foreground">Treningi: </span>
+              {report.sessionsDone} z {report.sessionsPlanned} zaplanowanych
+            </p>
+            <p>
+              <span className="text-muted-foreground">Tonaż: </span>
+              {fmtTonnage(report.tonnageCurrent)}
+              {report.tonnageChangePct !== null ? (
+                <span className={report.tonnageChangePct >= 0 ? "text-green-400" : "text-amber-400"}>
+                  {" "}
+                  ({report.tonnageChangePct >= 0 ? "+" : ""}
+                  {Math.round(report.tonnageChangePct)}% vs poprzedni tydzień)
+                </span>
+              ) : (
+                <span className="text-muted-foreground"> (brak porównania)</span>
+              )}
+            </p>
+            <p>
+              <span className="text-muted-foreground">Siła: </span>
+              {report.strengthImproved} {report.strengthImproved === 1 ? "ćwiczenie" : "ćwiczeń"} z poprawą e1RM ·{" "}
+              {report.strengthPlateaued} w zastoju
+            </p>
+            <p>
+              <span className="text-muted-foreground">Objętość: </span>
+              {report.lowVolumeMuscles === 0
+                ? "wszystkie partie w zakresie (7 dni)"
+                : `${report.lowVolumeMuscles} ${report.lowVolumeMuscles === 1 ? "partia" : "partii"} poniżej zakresu (7 dni)`}
+            </p>
+            <p className="rounded-md bg-accent/50 px-2.5 py-2 text-xs font-medium">
+              {RECOMMENDATION_TEXT[report.recommendation]}
+            </p>
+          </CardContent>
+        )}
+      </Card>
 
       {/* Objętość tygodniowa per partia */}
       <Card>
