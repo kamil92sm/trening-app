@@ -1463,7 +1463,86 @@ check(
 );
 
 const noMuscleExercise = { ...syntheticChestExercise, id: "__synthetic_no_muscle__", primaryMuscle: undefined };
-check("guideFor: brak primaryMuscle i brak wpisu w GUIDES -> null", guideFor(noMuscleExercise) === null);
+check(
+  "guideFor: brak primaryMuscle i brak wpisu w GUIDES -> null (bez wyjatku)",
+  guideFor(noMuscleExercise) === null
+);
+
+// Zadanie 2: bezposrednia instrukcja tekstowa dla wszystkich 90 cwiczen z seeda.
+check("SEED_EXERCISES: liczba cwiczen wynosi 90", SEED_EXERCISES.length === 90, SEED_EXERCISES.length);
+
+let allSeedHaveDirectGuide = true;
+let missingDirectGuide = "";
+for (const ex of SEED_EXERCISES) {
+  const direct = GUIDES[ex.id];
+  if (
+    !direct ||
+    direct.setup.length < 1 ||
+    direct.steps.length < 3 ||
+    direct.mistakes.length < 2 ||
+    direct.setup.some((s) => !s.trim()) ||
+    direct.steps.some((s) => !s.trim()) ||
+    direct.mistakes.some((s) => !s.trim())
+  ) {
+    allSeedHaveDirectGuide = false;
+    missingDirectGuide = `${ex.id} (${ex.name}): direct=${!!direct} setup=${direct?.setup.length} steps=${direct?.steps.length} mistakes=${direct?.mistakes.length}`;
+    break;
+  }
+}
+check(
+  "GUIDES: kazde SEED_EXERCISES.id ma bezposredni wpis (setup>=1, steps>=3, mistakes>=2, bez pustego tekstu)",
+  allSeedHaveDirectGuide,
+  missingDirectGuide
+);
+
+// Zadne dwa rozne cwiczenia nie dostaja przez przypadek TEJ SAMEJ referencji
+// obiektu (np. przez `const shared = {...}; a: shared, b: shared`).
+const guideRefs = new Map<object, string[]>();
+for (const [exId, guide] of Object.entries(GUIDES)) {
+  const owners = guideRefs.get(guide) ?? [];
+  owners.push(exId);
+  guideRefs.set(guide, owners);
+}
+const sharedRefs = [...guideRefs.values()].filter((owners) => owners.length > 1);
+check(
+  "GUIDES: zadne dwa cwiczenia nie dziela tej samej referencji obiektu guide",
+  sharedRefs.length === 0,
+  sharedRefs
+);
+
+// Fallback (tylko cwiczenia uzytkownika spoza seeda) zalezy od kategorii,
+// jednostki sprzetu i isHold - nie jeden ogolny tekst dla wszystkich.
+const userBarbell = { ...syntheticChestExercise, id: "__u_barbell__", unit: "barbell" as const, category: "Nogi" as const, primaryMuscle: "Nogi" as const };
+const userMachine = { ...syntheticChestExercise, id: "__u_machine__", unit: "machine" as const, category: "Plecy" as const, primaryMuscle: "Plecy" as const };
+const userHold = { ...syntheticChestExercise, id: "__u_hold__", unit: "bodyweight" as const, isHold: true, category: "Brzuch" as const, primaryMuscle: "Brzuch" as const };
+const gBarbell = guideFor(userBarbell)!;
+const gMachine = guideFor(userMachine)!;
+const gHold = guideFor(userHold)!;
+check(
+  "fallback: rozny sprzet (barbell vs machine) daje rozny tekst ustawienia",
+  gBarbell.setup[0] !== gMachine.setup[0],
+  { gBarbell, gMachine }
+);
+check(
+  "fallback: rozna kategoria daje rozny cue w krokach",
+  gBarbell.steps.join("|") !== gMachine.steps.join("|"),
+  { gBarbell, gMachine }
+);
+check(
+  "fallback: isHold dostaje instrukcje na czas (utrzymanie), nie klasyczne powtorzenie",
+  gHold.steps.some((s) => s.toLowerCase().includes("czas") || s.toLowerCase().includes("utrzym")),
+  gHold
+);
+check(
+  "fallback: nie jest porada medyczna, ale przy bolu sugeruje przerwanie (nie przepychanie)",
+  !!gBarbell.safety && gBarbell.safety.toLowerCase().includes("przerw"),
+  gBarbell.safety
+);
+
+// Cwiczenie bez primaryMuscle/kategorii nietypowej nie wybucha (juz sprawdzone
+// wyzej dla braku primaryMuscle - tu dodatkowo isHold + brak muscle razem).
+const noMuscleHold = { ...noMuscleExercise, isHold: true };
+check("guideFor: brak partii + isHold -> null, bez wyjatku", guideFor(noMuscleHold) === null);
 
 // P0-7: przywroc standardowy plan dnia
 const stRestore = defaultState();
