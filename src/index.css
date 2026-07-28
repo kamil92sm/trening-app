@@ -130,39 +130,3 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       0 0 24px 4px hsl(var(--neon-warn) / 0.28);
   }
 }
-
-/* P5-3a: animowany ludzik (ExerciseAnim) - CSS-owa animacja stawów, bez JS. */
-@keyframes tt-joint {
-  from {
-    transform: rotate(var(--a));
-  }
-  to {
-    transform: rotate(var(--b));
-  }
-}
-.tt-j {
-  animation: tt-joint var(--dur, 2.4s) ease-in-out infinite alternate;
-  transform-origin: 0 0;
-}
-@keyframes tt-root {
-  from {
-    transform: translate(var(--ax), var(--ay)) rotate(var(--ar));
-  }
-  to {
-    transform: translate(var(--bx), var(--by)) rotate(var(--br));
-  }
-}
-.tt-root {
-  animation: tt-root var(--dur, 2.4s) ease-in-out infinite alternate;
-  transform-origin: 0 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tt-j {
-    animation: none;
-    transform: rotate(var(--b));
-  }
-  .tt-root {
-    animation: none;
-    transform: translate(var(--bx), var(--by)) rotate(var(--br));
-  }
-}

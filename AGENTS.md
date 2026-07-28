@@ -524,6 +524,11 @@ kryteria akceptacji, do wdrożenia pojedynczo przez Sonneta):
   czystym CSS (jedna klatka kluczowa + zmienne CSS na staw, zero JS), do tego kroki /
   częste błędy per ćwiczenie. Trzy etapy: 3a silnik + 6 wzorców + wpięcie w Trening,
   3b pełna baza 90 ćwiczeń + Plan, 3c (opcjonalnie) link do YouTube zamiast osadzania.
+  **Animowany ludzik CAŁKOWICIE USUNIĘTY (28.07.2026, Zadanie 1)** — mimo poprawki
+  fazowania (P6-1 Etap A) użytkownik zdecydował, że koszt utrzymania (dedykowany
+  wzorzec ruchu na każde z 90 ćwiczeń) i ryzyko pokazania złego ruchu przewyższają
+  wartość wizualną. Sekcja „Jak wykonać?" zostaje, w 100% tekstowa, teraz z
+  bezpośrednią instrukcją dla wszystkich 90 ćwiczeń (`src/lib/guides/`, Zadanie 2).
 
 ---
 
@@ -540,6 +545,8 @@ bo P6-2 przebudowuje jego stan).
   wyciskanie nad głowę, francuz → uginanie); (c) `FALLBACK_PATTERN_BY_MUSCLE` (`guide.ts:203-212`)
   rozlewa 6 wzorców na 90 ćwiczeń. Zasada naprawy: **lepiej brak animacji niż zła animacja**
   + weryfikacja screenshotami przed commitem + kill switch w Ustawieniach.
+  **Finalna decyzja (28.07.2026): ludzik CAŁKOWICIE usunięty**, nie tylko naprawiony —
+  patrz §14 P5-3 i §16 Zadanie 1. `Settings.showExerciseAnim` (kill switch) też usunięty.
 - **P6-2 — timer przerwy gubi czas** przy zmianie zakładki (`App.tsx:73-77` odmontowuje
   `TrainScreen`, stan `useState` w `RestTimer` przepada) i przy wyjściu z apki (`setInterval`
   dekrementujący co 1 s, `Gym.tsx:156-172`, jest w tle zawieszany). Fix: `src/lib/rest-timer.ts`
@@ -565,3 +572,40 @@ bo P6-2 przebudowuje jego stan).
 - **Pomysły rozwojowe (P6-7…P6-11):** service worker = prawdziwy offline (rekomendacja #1),
   eksport historii do CSV (#2), „poprzednie 3 sesje" w karcie ćwiczenia (#3), czas treningu
   na żywo w nagłówku, tygodniowy raport (dopięcie P4-7).
+
+---
+
+## 16. Sesja 28.07.2026 — usunięcie ludzika, pełne instrukcje, neutralna rotacja, bonus w konsekwencji
+
+Cztery zadania, każde osobnym commitem:
+
+- **Zadanie 1 — animowany ludzik CAŁKOWICIE usunięty** (nie ukryty przełącznikiem —
+  decyzja użytkownika ostateczna). Usunięte: `src/components/ExerciseAnim.tsx`,
+  `src/lib/anim-poses.ts`, pola `pattern`/`loadOverride` z `ExerciseGuide`,
+  `Settings.showExerciseAnim`, przełącznik w Więcej, CSS `.tt-j`/`.tt-root`. Powód:
+  mimo poprawki fazowania (P6-1 Etap A) koszt utrzymania dedykowanego wzorca ruchu
+  na KAŻDE z 90 ćwiczeń i ryzyko pokazania złego ruchu przewyższały wartość
+  wizualną. „Jak wykonać?" zostaje, w 100% tekstowe. `seed.ts: normalizeSettings()`
+  jednorazowo (a właściwie: przy KAŻDYM wczytaniu, bezpiecznie idempotentnie) usuwa
+  historyczne `settings.showExerciseAnim` ze starych danych — bez bumpa `SCHEMA_VERSION`.
+- **Zadanie 2 — bezpośrednia instrukcja tekstowa dla wszystkich 90 ćwiczeń z seeda.**
+  `src/lib/guide.ts` rozbite na `src/lib/guides/{chest,back,shoulders,legs,glutes,arms,core,other}.ts`
+  + `types.ts` + `index.ts`, po partii mięśniowej. Każdy `SEED_EXERCISES[i].id` ma
+  bezpośredni wpis w `GUIDES` — fallback ogólny zostaje WYŁĄCZNIE dla ćwiczeń
+  dodanych ręcznie przez użytkownika (poza seedem), i zależy od kategorii/jednostki
+  sprzętu/`isHold`.
+- **Zadanie 3 — nazwy dni zmienione na neutralne „Trening 1/2/3"** (zamiast
+  Poniedziałek/Środa/Piątek) — zwyczajowy rytm Kamila to nadal pon/śr/pt, ale apka
+  nie sugeruje już sztywnego kalendarza. `id` (`mon`/`wed`/`fri`/`bonus`) BEZ ZMIAN —
+  historia/rotacja/cele są z nimi powiązane przez `dayId`. Migracja jednorazowa
+  (`neutralDayLabelsSeeded`, bez bumpa `SCHEMA_VERSION`) nadpisuje `name` tylko raz,
+  żeby późniejsza ręczna zmiana nazwy przez użytkownika nie była nadpisywana
+  ponownie przy kolejnym wczytaniu. Tryb skupienia w nagłówku pokazuje `day.name`
+  (było: `day.short` — błąd, poprawiony przy okazji).
+- **Zadanie 4 — czwarta fioletowa kropka za trening bonusowy w „Konsekwencji".**
+  `WeekAdherence` rozbite na `done`/`planned`/`bonusDone` (unikalne `dayId` w
+  tygodniu — dwa zapisy tego samego dnia liczą się raz). Wcześniej wykonany bonus
+  podbijał `done` bez podbicia `planned`, więc UI (renderujące dokładnie `planned`
+  kropek) i raport tygodniowy („4 z 3 zaplanowanych") wyglądały na zepsute. Bonus
+  nigdy nie jest wymagany do pełnego tygodnia (`done >= planned` nie liczy bonusu)
+  ani nie wpływa na rekomendację „Najpierw domknij regularność".

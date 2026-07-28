@@ -2290,12 +2290,20 @@ historii, nie na sztywno), legenda dostała szarą kreskę „dziś" obok fiolet
 
 ---
 
-### [ ] P5-3. Instrukcja wykonania ćwiczenia — animowany ludzik + kroki (domyślnie zwinięte)
+### [x] P5-3. Instrukcja wykonania ćwiczenia — kroki tekstowe (domyślnie zwinięte) — ludzik USUNIĘTY (28.07.2026)
 
-**Czego chce Kamil:** przy każdym ćwiczeniu domyślnie schowana sekcja; po rozwinięciu widać,
-**jak** się to ćwiczenie wykonuje (miniaturka ludzika / mini-filmik) + ewentualne uwagi i
-kroki. Ma ratować sytuację „nie znam tego ćwiczenia" — np. po zamianie ćwiczenia (P1-3) albo
-przy ćwiczeniu z rozszerzonej bazy (P3-8, 90 pozycji).
+**Finalny stan (28.07.2026, Zadanie 1+2 sesji "usuń ludzika"):** animowany ludzik SVG opisany
+niżej ZOSTAŁ zbudowany (etapy 3a i Etap A z P6-1), ale ostatecznie **całkowicie usunięty** —
+mimo poprawki fazowania nie dało się utrzymać jakości na 90 ćwiczeniach bez dedykowanego
+wzorca ruchu na każde z nich, a ryzyko pokazania złego ruchu przewyższało wartość wizualną.
+Sekcja „Jak wykonać?" zostaje i jest teraz w 100% tekstowa, z bezpośrednią instrukcją dla
+WSZYSTKICH 90 ćwiczeń z seeda (`src/lib/guides/`, było: fallback ogólny dla większości).
+Poniższa analiza (GIF/filmik vs ludzik) zostaje jako historyczny zapis podjętej wtedy decyzji.
+
+**Czego chce Kamil (pierwotnie):** przy każdym ćwiczeniu domyślnie schowana sekcja; po
+rozwinięciu widać, **jak** się to ćwiczenie wykonuje (miniaturka ludzika / mini-filmik) +
+ewentualne uwagi i kroki. Ma ratować sytuację „nie znam tego ćwiczenia" — np. po zamianie
+ćwiczenia (P1-3) albo przy ćwiczeniu z rozszerzonej bazy (P3-8, 90 pozycji).
 
 #### Analiza: dlaczego NIE filmik i NIE GIF (przeczytaj przed wyborem podejścia)
 
@@ -2513,7 +2521,14 @@ zadanie w POMYSLY.md, uruchom npm test + npm run build i zrób commit.
 
 ---
 
-### [~] P6-1. Animowane ludziki pokazują NIE TEN ruch, co nazwa ćwiczenia — ETAP A WDROŻONY (27.07.2026)
+### [x] P6-1. Animowane ludziki pokazują NIE TEN ruch, co nazwa ćwiczenia — USUNIĘTE CAŁKOWICIE (28.07.2026)
+
+**Finalna decyzja (28.07.2026):** Etap A (niżej) naprawił fazowanie animacji, ale nie
+rozwiązywał sedna — utrzymanie DEDYKOWANEGO, poprawnego wzorca ruchu dla 90 ćwiczeń było
+zbyt kosztowne i ryzykowne (każdy nowy/zmieniony wzorzec = ryzyko powtórki tego zgłoszenia).
+Użytkownik zdecydował: ludzik znika CAŁKOWICIE (nie kill switch — `Settings.showExerciseAnim`
+też usunięty), „Jak wykonać?" zostaje w 100% tekstowe ze skompletowaną instrukcją dla
+wszystkich 90 ćwiczeń (patrz P5-3 wyżej, Zadanie 1+2 sesji 28.07.2026).
 
 **Zgłoszenie Kamila:** „te ludziki pokazują głupoty, to nie są te ruchy co w nazwie
 ćwiczenia. Są to randomowe ruchy nie pokazujące prawdziwego ćwiczenia."

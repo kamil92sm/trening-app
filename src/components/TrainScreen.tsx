@@ -39,13 +39,11 @@ import {
 } from "@/lib/logic";
 import { gistBackup, GistApiError } from "@/lib/backup";
 import { guideFor } from "@/lib/guide";
-import { MOVE_PATTERNS } from "@/lib/anim-poses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
-import { ExerciseAnim } from "@/components/ExerciseAnim";
 import { cn, normalizeSearch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { restTimer } from "@/hooks/use-rest-timer";
@@ -1007,10 +1005,6 @@ export function TrainScreen() {
     if (!ex) return null;
     const hEx = exerciseForMode(ex, draft.mode);
           const guide = guideFor(ex);
-          // P6-1 pkt 4 (kill switch): tekst "Jak wykonać?" zostaje zawsze,
-          // ale samego ludzika da sie wylaczyc w Wiecej -> Ustawienia.
-          const guidePattern =
-            guide?.pattern && state.settings.showExerciseAnim !== false ? MOVE_PATTERNS[guide.pattern] : undefined;
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const lastFew = lastByExercise.get(ex.id) ?? [];
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1194,38 +1188,35 @@ export function TrainScreen() {
                         {guide && (
                           <div>
                             <p className="text-[11px] font-medium text-foreground/80">Jak wykonać?</p>
-                            <div className="mt-1 flex gap-3">
-                              {guidePattern && (
-                                <ExerciseAnim pattern={guidePattern} size={88} loadOverride={guide?.loadOverride} />
-                              )}
-                              <div className="min-w-0 flex-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
-                                <div>
-                                  <p className="font-medium text-foreground/80">Ustawienie</p>
-                                  {guide.setup.map((s, si) => (
-                                    <p key={si}>{s}</p>
-                                  ))}
-                                </div>
-                                <div>
-                                  <p className="font-medium text-foreground/80">Ruch</p>
-                                  <ol className="list-decimal space-y-0.5 pl-4">
-                                    {guide.steps.map((s, si) => (
-                                      <li key={si}>{s}</li>
-                                    ))}
-                                  </ol>
-                                </div>
-                                <div>
-                                  <p className="font-medium text-foreground/80">Częste błędy</p>
-                                  <ul className="list-disc space-y-0.5 pl-4">
-                                    {guide.mistakes.map((s, si) => (
-                                      <li key={si}>{s}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                {guide.safety && <p className="text-amber-300">{guide.safety}</p>}
-                                <p className="text-[10px] text-muted-foreground/70">
-                                  Skrót techniczny — nie zastąpi trenera.
-                                </p>
+                            {/* Zadanie 1: w 100% tekstowa — bez animowanego ludzika, tekst
+                                zajmuje pełną szerokość karty (bez pustej kolumny po jego lewej). */}
+                            <div className="mt-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
+                              <div>
+                                <p className="font-medium text-foreground/80">Ustawienie</p>
+                                {guide.setup.map((s, si) => (
+                                  <p key={si}>{s}</p>
+                                ))}
                               </div>
+                              <div>
+                                <p className="font-medium text-foreground/80">Ruch</p>
+                                <ol className="list-decimal space-y-0.5 pl-4">
+                                  {guide.steps.map((s, si) => (
+                                    <li key={si}>{s}</li>
+                                  ))}
+                                </ol>
+                              </div>
+                              <div>
+                                <p className="font-medium text-foreground/80">Najczęstsze błędy</p>
+                                <ul className="list-disc space-y-0.5 pl-4">
+                                  {guide.mistakes.map((s, si) => (
+                                    <li key={si}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              {guide.safety && <p className="text-amber-300">{guide.safety}</p>}
+                              <p className="text-[10px] text-muted-foreground/70">
+                                Skrót techniczny — nie zastąpi trenera.
+                              </p>
                             </div>
                           </div>
                         )}

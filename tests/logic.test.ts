@@ -56,7 +56,6 @@ import type { Session } from "../src/lib/types";
 import { validateBackup } from "../src/lib/validate";
 import { serializeBackup } from "../src/lib/backup";
 import { niceScale } from "../src/lib/scale";
-import { MOVE_PATTERNS } from "../src/lib/anim-poses";
 import { GUIDES, guideFor } from "../src/lib/guide";
 import {
   idleState,
@@ -214,6 +213,72 @@ check(
   migV3.sessions.some((s) => s.id === "s1"),
   migV3.sessions.length
 );
+
+// Zadanie 1 (usuniecie animowanego ludzika): normalizeSettings usuwa
+// historyczne settings.showExerciseAnim, nie rusza reszty ustawien.
+{
+  const settingsWithAnim = {
+    name: "Kamil",
+    barWeight: 20,
+    plates: [25, 20],
+    restSeconds: 90,
+    sound: false,
+    autoBackup: true,
+    showExerciseAnim: false,
+  };
+
+  // Sciezka "aktualny schemat" (version === SCHEMA_VERSION).
+  const rawCurrent = {
+    version: SCHEMA_VERSION,
+    exercises: SEED_EXERCISES,
+    days: SEED_DAYS,
+    targets: SEED_TARGETS,
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: settingsWithAnim,
+  };
+  const migratedCurrent = migrateState(rawCurrent);
+  check(
+    "normalizeSettings: stary stan (aktualny schemat) z showExerciseAnim wczytuje sie bez bledu",
+    migratedCurrent.settings.name === "Kamil"
+  );
+  check(
+    "normalizeSettings: historyczne pole znika po migracji (aktualny schemat)",
+    !("showExerciseAnim" in migratedCurrent.settings)
+  );
+  check(
+    "normalizeSettings: pozostale ustawienia zachowane (aktualny schemat)",
+    migratedCurrent.settings.sound === false &&
+      migratedCurrent.settings.autoBackup === true &&
+      migratedCurrent.settings.restSeconds === 90
+  );
+
+  // Sciezka "stara wersja" (version !== SCHEMA_VERSION).
+  const rawOld = { version: 2, exercises: [], days: [], targets: {}, sessions: [], settings: settingsWithAnim };
+  const migratedOld = migrateState(rawOld);
+  check(
+    "normalizeSettings: stary stan (stara wersja) z showExerciseAnim wczytuje sie bez bledu",
+    migratedOld.settings.name === "Kamil"
+  );
+  check(
+    "normalizeSettings: historyczne pole znika po migracji (stara wersja)",
+    !("showExerciseAnim" in migratedOld.settings)
+  );
+  check(
+    "normalizeSettings: pozostale ustawienia zachowane (stara wersja)",
+    migratedOld.settings.sound === false && migratedOld.settings.autoBackup === true
+  );
+
+  // Idempotentnosc: kolejna migracja na juz-czystym stanie nic nie psuje.
+  const migratedTwice = migrateState(migratedCurrent);
+  check(
+    "normalizeSettings: idempotentna - druga migracja nic nie zmienia",
+    !("showExerciseAnim" in migratedTwice.settings) &&
+      migratedTwice.settings.name === "Kamil" &&
+      migratedTwice.settings.sound === false
+  );
+}
 
 // P0-4: "Ostatnio" w loggerze
 const stLast = defaultState();
@@ -1348,10 +1413,10 @@ check(
 const scaleNaN = niceScale(NaN, 5);
 check("niceScale(NaN, 5): fallback, bez wyjatku", scaleNaN.step > 0 && scaleNaN.ticks.length >= 2, scaleNaN);
 
-// P5-3a/P6-1: instrukcje "Jak wykonac?" (guideFor + MOVE_PATTERNS). `pattern`
-// jest teraz OPCJONALNY (P6-1 - lepiej brak animacji niz zla animacja), wiec
-// tu sprawdzamy tylko: kazdy wpis ma tekst (>=3 kroki, >=2 bledy), a jesli MA
-// `pattern`, to musi wskazywac na ISTNIEJACY wzorzec (bez dangling referencji).
+// Zadanie 1 (usuniecie animowanego ludzika): guideFor() dziala WYLACZNIE na
+// tekscie - bez importu modulu animacji (ktory juz nie istnieje w repo).
+// Kazdy bezposredni wpis w GUIDES ma tekst (>=3 kroki, >=2 bledy) i ZADNEGO
+// pola pattern/loadOverride.
 let guideCoverageOk = true;
 let guideCoverageDetail = "";
 for (const [exId, guide] of Object.entries(GUIDES)) {
@@ -1362,34 +1427,17 @@ for (const [exId, guide] of Object.entries(GUIDES)) {
     break;
   }
   const resolved = guideFor(ex);
-  const patternExists = !resolved?.pattern || !!MOVE_PATTERNS[resolved.pattern];
-  if (!resolved || !patternExists || resolved.steps.length < 3 || resolved.mistakes.length < 2) {
+  const noAnimFields = !("pattern" in (resolved ?? {})) && !("loadOverride" in (resolved ?? {}));
+  if (!resolved || !noAnimFields || resolved.steps.length < 3 || resolved.mistakes.length < 2) {
     guideCoverageOk = false;
-    guideCoverageDetail = `${exId}: resolved=${!!resolved} patternExists=${patternExists} steps=${resolved?.steps.length} mistakes=${resolved?.mistakes.length}`;
+    guideCoverageDetail = `${exId}: resolved=${!!resolved} noAnimFields=${noAnimFields} steps=${resolved?.steps.length} mistakes=${resolved?.mistakes.length}`;
     break;
   }
 }
 check(
-  "guideFor: kazdy wpis w GUIDES ma tekst (>=3 kroki, >=2 bledy), pattern (jesli jest) istnieje w MOVE_PATTERNS",
+  "guideFor: kazdy wpis w GUIDES ma tekst (>=3 kroki, >=2 bledy) i bez pattern/loadOverride (ludzik usuniety)",
   guideCoverageOk,
   guideCoverageDetail
-);
-
-// P6-1: lista "uczciwych" animacji po naprawie - TYLKO tam, gdzie wzorzec
-// faktycznie odpowiada ruchowi. Reszta (dawne proxy) ma pattern===undefined.
-// Ten test ma pilnowac, zeby nikt przypadkiem nie przywrocil proxy.
-const expectAnimated = ["bench_bb", "bench_db", "squat", "deadlift", "rdl", "row_bb", "row_db", "ohp", "curl_bb"];
-const expectTextOnly = ["incline_db", "lunges", "hipthrust", "pulldown", "lateral", "face_pull", "french"];
-for (const exId of expectAnimated) {
-  check(`guideFor: ${exId} MA animacje (uczciwy wzorzec)`, GUIDES[exId]?.pattern !== undefined, GUIDES[exId]);
-}
-for (const exId of expectTextOnly) {
-  check(`guideFor: ${exId} BEZ animacji (dawne proxy usuniete - sam tekst)`, GUIDES[exId]?.pattern === undefined, GUIDES[exId]);
-}
-check(
-  "guideFor: bench_db dzieli wzorzec bench_press ale z loadOverride dumbbell",
-  GUIDES.bench_db?.pattern === "bench_press" && GUIDES.bench_db?.loadOverride === "dumbbell",
-  GUIDES.bench_db
 );
 
 const syntheticChestExercise = {
@@ -1409,8 +1457,8 @@ const syntheticChestExercise = {
 };
 const fallbackGuide = guideFor(syntheticChestExercise);
 check(
-  "guideFor: cwiczenie spoza GUIDES z primaryMuscle Klatka -> fallback TEKSTOWY (bez wzorca po partii, P6-1)",
-  fallbackGuide !== null && fallbackGuide.pattern === undefined && fallbackGuide.steps.length >= 3,
+  "guideFor: cwiczenie spoza GUIDES z primaryMuscle Klatka -> fallback tekstowy",
+  fallbackGuide !== null && fallbackGuide.steps.length >= 3,
   fallbackGuide
 );
 

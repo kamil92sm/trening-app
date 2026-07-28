@@ -650,6 +650,21 @@ export function mergeExerciseLibrary(userExercises: Exercise[]): Exercise[] {
 }
 
 /**
+ * Zadanie 1 (usunięcie animowanego ludzika): stare dane użytkownika mogą
+ * nadal mieć `settings.showExerciseAnim` — pole nie istnieje już w typie
+ * `Settings`, ale obiekt z localStorage jest w runtime nietypowany, więc
+ * `{ ...DEFAULT_SETTINGS, ...(old.settings ?? {}) }` przepuściłoby je dalej.
+ * Idempotentna (kolejne wywołanie na już czystym obiekcie nic nie zmienia,
+ * `"showExerciseAnim" in settings` jest `false`) i NIE rusza żadnego innego pola.
+ */
+function normalizeSettings(settings: Settings): Settings {
+  if (!("showExerciseAnim" in settings)) return settings;
+  const clean = { ...settings } as Settings & { showExerciseAnim?: unknown };
+  delete clean.showExerciseAnim;
+  return clean;
+}
+
+/**
  * Migracja: przy zmianie wersji schematu podmienia plan (days/targets)
  * na aktualny seed, ale ZACHOWUJE sessions, body, squash, settings oraz bazę
  * ćwiczeń użytkownika (merge z seedem, patrz mergeExerciseLibrary).
@@ -667,7 +682,7 @@ export function migrateState(raw: unknown): AppState {
       ...old,
       version: SCHEMA_VERSION,
       exercises: mergeExerciseLibrary(old.exercises as Exercise[]),
-      settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
+      settings: normalizeSettings({ ...DEFAULT_SETTINGS, ...(old.settings ?? {}) }),
       targets: { ...fresh.targets, ...(old.targets ?? {}) },
     } as AppState);
   }
@@ -690,7 +705,7 @@ export function migrateState(raw: unknown): AppState {
     sessions: Array.isArray(old.sessions) ? old.sessions : [],
     body: Array.isArray(old.body) ? old.body : [],
     squash: Array.isArray(old.squash) ? old.squash : [],
-    settings: { ...DEFAULT_SETTINGS, ...(old.settings ?? {}) },
+    settings: normalizeSettings({ ...DEFAULT_SETTINGS, ...(old.settings ?? {}) }),
   });
 }
 
