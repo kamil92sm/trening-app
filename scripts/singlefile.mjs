@@ -1,6 +1,9 @@
-// Skleja output Vite (dist/) w jeden samodzielny plik HTML -> docs/index.html
-// docs/ jest serwowane przez GitHub Pages (Settings -> Pages -> branch main, folder /docs).
+// Skleja output Vite (dist/) w jeden samodzielny plik HTML -> docs/index.html,
+// oraz generuje docs/sw.js (Etap 3: offline) z wersją cache'u policzoną z hasha
+// TREŚCI builda. docs/ jest serwowane przez GitHub Pages (Settings -> Pages ->
+// branch main, folder /docs).
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 const dist = "dist";
@@ -25,4 +28,13 @@ html = html.replace(
 
 mkdirSync("docs", { recursive: true });
 writeFileSync(path.join("docs", "index.html"), html);
-console.log(`OK -> docs/index.html (${(html.length / 1024).toFixed(0)} KB)`);
+
+// Wersja cache'u = hash TREŚCI zbudowanego HTML, nie ręcznie wpisana stała, o
+// której łatwo zapomnieć - każdy build z inną zawartością dostaje inną nazwę
+// cache'u, więc SW sam wie, że trzeba pobrać nową wersję i skasować starą.
+const cacheVersion = createHash("sha256").update(html).digest("hex").slice(0, 10);
+const swTemplate = readFileSync(path.join("scripts", "sw-template.js"), "utf8");
+const sw = swTemplate.replace("__CACHE_VERSION__", cacheVersion);
+writeFileSync(path.join("docs", "sw.js"), sw);
+
+console.log(`OK -> docs/index.html (${(html.length / 1024).toFixed(0)} KB), docs/sw.js (cache v${cacheVersion})`);

@@ -1,4 +1,4 @@
-# CLAUDE.md — Aplikacja treningowa Kamila
+# AGENTS.md — Aplikacja treningowa Kamila
 
 Kontekst projektu do wznowienia pracy w dowolnej przyszłej sesji. Zawiera cel, stack,
 model danych, kluczowe mechanizmy, dokładny plan treningowy, sposób budowania i wdrożenia
