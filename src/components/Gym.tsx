@@ -24,15 +24,27 @@ export function MuscleTag({ muscle, kind }: { muscle: Muscle; kind: "primary" | 
   );
 }
 
-/** Tagi partii ćwiczenia (główna + wspomagające) — brak `primaryMuscle` = brak renderu. */
-export function MuscleTags({ exercise }: { exercise: Exercise }) {
+/** Tagi partii ćwiczenia (główna + wspomagające) — brak `primaryMuscle` = brak renderu.
+ * `only`: Etap 4 (progressive disclosure) — domyślna karta pokazuje tylko partię
+ * GŁÓWNĄ ("primary"), wspomagające chowają się pod "Pomoc i szczegóły" ("secondary").
+ * Brak `only` = obie naraz (dotychczasowe zachowanie, np. Plan). */
+export function MuscleTags({ exercise, only }: { exercise: Exercise; only?: "primary" | "secondary" }) {
   if (!exercise.primaryMuscle) return null;
+  const secondary = exercise.secondaryMuscles ?? [];
+  if (only === "secondary") {
+    if (secondary.length === 0) return null;
+    return (
+      <div className="flex flex-wrap gap-1">
+        {secondary.map((m) => (
+          <MuscleTag key={m} muscle={m} kind="secondary" />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap gap-1">
       <MuscleTag muscle={exercise.primaryMuscle} kind="primary" />
-      {(exercise.secondaryMuscles ?? []).map((m) => (
-        <MuscleTag key={m} muscle={m} kind="secondary" />
-      ))}
+      {only !== "primary" && secondary.map((m) => <MuscleTag key={m} muscle={m} kind="secondary" />)}
     </div>
   );
 }

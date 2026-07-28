@@ -10,6 +10,8 @@ import {
   actualVolumeWindow,
   muscleRangesFor,
   lastEntry,
+  lastEntries,
+  fmtLastEntries,
   personalBests,
   isSetRecord,
   detectPlateau,
@@ -250,6 +252,130 @@ const last = lastEntry(stLast, "bench_bb");
 check("lastEntry: najnowsza sesja wygrywa", last?.date === "2026-07-21", last);
 check("lastEntry: pomija nieukonczone serie", last?.sets.length === 2, last);
 check("lastEntry: brak historii -> null", lastEntry(defaultState(), "bench_bb") === null);
+
+// Etap 4: lastEntries/fmtLastEntries - "Ostatnie" w uproszczonej karcie cwiczenia.
+{
+  const st3 = defaultState();
+  st3.sessions.push(
+    {
+      id: "e1",
+      dayId: "mon",
+      date: "2026-07-07",
+      completed: true,
+      entries: [
+        {
+          exerciseId: "bench_bb",
+          targetWeight: 60,
+          sets: [
+            { weight: 60, reps: 8, done: true },
+            { weight: 60, reps: 7, done: true },
+            { weight: 60, reps: 7, done: true },
+          ],
+        },
+      ],
+    },
+    {
+      id: "e2",
+      dayId: "mon",
+      date: "2026-07-14",
+      completed: true,
+      entries: [
+        {
+          exerciseId: "bench_bb",
+          targetWeight: 60,
+          sets: [
+            { weight: 60, reps: 8, done: true },
+            { weight: 60, reps: 8, done: true },
+            { weight: 60, reps: 8, done: true },
+          ],
+        },
+      ],
+    },
+    {
+      id: "e3",
+      dayId: "mon",
+      date: "2026-07-21",
+      completed: false, // nieukonczona sesja - MUSI byc pominieta
+      entries: [{ exerciseId: "bench_bb", targetWeight: 62.5, sets: [{ weight: 62.5, reps: 8, done: true }] }],
+    },
+    {
+      id: "e4",
+      dayId: "mon",
+      date: "2026-07-28",
+      completed: true,
+      entries: [
+        {
+          exerciseId: "bench_bb",
+          targetWeight: 62.5,
+          sets: [
+            { weight: 62.5, reps: 8, done: true },
+            { weight: 62.5, reps: 8, done: true },
+            { weight: 62.5, reps: 7, done: true },
+          ],
+        },
+      ],
+    }
+  );
+  const three = lastEntries(st3, "bench_bb", 3);
+  check("lastEntries: zwraca do 3, kolejnosc od najnowszej", three.map((e) => e.date).join(",") === "2026-07-28,2026-07-14,2026-07-07", three);
+  check("lastEntries: pomija nieukonczona sesje (07-21)", !three.some((e) => e.date === "2026-07-21"), three);
+  check("lastEntries: brak historii -> []", lastEntries(defaultState(), "bench_bb", 3).length === 0);
+  check(
+    "fmtLastEntries: format zwarty waga x powt/powt/powt, sesje oddzielone ' · '",
+    fmtLastEntries(three, false) === "62,5×8/8/7 · 60×8/8/8 · 60×8/7/7",
+    fmtLastEntries(three, false)
+  );
+
+  // Cwiczenie na czas (isHold, plank) - same sekundy, bez wagi.
+  const stHold = defaultState();
+  stHold.sessions.push({
+    id: "h1",
+    dayId: "wed",
+    date: "2026-07-21",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "plank",
+        targetWeight: 10,
+        sets: [
+          { weight: 10, reps: 40, done: true },
+          { weight: 10, reps: 38, done: true },
+        ],
+      },
+    ],
+  });
+  const holdEntries = lastEntries(stHold, "plank", 3);
+  check(
+    "fmtLastEntries: isHold -> same sekundy, bez wagi",
+    fmtLastEntries(holdEntries, true) === "40/38",
+    fmtLastEntries(holdEntries, true)
+  );
+
+  // Hantle (perHand): weight w SetLog jest JUZ "na reke" - format nie mnozy.
+  const stDb = defaultState();
+  stDb.sessions.push({
+    id: "d1",
+    dayId: "fri",
+    date: "2026-07-21",
+    completed: true,
+    entries: [
+      {
+        exerciseId: "bench_db",
+        targetWeight: 17.5,
+        sets: [
+          { weight: 17.5, reps: 10, done: true },
+          { weight: 17.5, reps: 9, done: true },
+        ],
+      },
+    ],
+  });
+  const dbEntries = lastEntries(stDb, "bench_db", 3);
+  check(
+    "fmtLastEntries: hantle pokazuja wage NA REKE (bez mnozenia x2)",
+    fmtLastEntries(dbEntries, false) === "17,5×10/9",
+    fmtLastEntries(dbEntries, false)
+  );
+}
 
 // P1-8: Rekord (PR) na zywo
 const stPB = defaultState();

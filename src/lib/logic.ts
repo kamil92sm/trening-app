@@ -906,21 +906,34 @@ export function estimateGoalEta(history: HistoryPoint[], goal: number): GoalEta 
 export interface LastEntry {
   date: string;
   sets: SetLog[];
+  mode: TrainingMode;
 }
 
-/** Ostatnia ukończona sesja zawierająca dane ćwiczenie (tylko zaliczone serie) */
-export function lastEntry(state: AppState, exId: string): LastEntry | null {
+/**
+ * Do `count` ostatnich UKOŃCZONYCH sesji zawierających dane ćwiczenie, tylko
+ * zaliczone serie — pomija nieukończone sesje i wpisy bez ani jednej zaliczonej
+ * serii. Sortowane od najnowszej (Etap 4: karta ćwiczenia pokazuje KIERUNEK,
+ * np. "62,5×8/8/7 · 60×8/8/8 · 60×8/7/7", nie tylko ostatni wynik).
+ */
+export function lastEntries(state: AppState, exId: string, count = 3): LastEntry[] {
   const sorted = [...state.sessions]
     .filter((s) => s.completed)
     .sort((a, b) => b.date.localeCompare(a.date));
+  const out: LastEntry[] = [];
   for (const session of sorted) {
+    if (out.length >= count) break;
     const entry = session.entries.find((e) => e.exerciseId === exId);
     if (!entry) continue;
     const done = entry.sets.filter((s) => s.done);
     if (done.length === 0) continue;
-    return { date: session.date, sets: done };
+    out.push({ date: session.date, sets: done, mode: session.mode ?? "strength" });
   }
-  return null;
+  return out;
+}
+
+/** Ostatnia ukończona sesja zawierająca dane ćwiczenie (tylko zaliczone serie) */
+export function lastEntry(state: AppState, exId: string): LastEntry | null {
+  return lastEntries(state, exId, 1)[0] ?? null;
 }
 
 /**
@@ -1054,8 +1067,29 @@ export function warmupPlan(ex: Exercise, workWeight: number, bar: number, plates
 
 // ── Formatery ──────────────────────────────────────────────────────────────
 
+function fmtNumPl(x: number): string {
+  return (+x.toFixed(2)).toString().replace(".", ",");
+}
+
 export function fmtKg(x: number): string {
-  return `${(+x.toFixed(2)).toString().replace(".", ",")} kg`;
+  return `${fmtNumPl(x)} kg`;
+}
+
+/**
+ * Format zwarty do `lastEntries()` (Etap 4): "62,5×8/8/7 · 60×8/8/8" - waga
+ * pokazana RAZ na sesję (z pierwszej serii), powtórzenia/sekundy każdej serii
+ * oddzielone "/". `isHold`: bez wagi, same sekundy (spójnie z dotychczasowym
+ * pojedynczym wpisem "Ostatnio"). Hantle: `weight` jest JUŻ "na rękę" (tak
+ * przechowywane w `SetLog`, patrz §4 CLAUDE.md `perHand`) - bez dodatkowego mnożenia.
+ */
+export function fmtLastEntries(entries: LastEntry[], isHold: boolean): string {
+  return entries
+    .map((e) =>
+      isHold
+        ? e.sets.map((s) => s.reps).join("/")
+        : `${fmtNumPl(e.sets[0]?.weight ?? 0)}×${e.sets.map((s) => s.reps).join("/")}`
+    )
+    .join(" · ");
 }
 
 /** Tonaż z przejściem na tony powyżej 1000 kg (P1-6/P1-10) — używane zamiast `fmtKg`, gdy liczba może być duża. */

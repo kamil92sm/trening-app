@@ -18,7 +18,6 @@ import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@
 import {
   fmtKg,
   fmtTonnage,
-  fmtDateShort,
   sessionVolume,
   sessionDuration,
   detectPlateau,
@@ -33,6 +32,8 @@ import {
   platePlan,
   nextDaySuggestion,
   weeksSinceDeload,
+  lastEntries,
+  fmtLastEntries,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -90,10 +91,6 @@ function loadBonusSuggestion(): BonusSuggestion | null {
   }
 }
 
-interface LastEntryInfo extends LastEntry {
-  mode: TrainingMode;
-}
-
 // P1-8: rekord (PR) trafiony podczas treningu — do podsumowania sesji.
 interface RecordHit {
   exercise: Exercise;
@@ -138,12 +135,12 @@ export function TrainScreen() {
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   // P3-8: filtr tekstowy w liscie kandydatow do zamiany (baza urosla do ~90 pozycji).
   const [swapSearch, setSwapSearch] = useState("");
-  const [openWarmups, setOpenWarmups] = useState<Set<number>>(new Set());
-  // P3-5: rozwijana miniaturka talerzy przy cwiczeniu - domyslnie zwinieta.
-  const [openPlates, setOpenPlates] = useState<Set<number>>(new Set());
-  // P5-3a: "Jak wykonac?" - domyslnie zwiniete, stan NIE trafia do AppState
-  // (celowo, zgodnie ze specem - zadnej migracji schematu w tym zadaniu).
-  const [openGuide, setOpenGuide] = useState<Set<number>>(new Set());
+  // Etap 4: JEDNO zwijane "Pomoc i szczegóły" per karta (rozgrzewka, talerze,
+  // "Jak wykonać?", partie wspomagające, dłuższa uwaga techniczna) zamiast
+  // czterech osobnych przełączników - domyślny widok karty ma pokazywać tylko
+  // to, co potrzebne do wykonania serii. Stan NIE trafia do AppState (lokalny
+  // UI, jak poprzednio) i nie zwija/rozwija się sam po zaliczeniu serii.
+  const [openHelp, setOpenHelp] = useState<Set<number>>(new Set());
   // P2-4: check-in gotowosci - opcjonalny, wypelniany na ekranie wyboru dnia
   // PRZED startem; null = pominiety (brak kary, brak danych w sesji).
   const [readiness, setReadiness] = useState<{ sleep?: number; doms?: number } | null>(null);
@@ -228,24 +225,17 @@ export function TrainScreen() {
   const pendingBackupReminder = useRef(false);
   const hasDraft = draft !== null;
 
-  // Mapa exId -> ostatni wynik, liczona JEDNYM przejściem po sesjach i tylko
-  // gdy zmieni się historia — inaczej każde wciśnięcie klawisza w loggerze
-  // kopiowało i sortowało wszystkie sesje raz na kartę ćwiczenia.
+  // Mapa exId -> do 3 ostatnich ukończonych wpisów (Etap 4: "Ostatnie" pokazuje
+  // kierunek, nie tylko punkt) — liczona tylko gdy zmieni się historia/plan,
+  // nie per keystroke w loggerze.
   const lastByExercise = useMemo(() => {
-    const map = new Map<string, LastEntryInfo>();
-    const sorted = [...state.sessions]
-      .filter((s) => s.completed)
-      .sort((a, b) => b.date.localeCompare(a.date));
-    for (const session of sorted) {
-      for (const entry of session.entries) {
-        if (map.has(entry.exerciseId)) continue;
-        const done = entry.sets.filter((s) => s.done);
-        if (done.length === 0) continue;
-        map.set(entry.exerciseId, { date: session.date, sets: done, mode: session.mode ?? "strength" });
-      }
+    const map = new Map<string, LastEntry[]>();
+    for (const ex of state.exercises) {
+      const entries = lastEntries(state, ex.id, 3);
+      if (entries.length > 0) map.set(ex.id, entries);
     }
     return map;
-  }, [state.sessions]);
+  }, [state.sessions, state.exercises]);
 
   // P1-8: rekordy życia per ćwiczenie, liczone RAZ na zmianę historii sesji
   // (nie per keystroke w loggerze) — ten sam wzorzec co lastByExercise wyżej.
@@ -385,26 +375,8 @@ export function TrainScreen() {
     }
   }, [focusIdx, layout]);
 
-  function toggleWarmup(entryIdx: number) {
-    setOpenWarmups((prev) => {
-      const next = new Set(prev);
-      if (next.has(entryIdx)) next.delete(entryIdx);
-      else next.add(entryIdx);
-      return next;
-    });
-  }
-
-  function togglePlates(entryIdx: number) {
-    setOpenPlates((prev) => {
-      const next = new Set(prev);
-      if (next.has(entryIdx)) next.delete(entryIdx);
-      else next.add(entryIdx);
-      return next;
-    });
-  }
-
-  function toggleGuide(entryIdx: number) {
-    setOpenGuide((prev) => {
+  function toggleHelp(entryIdx: number) {
+    setOpenHelp((prev) => {
       const next = new Set(prev);
       if (next.has(entryIdx)) next.delete(entryIdx);
       else next.add(entryIdx);
@@ -1040,7 +1012,7 @@ export function TrainScreen() {
           const guidePattern =
             guide?.pattern && state.settings.showExerciseAnim !== false ? MOVE_PATTERNS[guide.pattern] : undefined;
           const unitLabel = hEx.isHold ? "s" : "powt.";
-          const last = lastByExercise.get(ex.id) ?? null;
+          const lastFew = lastByExercise.get(ex.id) ?? [];
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
           const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
           // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
@@ -1051,6 +1023,14 @@ export function TrainScreen() {
               ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
               : null;
           const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
+          // Etap 4: czy jest COKOLWIEK do pokazania pod "Pomoc i szczegóły" - bez
+          // tego pusty, klikalny nagłówek wisiałby na każdej karcie bez powodu.
+          const hasHelp =
+            (ex.secondaryMuscles?.length ?? 0) > 0 ||
+            !!hEx.note ||
+            warmupSteps.length > 0 ||
+            !!platePlanForEntry ||
+            !!guide;
           // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
           // (decyduje o widocznosci przycisku Zamien), swapCandidates to ta sama
           // lista po filtrze tekstowym (swapSearch) i posortowana: historia
@@ -1083,14 +1063,14 @@ export function TrainScreen() {
                         setSwapIdx(swapIdx === ei ? null : ei);
                         setSwapSearch("");
                       }}
-                      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                       aria-label="Zamień ćwiczenie"
                     >
                       <Repeat size={15} />
                     </button>
                   )}
                 </div>
-                <MuscleTags exercise={ex} />
+                <MuscleTags exercise={ex} only="primary" />
                 <CardDescription>
                   {entry.sets.length}×{hEx.repMin === hEx.repMax ? hEx.repMin : `${hEx.repMin}–${hEx.repMax}`}{" "}
                   {unitLabel} · cel {fmtKg(entry.targetWeight)}
@@ -1141,120 +1121,114 @@ export function TrainScreen() {
                     </div>
                   </div>
                 )}
-                {last && (
+                {lastFew.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Ostatnio ({fmtDateShort(last.date)}
-                    {last.mode !== draft.mode ? ` (${MODE_BADGE[last.mode].short})` : ""}):{" "}
-                    {last.sets
-                      .map((s) => (hEx.isHold ? `${s.reps}s` : `${s.weight}×${s.reps}`))
-                      .join(" · ")}
+                    Ostatnie: {fmtLastEntries(lastFew, hEx.isHold)}
                   </p>
                 )}
-                {hEx.note && <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>}
-                {warmupSteps.length > 0 && (
+                {hasHelp && (
                   <div>
                     <button
                       type="button"
-                      onClick={() => toggleWarmup(ei)}
-                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      onClick={() => toggleHelp(ei)}
+                      className="flex min-h-11 w-full items-center gap-1 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      aria-expanded={openHelp.has(ei)}
+                      aria-label="Pomoc i szczegóły"
                     >
-                      {openWarmups.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      Rozgrzewka ({warmupSteps.length})
+                      {openHelp.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      Pomoc i szczegóły
                     </button>
-                    {openWarmups.has(ei) && (
-                      <div className="mt-1 space-y-1 rounded-md border border-border p-2">
-                        {warmupSteps.map((s, si) => {
-                          const plan = platePlan(s.weight, activeBar, activePlates);
-                          return (
-                            <div key={si} className="flex items-center justify-between text-[11px]">
-                              <span className="tabular-nums">
-                                {fmtKg(s.weight)} × {s.reps}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                        <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {platePlanForEntry && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => togglePlates(ei)}
-                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                    >
-                      {openPlates.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      {platePlanForEntry.ok ? (
-                        <>
-                          Talerze ·{" "}
-                          {platePlanForEntry.perSide.length > 0
-                            ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
-                            : "sam gryf"}
-                        </>
-                      ) : (
-                        <span className="text-amber-400">
-                          Talerze ·{" "}
-                          {platePlanForEntry.leftover > 0
-                            ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
-                            : "cel lżejszy niż gryf"}
-                        </span>
-                      )}
-                    </button>
-                    {openPlates.has(ei) && (
-                      <div className="mt-1 rounded-md border border-border p-2">
-                        <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
-                      </div>
-                    )}
-                  </div>
-                )}
-                {guide && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => toggleGuide(ei)}
-                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                    >
-                      {openGuide.has(ei) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      Jak wykonać?
-                    </button>
-                    {openGuide.has(ei) && (
-                      <div className="mt-1 flex gap-3 rounded-md border border-border p-2">
-                        {guidePattern && (
-                          <ExerciseAnim pattern={guidePattern} size={88} loadOverride={guide?.loadOverride} />
+                    {openHelp.has(ei) && (
+                      <div className="mt-1 space-y-2 rounded-md border border-border p-2">
+                        <MuscleTags exercise={ex} only="secondary" />
+                        {hEx.note && (
+                          <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>
                         )}
-                        <div className="min-w-0 flex-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
+                        {warmupSteps.length > 0 && (
                           <div>
-                            <p className="font-medium text-foreground/80">Ustawienie</p>
-                            {guide.setup.map((s, si) => (
-                              <p key={si}>{s}</p>
-                            ))}
+                            <p className="text-[11px] font-medium text-foreground/80">
+                              Rozgrzewka ({warmupSteps.length})
+                            </p>
+                            <div className="mt-1 space-y-1">
+                              {warmupSteps.map((s, si) => {
+                                const plan = platePlan(s.weight, activeBar, activePlates);
+                                return (
+                                  <div key={si} className="flex items-center justify-between text-[11px]">
+                                    <span className="tabular-nums">
+                                      {fmtKg(s.weight)} × {s.reps}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
+                            </div>
                           </div>
+                        )}
+                        {platePlanForEntry && (
                           <div>
-                            <p className="font-medium text-foreground/80">Ruch</p>
-                            <ol className="list-decimal space-y-0.5 pl-4">
-                              {guide.steps.map((s, si) => (
-                                <li key={si}>{s}</li>
-                              ))}
-                            </ol>
+                            <p className="text-[11px] font-medium text-foreground/80">
+                              {platePlanForEntry.ok ? (
+                                <>
+                                  Talerze ·{" "}
+                                  {platePlanForEntry.perSide.length > 0
+                                    ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
+                                    : "sam gryf"}
+                                </>
+                              ) : (
+                                <span className="text-amber-400">
+                                  Talerze ·{" "}
+                                  {platePlanForEntry.leftover > 0
+                                    ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
+                                    : "cel lżejszy niż gryf"}
+                                </span>
+                              )}
+                            </p>
+                            <div className="mt-1">
+                              <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
+                            </div>
                           </div>
+                        )}
+                        {guide && (
                           <div>
-                            <p className="font-medium text-foreground/80">Częste błędy</p>
-                            <ul className="list-disc space-y-0.5 pl-4">
-                              {guide.mistakes.map((s, si) => (
-                                <li key={si}>{s}</li>
-                              ))}
-                            </ul>
+                            <p className="text-[11px] font-medium text-foreground/80">Jak wykonać?</p>
+                            <div className="mt-1 flex gap-3">
+                              {guidePattern && (
+                                <ExerciseAnim pattern={guidePattern} size={88} loadOverride={guide?.loadOverride} />
+                              )}
+                              <div className="min-w-0 flex-1 space-y-1.5 text-[11px] leading-snug text-muted-foreground">
+                                <div>
+                                  <p className="font-medium text-foreground/80">Ustawienie</p>
+                                  {guide.setup.map((s, si) => (
+                                    <p key={si}>{s}</p>
+                                  ))}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-foreground/80">Ruch</p>
+                                  <ol className="list-decimal space-y-0.5 pl-4">
+                                    {guide.steps.map((s, si) => (
+                                      <li key={si}>{s}</li>
+                                    ))}
+                                  </ol>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-foreground/80">Częste błędy</p>
+                                  <ul className="list-disc space-y-0.5 pl-4">
+                                    {guide.mistakes.map((s, si) => (
+                                      <li key={si}>{s}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                {guide.safety && <p className="text-amber-300">{guide.safety}</p>}
+                                <p className="text-[10px] text-muted-foreground/70">
+                                  Skrót techniczny — nie zastąpi trenera.
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          {guide.safety && <p className="text-amber-300">{guide.safety}</p>}
-                          <p className="text-[10px] text-muted-foreground/70">
-                            Skrót techniczny — nie zastąpi trenera.
-                          </p>
-                        </div>
+                        )}
                       </div>
                     )}
                   </div>
