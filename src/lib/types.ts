@@ -156,6 +156,10 @@ export interface AppState {
   historyTargetsSeeded?: boolean;
   /** P6-5: czy ćwiczeniom z seeda bez własnego `restSeconds` dolano wartosc z seeda — jednorazowo. */
   restSecondsBackfilled?: boolean;
+  /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
+   * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
+   * później ręcznej zmiany nazwy przez użytkownika w Planie. */
+  neutralDayLabelsSeeded?: boolean;
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;

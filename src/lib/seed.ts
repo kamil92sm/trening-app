@@ -450,21 +450,21 @@ export const SEED_EXERCISES: Exercise[] = [
 export const SEED_DAYS: WorkoutDay[] = [
   {
     id: "mon",
-    name: "Poniedziałek",
+    name: "Trening 1",
     short: "Góra + Pośladki",
     accent: "#ef4444",
     exerciseIds: ["bench_bb", "hipthrust", "row_bb", "lateral", "curl_bb", "crunch"],
   },
   {
     id: "wed",
-    name: "Środa",
+    name: "Trening 2",
     short: "Ciężki Dół + Klatka Skos",
     accent: "#3b82f6",
     exerciseIds: ["squat", "deadlift", "incline_db", "lunges", "calf", "plank"],
   },
   {
     id: "fri",
-    name: "Piątek",
+    name: "Trening 3",
     short: "Góra II + Tył Ud",
     accent: "#eab308",
     exerciseIds: ["ohp", "pulldown", "rdl", "bench_db", "row_db", "french"],
@@ -781,8 +781,32 @@ function backfillRestSecondsOnce(state: AppState): AppState {
   return { ...backfillRestSecondsFromSeed(state), restSecondsBackfilled: true };
 }
 
+/**
+ * Zadanie 3: nazwy dni "Poniedziałek/Środa/Piątek" sugerowały sztywny
+ * kalendarz, którego apka nie wymaga — to tylko zwyczajowy rytm Kamila.
+ * Jednorazowo nadpisuje `name` dni `mon`/`wed`/`fri` na neutralne
+ * "Trening 1/2/3" z aktualnego `SEED_DAYS`, zachowując WSZYSTKO inne
+ * (`short`, `exerciseIds`, `active`, `optional`, `accent`). `id` BEZ ZMIAN —
+ * historia/rotacja/cele są z nimi powiązane przez `dayId`.
+ */
+function neutralizeDayLabels(state: AppState): AppState {
+  const NEUTRAL_IDS = new Set(["mon", "wed", "fri"]);
+  const seedNameById = new Map(SEED_DAYS.map((d) => [d.id, d.name]));
+  const days = state.days.map((d) => {
+    if (!NEUTRAL_IDS.has(d.id)) return d;
+    const neutralName = seedNameById.get(d.id);
+    return neutralName ? { ...d, name: neutralName } : d;
+  });
+  return { ...state, days };
+}
+
+function neutralizeDayLabelsOnce(state: AppState): AppState {
+  if (state.neutralDayLabelsSeeded) return state;
+  return { ...neutralizeDayLabels(state), neutralDayLabelsSeeded: true };
+}
+
 function applyOneTimeSeeds(state: AppState): AppState {
-  return backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(state)));
+  return backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))));
 }
 
 /**

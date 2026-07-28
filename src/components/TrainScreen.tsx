@@ -1360,7 +1360,7 @@ export function TrainScreen() {
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="font-bold">{day?.short ?? "Trening"}</h1>
+                <h1 className="font-bold">{day?.name ?? "Trening"}</h1>
                 <span
                   className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
                   style={{
@@ -1372,7 +1372,7 @@ export function TrainScreen() {
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                ĆW. {focusIdx + 1}/{draft.entries.length}
+                {day?.short} · ĆW. {focusIdx + 1}/{draft.entries.length}
               </p>
             </div>
             <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">

@@ -804,6 +804,79 @@ check(
   nextDaySuggestion(stRotBonus)
 );
 
+// Zadanie 3: neutralne nazwy dni "Trening 1/2/3" zamiast Poniedzialek/Sroda/Piatek.
+{
+  const freshDays = defaultState().days;
+  check(
+    "SEED_DAYS/defaultState: swiezy stan ma nazwy Trening 1/2/3",
+    freshDays.find((d) => d.id === "mon")!.name === "Trening 1" &&
+      freshDays.find((d) => d.id === "wed")!.name === "Trening 2" &&
+      freshDays.find((d) => d.id === "fri")!.name === "Trening 3",
+    freshDays.map((d) => `${d.id}:${d.name}`)
+  );
+  check(
+    "SEED_DAYS: dayId pozostaja mon/wed/fri/bonus (historia sie nie psuje)",
+    freshDays.map((d) => d.id).join(",") === "mon,wed,fri,bonus",
+    freshDays.map((d) => d.id)
+  );
+
+  // Stary stan (sprzed zmiany) - stare nazwy, wlasna sesja historyczna na dayId "mon".
+  const oldRaw = {
+    version: SCHEMA_VERSION,
+    exercises: SEED_EXERCISES,
+    days: [
+      { id: "mon", name: "Poniedziałek", short: "Góra + Pośladki", accent: "#ef4444", exerciseIds: ["bench_bb", "hipthrust", "row_bb", "lateral", "curl_bb", "crunch"] },
+      { id: "wed", name: "Środa", short: "Ciężki Dół + Klatka Skos", accent: "#3b82f6", exerciseIds: ["squat", "deadlift", "incline_db", "lunges", "calf", "plank"] },
+      { id: "fri", name: "Piątek", short: "Góra II + Tył Ud", accent: "#eab308", exerciseIds: ["ohp", "pulldown", "rdl", "bench_db", "row_db", "french"] },
+      { id: "bonus", name: "Bonus", short: "Uzupełnienie: tył barków, ramiona, łydki, core", accent: "#a855f7", optional: true, active: false, exerciseIds: ["face_pull", "hammer_curl", "pushdown", "calf_seated", "side_plank"] },
+    ],
+    targets: SEED_TARGETS,
+    sessions: [{ id: "hist1", dayId: "mon", date: "2026-07-06", completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 45, sets: [{ weight: 45, reps: 8, done: true }] }] }],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  const migratedOld = migrateState(oldRaw);
+  const migMon = migratedOld.days.find((d) => d.id === "mon")!;
+  const migWed = migratedOld.days.find((d) => d.id === "wed")!;
+  const migFri = migratedOld.days.find((d) => d.id === "fri")!;
+  check(
+    "migracja: stary stan z Poniedzialek/Sroda/Piatek zostaje jednorazowo zaktualizowany",
+    migMon.name === "Trening 1" && migWed.name === "Trening 2" && migFri.name === "Trening 3",
+    { migMon, migWed, migFri }
+  );
+  check(
+    "migracja: short/exerciseIds/accent NIE ruszone przy zmianie name",
+    migMon.short === "Góra + Pośladki" &&
+      migMon.exerciseIds.join(",") === "bench_bb,hipthrust,row_bb,lateral,curl_bb,crunch" &&
+      migMon.accent === "#ef4444",
+    migMon
+  );
+  check("migracja: flaga neutralDayLabelsSeeded ustawiona", migratedOld.neutralDayLabelsSeeded === true);
+  check(
+    "migracja: sesja historyczna nadal znajduje wlasciwy dzien (dayId mon niezmieniony)",
+    migratedOld.sessions.some((s) => s.id === "hist1" && s.dayId === "mon"),
+    migratedOld.sessions
+  );
+
+  // Druga migracja (flaga juz true) NIE nadpisuje reczne zmienionej nazwy.
+  const customized = { ...migratedOld, days: migratedOld.days.map((d) => (d.id === "mon" ? { ...d, name: "Mój dzień push" } : d)) };
+  const migratedTwice = migrateState(customized);
+  check(
+    "migracja: drugie uruchomienie NIE nadpisuje recznie zmienionej nazwy",
+    migratedTwice.days.find((d) => d.id === "mon")!.name === "Mój dzień push",
+    migratedTwice.days.find((d) => d.id === "mon")
+  );
+
+  // resetAll (symulowane) - defaultState + flagi jednorazowych dosiewow.
+  const resetState = { ...defaultState(), historySeeded: true, historyTargetsSeeded: true, restSecondsBackfilled: true, neutralDayLabelsSeeded: true };
+  check(
+    "resetAll: swiezy stan ma nowe nazwy I ustawiona flage (bez ponownej migracji przy kolejnym wczytaniu)",
+    resetState.days.find((d) => d.id === "mon")!.name === "Trening 1" && resetState.neutralDayLabelsSeeded === true,
+    resetState.days.find((d) => d.id === "mon")
+  );
+}
+
 // P2-11: kalendarz konsekwencji (8 tygodni)
 const stAdh = defaultState();
 stAdh.sessions.push(

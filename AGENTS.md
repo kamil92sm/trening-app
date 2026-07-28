@@ -185,7 +185,16 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
 
 Ciężary = „na ten tydzień". Hantle podane jako ciężar na jedną rękę (2× = para).
 
-### PONIEDZIAŁEK — Góra + Pośladki
+**Nazwy dni (Zadanie 3, 28.07.2026): neutralna rotacja, nie sztywny kalendarz.**
+Apka pokazuje „Trening 1 / Trening 2 / Trening 3" (`SEED_DAYS[i].name`), NIE
+„Poniedziałek/Środa/Piątek" — nazwy dni sugerowały obowiązkowy kalendarz, którego
+apka nie wymaga i nie egzekwuje (`nextDaySuggestion()` to tylko podpowiedź
+rotacji, nie blokada). Nagłówki niżej (PONIEDZIAŁEK/ŚRODA/PIĄTEK) zostają jako
+opis dla CZYTELNIKA tego dokumentu — to zwyczajowy rytm Kamila (trening co drugi
+dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri`/
+`bonus`) BEZ ZMIAN** — historia/rotacja/cele są z nimi powiązane przez `dayId`.
+
+### PONIEDZIAŁEK ("Trening 1" w apce) — Góra + Pośladki
 | # | Ćwiczenie | Serie×Zakres | Ciężar |
 |---|-----------|-------------|--------|
 | 1 | Wyciskanie sztangi płasko | 3×5–8 | 45 kg |
@@ -195,7 +204,7 @@ Ciężary = „na ten tydzień". Hantle podane jako ciężar na jedną rękę (2
 | 5 | Uginanie bicepsa (sztanga) | 2×10–12 | 17,5 kg |
 | 6 | Allahy (brzuch) | 3×10–15 | 37,5 kg |
 
-### ŚRODA — Ciężki Dół + Klatka Skos
+### ŚRODA ("Trening 2" w apce) — Ciężki Dół + Klatka Skos
 | # | Ćwiczenie | Serie×Zakres | Ciężar |
 |---|-----------|-------------|--------|
 | 1 | Przysiad ze sztangą | 3×5–8 | 65 kg |
@@ -205,7 +214,7 @@ Ciężary = „na ten tydzień". Hantle podane jako ciężar na jedną rękę (2
 | 5 | Wspięcia na palce | 3×10–15 | 45 kg |
 | 6 | Plank (deska) | 4×40 s | +10 kg |
 
-### PIĄTEK — Góra II + Tył Ud
+### PIĄTEK ("Trening 3" w apce) — Góra II + Tył Ud
 | # | Ćwiczenie | Serie×Zakres | Ciężar |
 |---|-----------|-------------|--------|
 | 1 | Wyciskanie żołnierskie (OHP) | 3×6–8 | 32,5 kg |
