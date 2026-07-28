@@ -83,8 +83,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
-/* P4-2: warstwa poświaty pigułki timera - osobna od backdrop-blur wrappera
-   (patrz komentarz w Gym.tsx), animujemy tylko box-shadow. */
+/* P4-2/P6 Etap2: warstwa poświaty pigułki timera - osobna od tła/bordera (te są
+   teraz na samym RestTimer, patrz komentarz w Gym.tsx), animujemy tylko box-shadow.
+   Celowo BEZ twardej linii "0 0 0 1px" w cieniu - to właśnie ona, nałożona na osobne
+   tło/border wrappera, dawała wrażenie "drugiej pigułki" zagnieżdżonej w pierwszej.
+   Zostaje tylko miękka, rozmyta poświata wybrzuszająca się poza krawędź. */
 .rest-glow {
   position: absolute;
   inset: -2px;
@@ -96,8 +99,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .rest-glow[data-state="running"] {
   box-shadow:
     0 0 10px 1px hsl(var(--neon-run) / 0.45),
-    0 0 24px 4px hsl(var(--neon-run) / 0.18),
-    0 0 0 1px hsl(var(--neon-run) / 0.55);
+    0 0 24px 4px hsl(var(--neon-run) / 0.18);
 }
 .rest-glow[data-state="almost"] {
   animation: rest-glow-pulse 1.2s ease-in-out infinite;
@@ -105,22 +107,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .rest-glow[data-state="done"] {
   box-shadow:
     0 0 10px 1px hsl(var(--neon-done) / 0.5),
-    0 0 24px 4px hsl(var(--neon-done) / 0.22),
-    0 0 0 1px hsl(var(--neon-done) / 0.6);
+    0 0 24px 4px hsl(var(--neon-done) / 0.22);
 }
 @keyframes rest-glow-pulse {
   0%,
   100% {
     box-shadow:
       0 0 10px 1px hsl(var(--neon-warn) / 0.55),
-      0 0 22px 4px hsl(var(--neon-warn) / 0.22),
-      0 0 0 1px hsl(var(--neon-warn) / 0.65);
+      0 0 22px 4px hsl(var(--neon-warn) / 0.22);
   }
   50% {
     box-shadow:
       0 0 14px 2px hsl(var(--neon-warn) / 0.75),
-      0 0 30px 6px hsl(var(--neon-warn) / 0.32),
-      0 0 0 1px hsl(var(--neon-warn) / 0.8);
+      0 0 30px 6px hsl(var(--neon-warn) / 0.32);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -128,8 +127,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     animation: none;
     box-shadow:
       0 0 10px 1px hsl(var(--neon-warn) / 0.6),
-      0 0 24px 4px hsl(var(--neon-warn) / 0.28),
-      0 0 0 1px hsl(var(--neon-warn) / 0.7);
+      0 0 24px 4px hsl(var(--neon-warn) / 0.28);
   }
 }
 

@@ -1495,8 +1495,12 @@ export function TrainScreen() {
   }
 
   // ── Tryb listy (domyślny) ──────────────────────────────────────────────────
+  // pb-36 (nie pb-16): w tym trybie floatuje lokalna pigułka timera nad dolną
+  // nawigacją (bottom: 78px + własna wysokość) - bez większego marginesu
+  // zasłaniałaby "Zakończ trening" albo ostatnią serię przy krótszej liście
+  // ćwiczeń (patrz P6 Etap 2).
   return (
-    <div className="pb-16">
+    <div className="pb-36">
       <div
         className="sticky top-0 z-10 border-b border-border bg-background/95 p-4 backdrop-blur"
         style={{
@@ -1552,10 +1556,9 @@ export function TrainScreen() {
           Wszystko zrobione — zakończ trening
         </div>
       ) : (
-        <div
-          className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
-          style={{ bottom: "78px" }}
-        >
+        // Tylko pozycjonowanie - wygląd pigułki należy WYŁĄCZNIE do RestTimer
+        // variant="pill" (patrz komentarz w Gym.tsx, P6 Etap 2).
+        <div className="fixed left-1/2 z-20 -translate-x-1/2" style={{ bottom: "78px" }}>
           <RestTimer variant="pill" />
         </div>
       )}

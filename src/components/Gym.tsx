@@ -202,11 +202,16 @@ export function RestTimer({ variant = "pill" }: {
   const barColor =
     glowState === "done" ? "bg-green-400" : glowState === "almost" ? "bg-amber-400" : glowState === "running" ? "bg-sky-400" : "bg-muted-foreground/30";
 
+  // P6-2 Etap 2: RestTimer variant="pill" jest JEDYNYM właścicielem wyglądu pigułki
+  // (tło, border, border-radius, cień, blur). Wrappery w App.tsx (GlobalRestPill) i
+  // TrainScreen.tsx (tryb listy) renderują TYLKO pozycjonowanie (fixed/bottom/z-index) -
+  // inaczej dwie warstwy tła/bordera dawały wrażenie "pigułki wewnątrz pigułki".
   return (
-    <div className="relative">
-      {/* Warstwa poświaty - BEZ backdrop-blur (ten jest na wrapperze w TrainScreen),
-          translateZ(0) promuje ją do własnej warstwy GPU, żeby animacja box-shadow
-          nie wymuszała repaintu rozmytego tła pigułki (patrz P0-6). */}
+    <div className="relative flex items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur">
+      {/* Warstwa poświaty - inset:-2px wybrzusza się POZA krawędź tej samej pigułki
+          (nie tworzy drugiego zamkniętego kształtu), translateZ(0) promuje ją do
+          własnej warstwy GPU, żeby animacja box-shadow nie wymuszała repaintu
+          rozmytego tła pigułki (patrz P0-6). */}
       <span aria-hidden className="rest-glow" data-state={glowState} style={{ transform: "translateZ(0)" }} />
       <div className="relative flex items-center gap-2">
         {/* Bez animate-pulse: pulsujące opacity wewnątrz pigułki z backdrop-blur

@@ -74,8 +74,10 @@ function GlobalRestPill({ hidden }: { hidden: boolean }) {
   const show = useShowRestPill();
   if (hidden || !show) return null;
   return (
+    // Tylko pozycjonowanie - wygląd (tło/border/cień/blur) należy WYŁĄCZNIE do
+    // RestTimer variant="pill" (patrz komentarz w Gym.tsx, P6 Etap 2).
     <div
-      className="fixed left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur"
+      className="fixed left-1/2 z-20 -translate-x-1/2"
       style={{ bottom: "78px" }} // tuż nad paskiem nawigacji (pasek ma teraz +10px paddingu)
     >
       <RestTimer variant="pill" />
