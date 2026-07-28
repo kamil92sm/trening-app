@@ -1118,21 +1118,25 @@ export function mondayOf(iso: string): string {
 export interface WeekAdherence {
   /** ISO daty poniedziałku tego tygodnia (klucz). */
   week: string;
-  /** Wszystkie ukończone sesje w tym tygodniu, WŁĄCZNIE z dniem bonusowym. */
+  /** Unikalne ukończone dni GŁÓWNE w tym tygodniu. Bonus nie podbija tej liczby. */
   done: number;
   /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
   planned: number;
+  /** Unikalne ukończone dni opcjonalne. Renderowane osobno jako fioletowe kropki. */
+  bonusDone: number;
 }
 
 /**
  * Konsekwencja treningowa (P2-11) — ostatnie `weeks` tygodni (domyślnie 8),
  * chronologicznie rosnąco, kończąc na tygodniu zawierającym `nowIso` (domyślnie
- * dziś). `planned` to zawsze liczba dni głównych planu (dzień bonusowy liczy
- * się do `done`, ale nigdy nie podbija `planned` — inaczej włączenie bonusu
- * fałszywie poprawiałoby statystykę za tygodnie sprzed jego włączenia).
+ * dziś). `done` i `bonusDone` liczą UNIKALNE `dayId`, więc dwie sesje tego
+ * samego dnia planu nie udają realizacji dwóch różnych treningów. Bonus jest
+ * raportowany osobno i nie wpływa na zaliczenie obowiązkowego planu.
  */
 export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): WeekAdherence[] {
-  const planned = state.days.filter((d) => !d.optional).length;
+  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
+  const optionalDayIds = new Set(state.days.filter((d) => d.optional).map((d) => d.id));
+  const planned = mainDayIds.size;
   const thisMonday = mondayOf(nowIso ?? new Date().toISOString());
   const base = new Date(thisMonday + "T12:00:00");
 
@@ -1143,11 +1147,19 @@ export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): We
     weekKeys.push(d.toISOString().slice(0, 10));
   }
 
-  return weekKeys.map((week) => ({
-    week,
-    done: state.sessions.filter((s) => s.completed && mondayOf(s.date) === week).length,
-    planned,
-  }));
+  return weekKeys.map((week) => {
+    const completedDayIds = new Set(
+      state.sessions
+        .filter((s) => s.completed && mondayOf(s.date) === week)
+        .map((s) => s.dayId)
+    );
+    return {
+      week,
+      done: [...mainDayIds].filter((id) => completedDayIds.has(id)).length,
+      planned,
+      bonusDone: [...optionalDayIds].filter((id) => completedDayIds.has(id)).length,
+    };
+  });
 }
 
 // ── Etap 5: raport tygodniowy — "Ten tydzień", jedna karta, cztery liczby ──
@@ -1158,6 +1170,8 @@ export interface WeeklyReport {
   weekMonday: string;
   sessionsDone: number;
   sessionsPlanned: number;
+  /** Ukończone unikalne dni opcjonalne — pokazywane obok planu, nie jako „4 z 3”. */
+  sessionsBonus: number;
   tonnageCurrent: number;
   /** `null` = brak sesji w poprzednim tygodniu — "brak porównania", nigdy Infinity/NaN. */
   tonnagePrevious: number | null;
@@ -1243,6 +1257,7 @@ export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
     weekMonday: monday,
     sessionsDone: thisWeekAdherence.done,
     sessionsPlanned: thisWeekAdherence.planned,
+    sessionsBonus: thisWeekAdherence.bonusDone,
     tonnageCurrent,
     tonnagePrevious: hasPrevious ? tonnagePrevious : null,
     tonnageChangePct,

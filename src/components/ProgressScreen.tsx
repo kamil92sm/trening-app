@@ -261,6 +261,9 @@ export function ProgressScreen() {
             <p>
               <span className="text-muted-foreground">Treningi: </span>
               {report.sessionsDone} z {report.sessionsPlanned} zaplanowanych
+              {report.sessionsBonus > 0 && (
+                <span className="text-purple-300"> · Bonus wykonany</span>
+              )}
             </p>
             <p>
               <span className="text-muted-foreground">Tonaż: </span>
@@ -656,6 +659,14 @@ export function ProgressScreen() {
                             ? { backgroundColor: color }
                             : { border: "1px solid currentColor", opacity: 0.25 }
                         }
+                      />
+                    ))}
+                    {Array.from({ length: w.bonusDone }).map((_, i) => (
+                      <div
+                        key={`bonus-${i}`}
+                        className="h-2.5 w-2.5 rounded-full bg-purple-500"
+                        role="img"
+                        aria-label="Bonus wykonany"
                       />
                     ))}
                   </div>

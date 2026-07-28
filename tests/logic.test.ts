@@ -900,12 +900,37 @@ check(
 );
 const bonusWeek = adherence.find((w) => w.week === "2026-07-06")!;
 check(
-  "weeklyAdherence: dzien bonusowy liczy sie do done, NIE podbija planned",
-  bonusWeek.done === 1 && bonusWeek.planned === 3,
+  "weeklyAdherence: dzien bonusowy liczy sie osobno, NIE podbija done/planned",
+  bonusWeek.done === 0 && bonusWeek.planned === 3 && bonusWeek.bonusDone === 1,
   bonusWeek
 );
 const emptyWeek = adherence.find((w) => w.week === "2026-06-29");
-check("weeklyAdherence: pusty tydzien -> done 0", emptyWeek !== undefined && emptyWeek.done === 0, emptyWeek);
+check(
+  "weeklyAdherence: pusty tydzien -> done 0 i bonusDone 0",
+  emptyWeek !== undefined && emptyWeek.done === 0 && emptyWeek.bonusDone === 0,
+  emptyWeek
+);
+
+// Zadanie 4: powtórzenie tego samego dnia nie może udawać realizacji kolejnego
+// treningu, a dwa bonusy nadal dają jedną fioletową kropkę.
+const stAdhDuplicates = defaultState();
+stAdhDuplicates.sessions.push(
+  { id: "dup-main-1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] },
+  { id: "dup-main-2", dayId: "mon", date: "2026-07-21", completed: true, entries: [] },
+  { id: "dup-bonus-1", dayId: "bonus", date: "2026-07-22", completed: true, entries: [] },
+  { id: "dup-bonus-2", dayId: "bonus", date: "2026-07-23", completed: true, entries: [] }
+);
+const duplicateWeek = weeklyAdherence(stAdhDuplicates, 1, "2026-07-26")[0];
+check(
+  "weeklyAdherence: dwa razy ten sam glowny dzien liczy sie raz",
+  duplicateWeek.done === 1 && duplicateWeek.planned === 3,
+  duplicateWeek
+);
+check(
+  "weeklyAdherence: dwa razy ten sam bonus daje jedna kropke",
+  duplicateWeek.bonusDone === 1,
+  duplicateWeek
+);
 
 // P2-12: standardy silowe wzgledem masy ciala
 check("strengthRatios: brak wpisu wagi -> pusty wynik", strengthRatios(defaultState()).length === 0);
@@ -2067,8 +2092,8 @@ check(
   check("weeklyReport: granica pn/nd - niedziela liczy sie do POPRZEDNIEGO tygodnia", boundary.tonnagePrevious === 400, boundary);
   check("weeklyReport: granica pn/nd - poniedzialek liczy sie do TEGO tygodnia", boundary.tonnageCurrent === 500, boundary);
 
-  // Sesja bonusowa NIE zwieksza liczby wymaganych dni (planned zostaje 3), ale
-  // liczy sie do "zrobione" (done).
+  // Sesja bonusowa NIE zwiększa liczby wymaganych dni i nie udaje realizacji
+  // dnia głównego — jest raportowana osobno.
   const stBonus = defaultState();
   stBonus.sessions.push({
     id: "bonus1",
@@ -2079,7 +2104,34 @@ check(
   });
   const bonusReport = weeklyReport(stBonus, NOW);
   check("weeklyReport: sesja bonusowa - planned zostaje 3 (nie 4)", bonusReport.sessionsPlanned === 3, bonusReport);
-  check("weeklyReport: sesja bonusowa - liczy sie do done", bonusReport.sessionsDone === 1, bonusReport);
+  check(
+    "weeklyReport: sam bonus - done zostaje 0, sessionsBonus wynosi 1",
+    bonusReport.sessionsDone === 0 && bonusReport.sessionsBonus === 1,
+    bonusReport
+  );
+  check(
+    "weeklyReport: sam bonus NIE maskuje braku planu",
+    bonusReport.recommendation === "adherence",
+    bonusReport.recommendation
+  );
+
+  // Pełne 3/3 + bonus: raport nie może modelować tego jako „4 z 3”.
+  const stFullBonus = structuredClone(stFull);
+  stFullBonus.sessions.push({
+    id: "bonus-full",
+    dayId: "bonus",
+    date: monday,
+    completed: true,
+    entries: [],
+  });
+  const fullBonusReport = weeklyReport(stFullBonus, NOW);
+  check(
+    "weeklyReport: 3 glowne + bonus -> 3 z 3 oraz osobny bonus",
+    fullBonusReport.sessionsDone === 3 &&
+      fullBonusReport.sessionsPlanned === 3 &&
+      fullBonusReport.sessionsBonus === 1,
+    fullBonusReport
+  );
 
   // Plateau >=3 cwiczenia -> rekomendacja deload (najwyzszy priorytet).
   const stPlateau = defaultState();
