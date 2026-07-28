@@ -26,6 +26,7 @@ import {
   STORAGE_KEY,
 } from "./seed";
 import { computeProgression, exerciseForMode, failedAtRirZero, type ProgressionResult } from "./logic";
+import { serializeBackup } from "./backup";
 import { validateBackup } from "./validate";
 import { uid } from "./utils";
 
@@ -379,7 +380,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       exportJson() {
-        return JSON.stringify(state, null, 2);
+        return serializeBackup(state, true);
       },
 
       importJson(json) {
@@ -394,7 +395,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Kopia bezpieczeństwa PRZED nadpisaniem — ratunek po pomyłce (zły plik,
         // przypadkowy klik). Stan sprzed importu, nie ten właśnie wczytywany.
         saveAutoBackupSnapshot(state);
-        setState(migrateState(parsed));
+        const migrated = migrateState(parsed);
+        // Bezpieczne backupy nigdy nie zawierają tokenu (patrz serializeBackup), a stare
+        // pliki sprzed tego fixu mogły go zawierać — token z importu jest zawsze ignorowany,
+        // zachowujemy ten skonfigurowany lokalnie na tym urządzeniu.
+        migrated.settings.gistToken = state.settings.gistToken;
+        setState(migrated);
         return null;
       },
 

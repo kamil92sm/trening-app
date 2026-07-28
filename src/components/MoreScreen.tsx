@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Download, Trash2, Upload, Cloud, CloudDownload, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { useStore, readAutoBackupSnapshot } from "@/lib/store";
 import type { GymProfile } from "@/lib/types";
 import { fmtDate, fmtDateShort, fmtKg } from "@/lib/logic";
-import { gistBackup, gistRestore } from "@/lib/backup";
+import { gistBackup, gistRestore, GistApiError } from "@/lib/backup";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DateInput, Input, Label, Select } from "@/components/ui/input";
@@ -82,6 +82,18 @@ export function MoreScreen() {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // 401 od GitHuba = token odrzucony (wygasł/odwołany) — czyścimy go i wyłączamy
+  // auto-backup, żeby apka nie biła głową w ścianę kolejnymi nieudanymi próbami
+  // (patrz Etap 1: fix bezpieczeństwa backupu). Wartość tokenu nigdy nie trafia do komunikatu.
+  function handleGistError(err: unknown, fallbackTitle: string) {
+    if (err instanceof GistApiError && err.status === 401) {
+      store.updateSettings({ gistToken: undefined, autoBackup: false });
+      toast("Token odrzucony", "GitHub odrzucił token — został wyczyszczony, a auto-backup wyłączony. Wygeneruj nowy i wklej ponownie.");
+    } else {
+      toast(fallbackTitle, err instanceof Error ? err.message : "Nieznany błąd");
+    }
+  }
+
   async function backupNow() {
     const token = state.settings.gistToken;
     if (!token) {
@@ -94,7 +106,7 @@ export function MoreScreen() {
       store.updateSettings({ gistId, lastBackup: new Date().toISOString() });
       toast("Backup wysłany do chmury");
     } catch (err) {
-      toast("Backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
+      handleGistError(err, "Backup nieudany");
     } finally {
       setCloudBusy(null);
     }
@@ -115,7 +127,7 @@ export function MoreScreen() {
       if (err) toast("Przywracanie nieudane", err);
       else toast("Przywrócono z chmury", "Dane zostały nadpisane backupem.");
     } catch (err) {
-      toast("Przywracanie nieudane", err instanceof Error ? err.message : "Nieznany błąd");
+      handleGistError(err, "Przywracanie nieudane");
     } finally {
       setCloudBusy(null);
     }
@@ -540,9 +552,12 @@ export function MoreScreen() {
         <CardHeader>
           <CardTitle>Chmura (auto-backup)</CardTitle>
           <CardDescription>
-            Prywatny GitHub Gist jako zapasowa kopia — przetrwa zgubienie telefonu. Token:
-            GitHub → Settings → Developer settings → Fine-grained token → uprawnienie
-            wyłącznie „Gists: Read and write".
+            Prywatny GitHub Gist jako zapasowa kopia — przetrwa zgubienie telefonu. Gist jest
+            „sekretny" (nie pojawia się w wyszukiwarce), ale to NIE jest pełna prywatność — nie
+            jest szyfrowany. Token nigdy nie jest częścią backupu (ani pliku, ani gista) — żyje
+            tylko lokalnie w tej przeglądarce. Token: GitHub → Settings → Developer settings →
+            Fine-grained token → uprawnienie wyłącznie „Gists: Read and write". Jeśli GitHub
+            odrzuci token (błąd 401), trzeba wkleić nowy.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -557,11 +572,28 @@ export function MoreScreen() {
           </div>
           <div>
             <Label>Gist ID (wypełnia się samo po pierwszym backupie)</Label>
-            <Input
-              placeholder="np. 3a1b2c…"
-              value={state.settings.gistId ?? ""}
-              onChange={(e) => store.updateSettings({ gistId: e.target.value || undefined })}
-            />
+            <div className="flex gap-2">
+              <Input
+                className="flex-1"
+                placeholder="np. 3a1b2c…"
+                value={state.settings.gistId ?? ""}
+                onChange={(e) => store.updateSettings({ gistId: e.target.value || undefined })}
+              />
+              {state.settings.gistId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Wyczyść Gist ID"
+                  onClick={() => store.updateSettings({ gistId: undefined })}
+                >
+                  <X size={15} />
+                </Button>
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Usuń, jeśli stary gist trzeba porzucić (np. skompromitowany) — kolejny „Backup teraz" utworzy nowy.
+            </p>
           </div>
           <div className="flex items-center justify-between rounded-md border border-border p-2.5">
             <div>

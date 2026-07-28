@@ -1,7 +1,23 @@
-import type { AppState } from "./types";
+import type { AppState, Settings } from "./types";
 
 const GIST_FILENAME = "trening-backup.json";
 const API = "https://api.github.com/gists";
+
+/** Ustawienia, które NIGDY nie mogą trafić do backupu (poza to urządzenie) — dziś tylko
+ * token, ale przyszłe sekrety w Settings powinny trafiać na tę listę, nie bezpośrednio
+ * do JSON.stringify(state). Jedyne miejsce, gdzie backup jest serializowany: serializeBackup(). */
+const SECRET_SETTINGS_KEYS: (keyof Settings)[] = ["gistToken"];
+
+/**
+ * Jedyne źródło prawdy dla serializacji backupu (Gist i eksport plikowy) — usuwa sekrety
+ * z `settings`. Nie mutuje przekazanego `state`.
+ */
+export function serializeBackup(state: AppState, pretty = false): string {
+  const settings: Partial<Settings> = { ...state.settings };
+  for (const key of SECRET_SETTINGS_KEYS) delete settings[key];
+  const safeState = { ...state, settings: settings as Settings };
+  return pretty ? JSON.stringify(safeState, null, 2) : JSON.stringify(safeState);
+}
 
 interface GistFile {
   filename: string;
@@ -16,6 +32,17 @@ interface GistResponse {
   message?: string;
 }
 
+/** Typowany błąd Gist API — `status` pozwala wywołującym rozpoznać 401 (token odrzucony)
+ * i zareagować (wyczyścić token, wyłączyć auto-backup) bez parsowania tekstu komunikatu. */
+export class GistApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "GistApiError";
+    this.status = status;
+  }
+}
+
 function headers(token: string): HeadersInit {
   return {
     Authorization: `Bearer ${token.trim()}`,
@@ -24,13 +51,14 @@ function headers(token: string): HeadersInit {
   };
 }
 
-function apiError(data: GistResponse, status: number): Error {
+function apiError(data: GistResponse, status: number): GistApiError {
   if (status === 401) {
-    return new Error(
-      "Token odrzucony przez GitHub (wygasł, został odwołany, lub stracił uprawnienie „Gists: Read and write”). Wygeneruj nowy fine-grained token i wklej go ponownie."
+    return new GistApiError(
+      "Token odrzucony przez GitHub (wygasł, został odwołany, lub stracił uprawnienie „Gists: Read and write”). Wygeneruj nowy fine-grained token i wklej go ponownie.",
+      status
     );
   }
-  return new Error(data.message ?? `Gist API error (${status})`);
+  return new GistApiError(data.message ?? `Gist API error (${status})`, status);
 }
 
 /**
@@ -45,7 +73,7 @@ export async function gistBackup(
   const body = {
     description: "Trening — backup",
     public: false,
-    files: { [GIST_FILENAME]: { content: JSON.stringify(state) } },
+    files: { [GIST_FILENAME]: { content: serializeBackup(state) } },
   };
 
   const res = await fetch(gistId ? `${API}/${gistId}` : API, {

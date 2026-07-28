@@ -48,6 +48,7 @@ import {
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
 import { validateBackup } from "../src/lib/validate";
+import { serializeBackup } from "../src/lib/backup";
 import { niceScale } from "../src/lib/scale";
 import { MOVE_PATTERNS } from "../src/lib/anim-poses";
 import { GUIDES, guideFor } from "../src/lib/guide";
@@ -1626,6 +1627,58 @@ check(
   check(
     "P6-2: stopState po zakonczeniu -> z powrotem idle pelnej dlugosci",
     remainingMs(stopped, 999_999) === 60_000 && !isFinished(stopped)
+  );
+}
+
+// Etap 1 (bezpieczeństwo): token nigdy nie może trafić do serializowanego backupu.
+{
+  const SECRET = "github_pat_TEST_SECRET";
+  const stWithToken = defaultState();
+  stWithToken.settings.gistToken = SECRET;
+  stWithToken.settings.gistId = "abc123";
+
+  const before = JSON.stringify(stWithToken);
+  const serialized = serializeBackup(stWithToken);
+  const after = JSON.stringify(stWithToken);
+
+  check("Etap1: serializeBackup nie zawiera gistToken", !serialized.includes("gistToken"));
+  check("Etap1: serializeBackup nie zawiera wartości tokenu", !serialized.includes(SECRET));
+  check("Etap1: serializeBackup nie mutuje przekazanego state", before === after);
+
+  const parsedBack = JSON.parse(serialized);
+  check("Etap1: serializeBackup zachowuje resztę ustawień", parsedBack.settings.gistId === "abc123");
+  check(
+    "Etap1: serializeBackup zachowuje ćwiczenia/dni/cele/historię",
+    Array.isArray(parsedBack.exercises) &&
+      parsedBack.exercises.length === stWithToken.exercises.length &&
+      Array.isArray(parsedBack.days) &&
+      parsedBack.days.length === stWithToken.days.length &&
+      JSON.stringify(parsedBack.targets) === JSON.stringify(stWithToken.targets) &&
+      Array.isArray(parsedBack.sessions) &&
+      parsedBack.sessions.length === stWithToken.sessions.length
+  );
+
+  const prettySerialized = serializeBackup(stWithToken, true);
+  check("Etap1: eksport plikowy (pretty) też nie zawiera tokenu", !prettySerialized.includes(SECRET));
+}
+
+// Etap 1: import starego backupu z tokenem musi go zignorować, zachowując token lokalny.
+{
+  const legacyExport = defaultState();
+  legacyExport.settings.gistToken = "github_pat_FROM_OLD_FILE";
+  const legacyJson = JSON.stringify(legacyExport); // stary format sprzed fixu, token w pliku
+
+  const parsed = JSON.parse(legacyJson);
+  const err = validateBackup(parsed);
+  check("Etap1: legacy backup z tokenem nadal przechodzi walidację kształtu", err === null, err);
+
+  // Symulacja store.importJson(): migrateState + nadpisanie tokenu lokalnym (patrz store.tsx).
+  const localToken = "github_pat_LOCAL_CURRENT";
+  const migratedImport = migrateState(parsed);
+  migratedImport.settings.gistToken = localToken;
+  check(
+    "Etap1: import ignoruje token z pliku i zachowuje lokalny",
+    migratedImport.settings.gistToken === localToken
   );
 }
 

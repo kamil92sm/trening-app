@@ -36,7 +36,7 @@ import {
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
-import { gistBackup } from "@/lib/backup";
+import { gistBackup, GistApiError } from "@/lib/backup";
 import { guideFor } from "@/lib/guide";
 import { MOVE_PATTERNS } from "@/lib/anim-poses";
 import { Button } from "@/components/ui/button";
@@ -325,7 +325,14 @@ export function TrainScreen() {
         store.updateSettings({ gistId: newGistId, lastBackup: new Date().toISOString() });
       })
       .catch((err: unknown) => {
-        toast("Auto-backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
+        if (err instanceof GistApiError && err.status === 401) {
+          // Token odrzucony przez GitHub — wyczyść go i wyłącz auto-backup, żeby apka
+          // nie próbowała bez końca wysyłać kolejnych nieudanych żądań (patrz Etap 1).
+          store.updateSettings({ gistToken: undefined, autoBackup: false });
+          toast("Auto-backup wyłączony", "GitHub odrzucił token — wklej nowy w Więcej → Chmura.");
+        } else {
+          toast("Auto-backup nieudany", err instanceof Error ? err.message : "Nieznany błąd");
+        }
       });
   }, [state]);
 
