@@ -675,9 +675,9 @@ przyrostu powtórzeń.
 - **Fix:** `prefillRepsForEntry(state, ex, modeEx, targetWeight, setCount)` w `logic.ts`:
   1. `targetWeight` wyższy niż na ostatnim treningu → ciężar wskoczył → **`repMin`**
      (dolna granica, przez kolejne tygodnie dokładasz powtórzenia do `repMax`);
-  2. ciężar bez zmian → **powtórzenia z ostatniego treningu, seria po serii**,
-     przycięte do zakresu bieżącego trybu (12/11 wraca jako 12/11 — masz pobić
-     swój wynik, nie zgadywać go od zera);
+  2. ciężar bez zmian → **`repMax` w każdej serii** (SKORYGOWANE 07.08.2026, §22 —
+     początkowo było „powtórzenia z ostatniego treningu", ale to duplikowało
+     linię „Ostatnie:" zamiast pokazywać cel);
   3. brak historii → `repMin`.
   Tygodnie deloadu są pomijane jako punkt odniesienia (65% ciężaru fałszywie
   wyglądałoby jak „ciężar właśnie wzrósł" przy powrocie do normalnych obciążeń).
@@ -948,3 +948,48 @@ kilku tygodni, i to on popycha do roboty.
 **Testy:** 371 łącznie (14 nowych: `progressSince` łącznie z regresem i oknem,
 `toNext` dla progu dolnego/środkowego/braku, sufit projekcji w górę i brak wpływu
 na trend spadkowy, `maxGainPerSession` dla `isHold`).
+
+---
+
+## 22. Sesja 07.08.2026 (VI) — pole loggera pokazuje CEL, nie przeszłość
+
+**Zgłoszenie Kamila:** „skoro mam info ile zrobiłem powtórzeń ostatnio, to skąd
+mam wiedzieć ile mam zrobić, jak mam stare dane z ostatniego treningu? Powinno
+chyba pokazać tyle, ile powinienem zrobić, żeby był progres."
+
+**Ma rację i to jest korekta MOJEGO przekroczenia zakresu z §17.** Pierwotne
+zgłoszenie (§17, pkt 2–3) dotyczyło WYŁĄCZNIE przypadku „ciężar właśnie wskoczył"
+— tam apka wrzucała `repMax`, a powinna `repMin`. Przypadek „ciężar bez zmian →
+prefill = wynik z ostatniego treningu" dołożyłem z własnej inicjatywy i to on
+okazał się błędny: linia **„Ostatnie: 30×11/9/8" już pokazuje historię**, więc
+powtarzanie jej w polach serii marnowało jedyne miejsce, które mogło nieść cel.
+
+### Zmiana w `prefillRepsForEntry`
+- ciężar wskoczył → **`repMin`** (BEZ ZMIAN — to było pierwotne zgłoszenie)
+- ciężar bez zmian → **`repMax`** (było: powtórzenia z ostatniego treningu)
+- brak historii → **`repMin`** (BEZ ZMIAN — cykl startuje od dołu)
+
+Usunięty bonus „+1 powtórzenie przy RIR ≥3" z §18.3 — dotyczył wyłącznie gałęzi
+„ciężar bez zmian", która teraz zawsze pokazuje górny limit, więc był martwy.
+Autoregulacja RIR w `computeProgression` (komunikat „ciężar jest za lekki")
+zostaje bez zmian.
+
+**Świadomy koszt:** przeklikanie serii bez edycji zapisze teraz komplet powtórzeń
+i podniesie ciężar. Poprzedni wariant był pod tym względem bezpieczniejszy
+(zapisywał powtórzenie zeszłego tygodnia), ale to zachowanie sprzed §17 i decyzja
+użytkownika.
+
+### Nowa linia „Do skoku ciężaru" (`progressGoal`)
+`progressGoal(state, ex, modeEx)` → `{ repsPerSet, setCount, missingReps }` —
+warunek skoku ciężaru i dystans z ostatniego treningu (seria niezalogowana liczy
+się jako pełny brak). Liczone na ćwiczeniu w trybie tygodnia I przy liczbie serii
+z planu TEGO dnia (`exerciseForDay`); w deloadzie ukryte (progresja wyłączona).
+
+W karcie ćwiczenia pod „Ostatnie:":
+- `Do skoku ciężaru: 3×10 powt. — ostatnio zabrakło 1 powt.`
+- przy komplecie: `— ostatnio komplet, dziś powinien wskoczyć` (na zielono)
+
+**Testy:** 377 (4 testy prefillu przestrojone na nową regułę, 6 nowych na
+`progressGoal`). Zweryfikowane w Chromium na realnym scenariuszu ze zrzutu:
+OHP „Do skoku ciężaru: 3×12 powt. — ostatnio zabrakło 8 powt.", pola 12/12/12;
+ściąganie drążka „3×10 powt. — ostatnio zabrakło 1 powt.", pola 10/10/10.

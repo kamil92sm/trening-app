@@ -48,6 +48,7 @@ import {
   prefillRepsForEntry,
   progressSince,
   maxGainPerSession,
+  progressGoal,
   exerciseHistory,
   type HistoryPoint,
 } from "../src/lib/logic";
@@ -2473,15 +2474,17 @@ check(
 
   const stSame = defaultState();
   stSame.sessions = [curlSession("h1", "2026-07-08", 17.5, [12, 11])];
+  // Pole = CEL na dzis, nie wynik z przeszlosci: przy tym samym ciezarze jestes
+  // w srodku cyklu, a ciezar podnosi dopiero komplet powtorzen w kazdej serii.
   check(
-    "prefill: ten sam ciezar -> wynik z ostatniego treningu (masz go pobic)",
-    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 2)) === JSON.stringify([12, 11]),
+    "prefill: ten sam ciezar -> GORNY limit (tyle trzeba, zeby ciezar wskoczyl)",
+    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 2)) === JSON.stringify([12, 12]),
     prefillRepsForEntry(stSame, curl, curl, 17.5, 2)
   );
 
   check(
-    "prefill: wiecej serii niz w historii -> ostatnia znana wartosc",
-    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 3)) === JSON.stringify([12, 11, 11])
+    "prefill: liczba serii z planu dnia, nie z historii",
+    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 3)) === JSON.stringify([12, 12, 12])
   );
 
   // Zmiana trybu tygodnia przycina wynik do zakresu NOWEGO trybu.
@@ -2518,9 +2521,11 @@ check(
     curlSession("ad1", "2026-07-01", 17.5, [12, 11]),
     curlSession("ad2", "2026-07-08", 11.25, [12, 12], "deload"),
   ];
+  // Gdyby deload (11,25 kg) sluzyl za odniesienie, 17,5 wygladaloby jak SKOK
+  // ciezaru i prefill spadlby na 10/10. Punktem odniesienia jest sesja sprzed deloadu.
   check(
-    "prefill: deload pomijany jako punkt odniesienia",
-    JSON.stringify(prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)) === JSON.stringify([12, 11]),
+    "prefill: deload pomijany jako punkt odniesienia (nie udaje skoku ciezaru)",
+    JSON.stringify(prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)) === JSON.stringify([12, 12]),
     prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)
   );
 }
@@ -2602,9 +2607,31 @@ check(
     },
   ];
   check(
-    "prefill: RIR 3 w zapasie -> celuj o jedno powtorzenie wyzej",
-    JSON.stringify(prefillRepsForEntry(stEasy, curl, curl, 17.5, 2)) === JSON.stringify([11, 11]),
+    "prefill: cel nie zalezy od zalogowanego RIR (pole zawsze pokazuje gorny limit)",
+    JSON.stringify(prefillRepsForEntry(stEasy, curl, curl, 17.5, 2)) === JSON.stringify([12, 12]),
     prefillRepsForEntry(stEasy, curl, curl, 17.5, 2)
+  );
+
+  // progressGoal: ile trzeba i ile zabraklo ostatnio.
+  const curlSess = (id: string, reps: number[]) => {
+    const s = defaultState();
+    s.sessions = [{
+      id, dayId: "mon", date: "2026-07-08", completed: true, mode: "strength" as const,
+      entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: reps.map((r) => ({ weight: 17.5, reps: r, done: true })) }],
+    }];
+    return s;
+  };
+  const g = progressGoal(stEasy, curl, curl)!;
+  check("progressGoal: warunek skoku = 2x12", g.setCount === 2 && g.repsPerSet === 12, g);
+  check("progressGoal: 10/10 przy celu 12 -> brakuje 4", g.missingReps === 4, g);
+  const gSame = progressGoal(curlSess("near", [12, 11]), curl, curl)!;
+  check("progressGoal: 12/11 -> brakuje 1", gSame.missingReps === 1, gSame);
+  check("progressGoal: komplet -> brakuje 0", progressGoal(curlSess("full", [12, 12]), curl, curl)!.missingReps === 0);
+  check("progressGoal: brak historii -> null", progressGoal(defaultState(), curl, curl) === null);
+  check(
+    "progressGoal: brakujaca seria liczy sie jako pelny brak (12 powt.)",
+    progressGoal(curlSess("one", [12]), curl, curl)!.missingReps === 12,
+    progressGoal(curlSess("one", [12]), curl, curl)
   );
 }
 

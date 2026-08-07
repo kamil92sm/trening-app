@@ -1133,18 +1133,19 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
 }
 
 /**
- * Powtórzenia, którymi logger wypełnia serie na starcie — zgodnie z regułą
- * podwójnej progresji, a nie "zawsze górny limit" (zgłoszenie Kamila: apka
- * wrzucała `repMax` nawet zaraz po skoku ciężaru, czyli kazała od razu powtórzyć
- * komplet na cięższej sztandze):
+ * Powtórzenia, którymi logger wypełnia serie na starcie. Zasada: **pole pokazuje
+ * CEL na dziś, nie wynik z przeszłości** — historię widać obok, w linii
+ * "Ostatnie:", więc powtarzanie jej w polach marnowałoby je (zgłoszenie Kamila:
+ * "skąd mam wiedzieć ile mam zrobić, jak mam stare dane z ostatniego treningu?").
  *
  *  1. `targetWeight` WYŻSZY niż na ostatnim treningu → ciężar właśnie wskoczył,
- *     więc wracasz na DÓŁ zakresu (`repMin`) i przez kolejne tygodnie dokładasz
- *     powtórzenia aż do `repMax`. To jest ta druga połowa podwójnej progresji.
- *  2. Ciężar bez zmian → prefill = to, co zrobiłeś ostatnio w tej serii
- *     (przycięte do zakresu bieżącego trybu). Masz POBIĆ swój wynik, a nie
- *     zgadywać go od zera — 12/11 wraca jako 12/11, do domknięcia zostaje ta jedna.
- *  3. Brak historii → `repMin` (start od dołu zakresu).
+ *     więc zaczynasz cykl od DOŁU zakresu (`repMin`) i przez kolejne tygodnie
+ *     dokładasz powtórzenia. To jest ta druga połowa podwójnej progresji i
+ *     pierwotne zgłoszenie Kamila (apka wrzucała wtedy `repMax`).
+ *  2. Ciężar bez zmian → jesteś W ŚRODKU cyklu, a celem jest **`repMax` w każdej
+ *     serii roboczej** — dopiero komplet podnosi ciężar. Ile do niego brakowało
+ *     ostatnim razem mówi `progressGoal()`.
+ *  3. Brak historii → `repMin` (jak po skoku: cykl startuje od dołu).
  *
  * Tygodnie deloadu są pomijane jako punkt odniesienia (obniżony ciężar zawyżyłby
  * "ciężar wzrósł" przy powrocie do normalnych obciążeń).
@@ -1163,15 +1164,34 @@ export function prefillRepsForEntry(
 
   const refTop = Math.max(...ref.sets.map((s) => s.weight));
   if (targetWeight > refTop + 1e-9) return fill(modeEx.repMin);
+  return fill(modeEx.repMax);
+}
 
-  // Autoregulacja: 3+ powtórzeń w zapasie na ostatniej serii roboczej znaczy,
-  // że stać Cię było na więcej — celuj o jedno powtórzenie wyżej, zamiast
-  // powtarzać ten sam wynik w nieskończoność.
-  const refRir = ref.sets[ref.sets.length - 1]?.rir;
-  const bonus = refRir !== undefined && refRir >= 3 ? 1 : 0;
-  const clamp = (r: number) => Math.min(modeEx.repMax, Math.max(modeEx.repMin, Math.round(r)));
-  const lastRefSet = ref.sets[ref.sets.length - 1];
-  return Array.from({ length: setCount }, (_, i) => clamp((ref.sets[i] ?? lastRefSet).reps + bonus));
+export interface ProgressGoal {
+  /** Powtórzeń w KAŻDEJ serii roboczej, żeby ciężar wskoczył. */
+  repsPerSet: number;
+  setCount: number;
+  /** Ile powtórzeń łącznie zabrakło na ostatnim treningu (0 = był komplet). */
+  missingReps: number;
+}
+
+/**
+ * Ile trzeba zrobić, żeby podwójna progresja podniosła ciężar — i ile do tego
+ * zabrakło ostatnim razem. Odpowiada wprost na "skąd mam wiedzieć, ile mam dziś
+ * zrobić": `repsPerSet` w `setCount` seriach to warunek skoku, `missingReps` to
+ * dystans z ostatniego treningu (seria niezalogowana liczy się jako pełny brak).
+ * `null`, gdy brak historii — nie ma do czego porównywać.
+ */
+export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): ProgressGoal | null {
+  const recent = lastEntries(state, ex.id, 4);
+  const ref = recent.find((e) => e.mode !== "deload") ?? recent[0];
+  if (!ref || ref.sets.length === 0) return null;
+  const working = ref.sets.slice(0, modeEx.targetSets);
+  let missing = 0;
+  for (let i = 0; i < modeEx.targetSets; i++) {
+    missing += Math.max(0, modeEx.repMax - (working[i]?.reps ?? 0));
+  }
+  return { repsPerSet: modeEx.repMax, setCount: modeEx.targetSets, missingReps: missing };
 }
 
 /** Punkt historii ćwiczenia wzbogacony o kontekst progresji (tryb tygodnia + serie robocze dnia). */

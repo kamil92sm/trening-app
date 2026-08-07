@@ -37,6 +37,8 @@ import {
   plannedSets,
   prefillRepsForEntry,
   deloadSets,
+  progressGoal,
+  exerciseForDay,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -1035,6 +1037,11 @@ export function TrainScreen() {
           const guide = guideFor(ex);
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const lastFew = lastByExercise.get(ex.id) ?? [];
+          // Cel podwojnej progresji liczony na cwiczeniu w trybie tygodnia I przy
+          // liczbie serii z planu TEGO dnia - w deloadzie progresja jest wylaczona,
+          // wiec nie ma czego pokazywac.
+          const goal =
+            draft.mode === "deload" ? null : progressGoal(state, ex, exerciseForDay(hEx, day));
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
           const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
           // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
@@ -1146,6 +1153,25 @@ export function TrainScreen() {
                 {lastFew.length > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Ostatnie: {fmtLastEntries(lastFew, hEx.isHold)}
+                  </p>
+                )}
+                {/* Wprost: ile trzeba dzis zrobic, zeby ciezar wskoczyl, i jak
+                    blisko bylo ostatnio. Pola serii pokazuja juz ten cel, ale
+                    sam dystans ("brakuje 1 powt.") jest tu najmocniejszy. */}
+                {goal && (
+                  <p className="text-xs">
+                    <span className="text-muted-foreground">Do skoku ciężaru: </span>
+                    <span className="font-medium text-sky-300">
+                      {goal.setCount}×{goal.repsPerSet} {hEx.isHold ? "s" : "powt."}
+                    </span>
+                    {goal.missingReps > 0 ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
+                      </span>
+                    ) : (
+                      <span className="text-green-400"> — ostatnio komplet, dziś powinien wskoczyć</span>
+                    )}
                   </p>
                 )}
                 {hasHelp && (
