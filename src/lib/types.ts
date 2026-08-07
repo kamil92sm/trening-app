@@ -167,6 +167,8 @@ export interface AppState {
   rirCalibrated?: boolean;
   /** Czy plan dostał już dosiew objętości (wariant B: suwnica + serie na biceps/triceps/łydki) — jednorazowo. */
   planVolumeBumpSeeded?: boolean;
+  /** Czy cel RDL poprawiono z nieosiągalnych 22 kg na 22,5 (hantle na siłowni) — jednorazowo. */
+  rdlTargetFixed?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */

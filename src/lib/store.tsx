@@ -31,6 +31,7 @@ import {
   exerciseForDay,
   exerciseForMode,
   failedAtRirZero,
+  loggedWorkingWeight,
   type ProgressionResult,
 } from "./logic";
 import { serializeBackup } from "./backup";
@@ -200,6 +201,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const priorSessions = [...state.sessions].filter((s) => s.completed).sort((a, b) => b.date.localeCompare(a.date));
         const summaries: FinishSummary[] = [];
         const sessionDay = state.days.find((d) => d.id === sessionData.dayId);
+        // Cel ma się DOSTOSOWAĆ do ciężaru, który realnie poszedł (zgłoszenie
+        // Kamila: na siłowni są hantle 22,5 a nie 22 — korekta w loggerze znaczy
+        // "innego po prostu nie ma"). WYJĄTEK: obca siłownia. Wtedy korekta mówi
+        // o TAMTYM sprzęcie, a nie o docelowym ciężarze — przeniesienie jej do
+        // `targets` zepsułoby progresję po powrocie (FEAT-1, §12).
+        const adaptTargetToLoggedWeight = !state.settings.activeGymProfileId;
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) continue;
@@ -210,6 +217,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const modeEx = exerciseForDay(exerciseForMode(ex, mode), sessionDay);
           const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
           const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
+          const loggedWeight = adaptTargetToLoggedWeight ? loggedWorkingWeight(entry, modeEx.targetSets) : null;
+          const progressionBase = loggedWeight ?? entry.targetWeight;
           // P4-4: poprzednia sesja liczona w JEJ WŁASNYM trybie tygodnia (repMax/
           // targetSets różnią się między Siła/Hipertrofia) - inaczej "sukces" z
           // zeszłego tygodnia mógłby wyglądać jak fail przez sam próg zakresu.
@@ -232,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             exercise: ex,
             result: computeProgression(
               modeEx,
-              entry.targetWeight,
+              progressionBase,
               entry.sets,
               lastRir,
               priorSessionFailedWithRir0,
@@ -466,6 +475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           neutralDayLabelsSeeded: true,
           rirCalibrated: true,
           planVolumeBumpSeeded: true,
+          rdlTargetFixed: true,
         });
       },
 

@@ -1179,6 +1179,27 @@ export function prefillRepsForEntry(
   return fill(modeEx.repMax);
 }
 
+/**
+ * Ciężar, od którego ma liczyć się progresja: ten, który REALNIE poszedł
+ * w seriach roboczych — a nie zaplanowany `targetWeight`.
+ *
+ * Powód (zgłoszenie Kamila): na siłowni są hantle 22,5 kg, a nie 22, więc
+ * korekta ciężaru w loggerze nie jest kaprysem tylko informacją „innego po
+ * prostu nie ma". Dotąd znikała po treningu i cel wracał do nieosiągalnej
+ * wartości, a progresja liczyła się od liczby, której nigdy nie podniósł.
+ *
+ * `null` (czyli „zostaw zaplanowany cel"), gdy serie robocze NIE są zgodne co
+ * do ciężaru — zejście w dół w trakcie ćwiczenia to zwykle ratowanie serii,
+ * nie deklaracja nowego celu.
+ */
+export function loggedWorkingWeight(entry: ExerciseLog, targetSets: number): number | null {
+  const working = entry.sets.filter((s) => s.done).slice(0, targetSets);
+  if (working.length === 0) return null;
+  const w = working[0].weight;
+  if (w <= 0) return null;
+  return working.every((s) => Math.abs(s.weight - w) < 1e-9) ? w : null;
+}
+
 export interface ProgressGoal {
   /** Powtórzeń w KAŻDEJ serii roboczej, żeby ciężar wskoczył. */
   repsPerSet: number;

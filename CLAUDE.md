@@ -224,7 +224,7 @@ dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri
 |---|-----------|-------------|--------|
 | 1 | Wyciskanie żołnierskie (OHP) | 3×6–8 | 32,5 kg |
 | 2 | Ściąganie drążka | 3×8–10 | 50 kg |
-| 3 | RDL z hantlami | 3×8–12 | 2×22 kg |
+| 3 | RDL z hantlami | 3×8–12 | 2×22,5 kg |
 | 4 | Wyciskanie hantli płasko | 3×8–12 | 2×17,5 kg |
 | 5 | Wiosłowanie hantlem | 2×10–12 | 20 kg |
 | 6 | Francuz (triceps) | **3**×10–12 | 22,5 kg |
@@ -1026,3 +1026,50 @@ z buildem sprzed zmiany: przy 320/360 px scrollWidth był równy szerokości okn
 więc przepełnienie wprowadziła ta kratka, nie istniejący układ.** Poniżej 360 px
 kratka jest ukryta (`hidden xs:inline-block`) — historia zostaje w linii
 „Ostatnie:". Zmierzone po poprawce: 320/360/390/430 px bez poziomego scrolla.
+
+---
+
+## 24. Sesja 07.08.2026 (VIII) — cel idzie za ciężarem, który realnie poszedł
+
+**Zgłoszenie Kamila:** „RDL z hantlami zmień na 22,5 bo takie mam hantle na tej
+siłowni, bo się nie zapisało a powinno — jak zmienię w danym treningu wagę, to
+znaczy że nie było innej i ma dostosować."
+
+### 24.1 Progresja liczy od ciężaru z loggera, nie z planu
+**Było:** `setWeightWithSync` zmieniał wagę serii w drafcie, ale `entry.targetWeight`
+(baza progresji) zostawał nietknięty, a `finishSession` liczył `computeProgression`
+właśnie od niego. Efekt: cel 22 kg był fizycznie nieosiągalny (hantli 22 nie ma),
+Kamil co trening podbijał na 22,5, po czym cel wracał do 22, a progresja liczyła
+się od liczby, której nigdy nie podniósł (22 + 2 = 24, zamiast 22,5 + 2 = 24,5).
+
+**Jest:** `loggedWorkingWeight(entry, targetSets)` — ciężar serii ROBOCZYCH, gdy
+wszystkie mają ten sam; `null`, gdy się różnią (zejście w dół w trakcie ćwiczenia
+to ratowanie serii, nie deklaracja nowego celu). `finishSession` używa go jako bazy
+progresji: `loggedWeight ?? entry.targetWeight`.
+
+**WYJĄTEK — obca siłownia.** Gdy `settings.activeGymProfileId` jest ustawione,
+adaptacja jest wyłączona: korekta ciężaru mówi wtedy o TAMTYM sprzęcie, a nie
+o docelowym obciążeniu, więc przeniesienie jej do `targets` zepsułoby progresję
+po powrocie. To dokładnie ochrona zaprojektowana w FEAT-1 (§12) i zostaje.
+
+### 24.2 Sam cel RDL: 22 → 22,5
+`SEED_TARGETS.rdl` + jednorazowa migracja `fixRdlTargetOnce` (flaga
+`rdlTargetFixed`, bez bumpa `SCHEMA_VERSION`). Rusza WYŁĄCZNIE cel równy dokładnie
+starej wartości z seeda (22) — wypracowana progresja i ręcznie ustawiony cel
+zostają. Bez niej §24.1 dogoniłby to samo, ale dopiero po jednej ukończonej sesji.
+
+Przy okazji `applyOneTimeSeeds` rozwinięte z zagnieżdżonych wywołań w płaską
+sekwencję — siedem dosiewów w jednym wyrażeniu przestało być czytelne.
+
+### 24.3 Otwarte: krok obciążenia RDL
+`increment` RDL to nadal **2 kg**, więc następny cel po 22,5 wypadnie na 24,5 —
+a skoro na siłowni są hantle 22,5, to drabinka jest najpewniej co 2,5 kg
+(22,5 → 25 → 27,5) i 24,5 też nie istnieje. Świadomie NIE zmienione bez potwierdzenia
+Kamila (to parametr treningowy, nie błąd). Od §24.1 apka sama się dogoni po każdym
+treningu, ale będzie się z tym szarpać co cykl.
+
+**Testy:** 388 (5× `loggedWorkingWeight` łącznie z zejściem w dół i seriami ponad
+plan, progresja 22,5 → 24,5 vs 22 → 24, 4× migracja celu RDL z ochroną
+wypracowanego celu). Zweryfikowane w Chromium: na domowej siłowni cel 22 → 22,5
+po wczytaniu, a po treningu na 22,5×12/12/12 → **24,5**; przy aktywnym profilu
+obcej siłowni ten sam trening zostawia cel na planowej ścieżce (20 → 22).

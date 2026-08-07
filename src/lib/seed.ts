@@ -537,7 +537,7 @@ export const SEED_TARGETS: Record<string, number> = {
   plank: 10,
   ohp: 32.5,
   pulldown: 50,
-  rdl: 22,
+  rdl: 22.5, // hantle 22,5 kg - 22 nie ma na siłowni Kamila (§24)
   bench_db: 17.5,
   row_db: 20,
   french: 22.5,
@@ -852,6 +852,25 @@ function calibrateRirOnce(state: AppState): AppState {
 }
 
 /**
+ * §24: cel RDL z hantlami 22 → 22,5 kg. Na siłowni Kamila nie ma hantli 22 kg,
+ * więc zaplanowany cel był fizycznie nieosiągalny i po każdym treningu wracał
+ * (od teraz `loggedWorkingWeight` sam by go dogonił, ale dopiero po pierwszej
+ * ukończonej sesji — ta poprawka oszczędza ten jeden trening tarcia).
+ *
+ * Rusza WYŁĄCZNIE cel równy dokładnie starej wartości z seeda (22) — jeśli
+ * progresja zdążyła go już podnieść albo Kamil ustawił własny, zostaje.
+ */
+function fixRdlTarget(state: AppState): AppState {
+  if (state.targets.rdl !== 22) return state;
+  return { ...state, targets: { ...state.targets, rdl: 22.5 } };
+}
+
+function fixRdlTargetOnce(state: AppState): AppState {
+  if (state.rdlTargetFixed) return state;
+  return { ...fixRdlTarget(state), rdlTargetFixed: true };
+}
+
+/**
  * Wariant B (§19): dołożenie objętości partiom, które w planie 3-dniowym miały
  * jej realnie za mało — Nogi 6 serii/tydz. przy 1×/tydz. (zero udziału
  * pomocniczego: martwy/RDL/hip thrust nie trenują czworogłowych), Biceps
@@ -939,11 +958,16 @@ function neutralizeDayLabelsOnce(state: AppState): AppState {
 }
 
 function applyOneTimeSeeds(state: AppState): AppState {
-  return applyPlanVolumeBumpOnce(
-    calibrateRirOnce(
-      backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))))
-    )
-  );
+  // Kolejność ma znaczenie tylko tam, gdzie jeden dosiew czyta wynik drugiego
+  // (catchUpTargets po seedHistory). Reszta jest niezależna.
+  let s = neutralizeDayLabelsOnce(state);
+  s = seedHistoryOnce(s);
+  s = catchUpTargetsOnce(s);
+  s = backfillRestSecondsOnce(s);
+  s = calibrateRirOnce(s);
+  s = applyPlanVolumeBumpOnce(s);
+  s = fixRdlTargetOnce(s);
+  return s;
 }
 
 /**

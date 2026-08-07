@@ -50,6 +50,7 @@ import {
   maxGainPerSession,
   progressGoal,
   exerciseHistory,
+  loggedWorkingWeight,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -2809,6 +2810,82 @@ check(
     projectHistory(histBench, 3).map((p) => p.e1rm)
   );
   check("maxGainPerSession: isHold = sam increment", maxGainPerSession(plank) === plank.increment);
+}
+
+// ── Cel dostosowuje się do ciężaru, który realnie poszedł ──────────────────
+{
+  const e = (sets: { weight: number; reps: number; done: boolean }[]) => ({
+    exerciseId: "rdl",
+    targetWeight: 22,
+    sets,
+  });
+
+  check(
+    "loggedWorkingWeight: wszystkie serie robocze na 22,5 -> 22,5",
+    loggedWorkingWeight(e([
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+    ]), 3) === 22.5
+  );
+  check(
+    "loggedWorkingWeight: zejscie w dol w trakcie -> null (to ratowanie serii, nie nowy cel)",
+    loggedWorkingWeight(e([
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 20, reps: 10, done: true },
+      { weight: 20, reps: 9, done: true },
+    ]), 3) === null
+  );
+  check(
+    "loggedWorkingWeight: serie PONAD plan nie psuja odczytu",
+    loggedWorkingWeight(e([
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 10, reps: 20, done: true },
+    ]), 3) === 22.5
+  );
+  check("loggedWorkingWeight: brak zaliczonych serii -> null", loggedWorkingWeight(e([{ weight: 22.5, reps: 12, done: false }]), 3) === null);
+  check("loggedWorkingWeight: ciezar 0 (masa wlasna) -> null", loggedWorkingWeight(e([{ weight: 0, reps: 12, done: true }]), 1) === null);
+
+  // Progresja liczona od ciezaru z loggera, nie od zaplanowanego celu.
+  const rdlEx = SEED_EXERCISES.find((x) => x.id === "rdl")!;
+  const sets225 = [
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+  ];
+  const fromLogged = computeProgression(rdlEx, loggedWorkingWeight(e(sets225), 3)!, sets225);
+  const fromPlanned = computeProgression(rdlEx, 22, sets225);
+  check(
+    "progresja od ciezaru z loggera: 22,5 + 2 = 24,5 (nie 24 od nieosiagalnych 22)",
+    fromLogged.nextWeight === 24.5 && fromPlanned.nextWeight === 24,
+    [fromLogged.nextWeight, fromPlanned.nextWeight]
+  );
+}
+
+// ── Cel RDL poprawiony na osiagalne 22,5 ───────────────────────────────────
+{
+  check("SEED_TARGETS: rdl = 22,5 (hantli 22 kg nie ma na silowni)", SEED_TARGETS.rdl === 22.5);
+  const stale: any = defaultState();
+  stale.targets = { ...stale.targets, rdl: 22 };
+  delete stale.rdlTargetFixed;
+  const fixed = migrateState({ ...stale, version: SCHEMA_VERSION });
+  check("migracja: 22 -> 22,5", fixed.targets.rdl === 22.5, fixed.targets.rdl);
+  check("migracja: flaga ustawiona", fixed.rdlTargetFixed === true);
+
+  // Wypracowana progresja i recznie ustawiony cel NIE moga zostac nadpisane.
+  const progressed: any = defaultState();
+  progressed.targets = { ...progressed.targets, rdl: 26 };
+  delete progressed.rdlTargetFixed;
+  check(
+    "migracja: wypracowany cel 26 zostaje nietkniety",
+    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl === 26
+  );
+  check(
+    "migracja: idempotentna (drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixed, version: SCHEMA_VERSION }).targets.rdl === 22.5
+  );
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
