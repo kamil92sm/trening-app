@@ -12,6 +12,8 @@ import {
   exerciseHistory,
   projectHistory,
   estimateGoalEta,
+  maxGainPerSession,
+  progressSince,
   sessionVolume,
   sessionDuration,
   weeklyAdherence,
@@ -88,6 +90,9 @@ function GoalInput({ initial, onCommit }: { initial: number | undefined; onCommi
   );
 }
 
+/** Okno porownania "Ty dzis vs Ty wtedy" (karta "Ile juz uroslesz"). */
+const PROGRESS_SINCE_WEEKS = 4;
+
 export function ProgressScreen() {
   const { state, setDayActive, updateSettings } = useStore();
 
@@ -142,7 +147,14 @@ export function ProgressScreen() {
   const nowIso = new Date().toISOString();
   // P5-2: kropki projekcji przycięte do przyszłości ("dziś" narysowane niżej w LineChart) —
   // linia dalej wychodzi z ostatniego realnego punktu, tylko same daty kropek się zmieniają.
-  const projection = useMemo(() => projectHistory(history, 3, nowIso), [history, nowIso]);
+  // Sufit projekcji = najszybszy przyrost, jaki podwójna progresja realnie
+  // dowozi dla TEGO ćwiczenia (jeden krok obciążenia na trening). Bez niego
+  // ekstrapolacja pierwszych tygodni obiecywała +30-40% w trzy treningi.
+  const projectionCap = useMemo(() => (selected ? maxGainPerSession(selected) : undefined), [selected]);
+  const projection = useMemo(
+    () => projectHistory(history, 3, nowIso, projectionCap),
+    [history, nowIso, projectionCap]
+  );
   // P2-2: dni squasha jako pionowe znaczniki na wykresie postępu — korelacja
   // zostawiona człowiekowi do oceny, apka tylko pokazuje surowe dane obok siebie.
   const squashMarkers = useMemo(() => state.squash.map((s) => new Date(s.date).getTime()), [state.squash]);
@@ -166,7 +178,7 @@ export function ProgressScreen() {
   // P4-9: cel per cwiczenie + ETA z NACHYLENIA regresji (ta sama co projectHistory),
   // nie z prostego roznicowania - patrz estimateGoalEta.
   const liftGoal = selected ? state.settings.liftGoals?.[selected.id] : undefined;
-  const goalEta = selected && liftGoal ? estimateGoalEta(history, liftGoal) : null;
+  const goalEta = selected && liftGoal ? estimateGoalEta(history, liftGoal, projectionCap) : null;
 
   const weeklyTonnage = useMemo(() => {
     const byWeek = new Map<string, number>();
@@ -205,6 +217,8 @@ export function ProgressScreen() {
 
   // P2-12: standardy silowe wzgledem masy ciala - ciekawostka, karta ukryta gdy brak danych.
   const strengthRatiosData = useMemo(() => strengthRatios(state), [state]);
+  const progressSinceData = useMemo(() => progressSince(state, PROGRESS_SINCE_WEEKS), [state]);
+  const bestProgress = progressSinceData[0] ?? null;
 
   // P3-8: baza urosla do ~90 pozycji - jeden przebieg po sesjach (Map exId->best)
   // zamiast petli po kazdym cwiczeniu ze skanowaniem wszystkich sesji w srodku.
@@ -710,6 +724,51 @@ export function ProgressScreen() {
       </Card>
 
       {/* Standardy siłowe */}
+      {/* Motywacja oparta wyłącznie na tym, co REALNIE podniosłeś — żadnych
+          prognoz, więc nie da się nią rozczarować. Regres pokazywany tak samo
+          jak progres (uczciwe framowanie, §11). */}
+      {progressSinceData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Ile już urosłeś</CardTitle>
+            <CardDescription>
+              Ty dziś kontra Ty {PROGRESS_SINCE_WEEKS} tygodni temu — same wykonane serie, bez prognoz
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {progressSinceData.slice(0, 6).map((p) => (
+              <div key={p.exId} className="flex items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate">{p.name}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {fmtKg(p.thenWeight)}×{p.thenReps} → {fmtKg(p.nowWeight)}×{p.nowReps}{" "}
+                  <span
+                    className={cn(
+                      "font-semibold",
+                      p.deltaPct > 0 ? "text-green-400" : p.deltaPct < 0 ? "text-amber-400" : "text-muted-foreground"
+                    )}
+                  >
+                    {p.deltaPct > 0 ? "+" : ""}
+                    {p.deltaPct}%
+                  </span>
+                </span>
+              </div>
+            ))}
+            {bestProgress && bestProgress.deltaPct > 0 && (
+              <p className="pt-1 text-[11px] leading-snug text-green-300">
+                Największy skok: <span className="font-medium">{bestProgress.name}</span> —{" "}
+                {fmtKg(bestProgress.thenWeight)}×{bestProgress.thenReps} zmieniło się w{" "}
+                {fmtKg(bestProgress.nowWeight)}×{bestProgress.nowReps}. To już zrobione, nikt Ci tego nie zabierze.
+              </p>
+            )}
+            <p className="pt-1 text-[10px] text-muted-foreground">
+              Porównanie najstarszej i najnowszej sesji z tego okna. Świadomie BEZ przeliczania na
+              „tempo na tydzień" — pierwsze tygodnie po przerwie to w dużej mierze powrót do formy,
+              a nie tempo, które się utrzyma.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {strengthRatiosData.length > 0 && (
         <Card>
           <CardHeader>
@@ -718,11 +777,19 @@ export function ProgressScreen() {
           </CardHeader>
           <CardContent className="space-y-1.5">
             {strengthRatiosData.map((r) => (
-              <div key={r.exId} className="flex items-center justify-between text-xs">
-                <span>{r.name}</span>
-                <span className="tabular-nums text-muted-foreground">
-                  {r.ratio.toFixed(2)}× <span className="font-medium text-foreground">{r.level}</span>
-                </span>
+              <div key={r.exId} className="text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{r.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {r.ratio.toFixed(2)}× <span className="font-medium text-foreground">{r.level}</span>
+                  </span>
+                </div>
+                {r.toNext && (
+                  <p className="text-[11px] text-sky-300">
+                    do progu {r.toNext.ratio}× brakuje{" "}
+                    <span className="font-semibold tabular-nums">{fmtKg(r.toNext.kgNeeded)}</span> e1RM
+                  </p>
+                )}
               </div>
             ))}
             <p className="pt-1 text-[10px] text-muted-foreground">

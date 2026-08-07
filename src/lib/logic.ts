@@ -642,6 +642,59 @@ export function exerciseHistory(state: AppState, exId: string): HistoryPoint[] {
   return points;
 }
 
+export interface ProgressSincePoint {
+  exId: string;
+  name: string;
+  /** Najlepszy ciężar serii roboczej WTEDY i DZIŚ (kg; hantle = na rękę, isHold = sekundy). */
+  thenWeight: number;
+  nowWeight: number;
+  thenReps: number;
+  nowReps: number;
+  thenDate: string;
+  nowDate: string;
+  /** Zmiana e1RM (dla isHold: sekund) — kg i procent. */
+  deltaKg: number;
+  deltaPct: number;
+}
+
+/**
+ * „Ty dzisiaj vs Ty wtedy" — dla każdego ćwiczenia najstarszy punkt historii
+ * NIE STARSZY niż `weeks` tygodni zestawiony z najnowszym.
+ *
+ * To czysta pamięć, nie prognoza: pokazuje wyłącznie to, co REALNIE podniosłeś,
+ * więc nie da się nią rozczarować. Dlatego świadomie NIE liczy „tempa na
+ * tydzień" ani nie ekstrapoluje — przyrosty z pierwszych tygodni po przerwie
+ * to w dużej mierze powrót do formy i podawanie ich jako tempa byłoby
+ * zawyżaniem (§11). Regres jest pokazywany tak samo jak progres.
+ */
+export function progressSince(state: AppState, weeks = 4, nowIso?: string): ProgressSincePoint[] {
+  const now = nowIso ? new Date(nowIso).getTime() : Date.now();
+  const cutoff = now - weeks * 7 * 86400000;
+  const out: ProgressSincePoint[] = [];
+
+  for (const ex of state.exercises) {
+    if (ex.archived) continue;
+    const history = exerciseHistory(state, ex.id).filter((h) => new Date(h.date).getTime() >= cutoff);
+    if (history.length < 2) continue;
+    const then = history[0];
+    const nowPoint = history[history.length - 1];
+    if (then.e1rm <= 0) continue;
+    out.push({
+      exId: ex.id,
+      name: ex.name,
+      thenWeight: then.topWeight,
+      nowWeight: nowPoint.topWeight,
+      thenReps: then.topReps,
+      nowReps: nowPoint.topReps,
+      thenDate: then.date,
+      nowDate: nowPoint.date,
+      deltaKg: Math.round((nowPoint.e1rm - then.e1rm) * 10) / 10,
+      deltaPct: Math.round(((nowPoint.e1rm - then.e1rm) / then.e1rm) * 1000) / 10,
+    });
+  }
+  return out.sort((a, b) => b.deltaPct - a.deltaPct);
+}
+
 export type StrengthLevel = "początkujący" | "średniozaawansowany" | "zaawansowany";
 
 export interface StrengthRatio {
@@ -652,6 +705,15 @@ export interface StrengthRatio {
   level: StrengthLevel;
   /** Progi × masy ciała (orientacyjne) — środkowy i górny sterują `level`, dolny tylko dla kontekstu w UI. */
   thresholds: [number, number, number];
+  /**
+   * NAJBLIŻSZY nieosiągnięty próg (łącznie z dolnym, referencyjnym) i ile e1RM
+   * do niego brakuje w kg. `null` powyżej najwyższego.
+   *
+   * Celowo liczy też próg dolny, choć ten nie steruje `level`: to zwykle
+   * jedyny kamień milowy w zasięgu kilku tygodni, a „brakuje 1,8 kg" popycha
+   * do roboty inaczej niż „brakuje 14,8 kg do średniozaawansowanego".
+   */
+  toNext: { label: string; ratio: number; kgNeeded: number } | null;
 }
 
 /**
@@ -687,7 +749,18 @@ export function strengthRatios(state: AppState): StrengthRatio[] {
     const ratio = bestE1rm / bodyweight;
     const [, mid, high] = thresholds;
     const level: StrengthLevel = ratio >= high ? "zaawansowany" : ratio >= mid ? "średniozaawansowany" : "początkujący";
-    out.push({ exId, name: ex.name, ratio: Math.round(ratio * 100) / 100, level, thresholds });
+    // Liczone z SUROWEGO ratio, nie z zaokrąglonego do UI — inaczej przy
+    // ratio tuż pod progiem wyszłoby "brakuje 0 kg" mimo braku awansu.
+    const [low] = thresholds;
+    const next: [number, string] | null =
+      ratio < low ? [low, "próg wejściowy"]
+      : ratio < mid ? [mid, "średniozaawansowany"]
+      : ratio < high ? [high, "zaawansowany"]
+      : null;
+    const toNext = next
+      ? { label: next[1], ratio: next[0], kgNeeded: Math.round((next[0] * bodyweight - bestE1rm) * 10) / 10 }
+      : null;
+    out.push({ exId, name: ex.name, ratio: Math.round(ratio * 100) / 100, level, thresholds, toNext });
   }
   return out;
 }
@@ -894,7 +967,24 @@ export function volumeProgressionSuggestions(
  * dla `projectHistory` (ekstrapolacja punktów na wykres) i `estimateGoalEta`
  * (P4-9, ETA do zadanego celu) — jedno źródło prawdy dla tempa progresu.
  */
-function linearTrendE1rm(history: HistoryPoint[]): { slope: number; avgIntervalMs: number } {
+/**
+ * Najszybszy przyrost e1RM, jaki PODWÓJNA PROGRESJA jest w stanie dowieźć na
+ * jedno wystąpienie ćwiczenia: jeden `increment` przy górnym limicie zakresu.
+ *
+ * Służy jako sufit projekcji. Czysta regresja liniowa po pierwszych tygodniach
+ * powrotu do formy ekstrapoluje w nieskończoność tempo, które brało się
+ * z dobierania ciężaru roboczego — na realnych danych z 3 tygodni dawała
+ * „ściąganie drążka 66,7 → 86,8 kg w trzy treningi" (+30%) i „RDL +43%".
+ * Takie liczby nie nastąpią, bo apka fizycznie nie dołoży więcej niż jeden
+ * krok na trening; wykres, który obiecuje i nie dowozi, zniechęca skuteczniej
+ * niż brak wykresu. Sufit z samej mechaniki planu, nie z arbitralnego procentu.
+ */
+export function maxGainPerSession(ex: Exercise): number {
+  if (ex.isHold) return ex.increment;
+  return ex.increment * (1 + ex.repMax / 30);
+}
+
+function linearTrendE1rm(history: HistoryPoint[], cap?: number): { slope: number; avgIntervalMs: number } {
   const n = history.length;
   const recent = history.slice(-Math.min(6, n));
   const m = recent.length;
@@ -907,7 +997,10 @@ function linearTrendE1rm(history: HistoryPoint[]): { slope: number; avgIntervalM
     num += (i - xMean) * (p.e1rm - yMean);
     den += (i - xMean) ** 2;
   });
-  const slope = den === 0 ? 0 : num / den;
+  const rawSlope = den === 0 ? 0 : num / den;
+  // Sufit działa TYLKO w górę — zastój i regres przechodzą bez zmian (§11).
+  // Brak `cap` = dokładnie dawne zachowanie (wywołania bez jawnego sufitu).
+  const slope = cap === undefined ? rawSlope : Math.min(rawSlope, cap);
 
   const firstTime = new Date(history[0].date).getTime();
   const lastTime = new Date(history[n - 1].date).getTime();
@@ -936,10 +1029,10 @@ function linearTrendE1rm(history: HistoryPoint[]): { slope: number; avgIntervalM
  * czasowa) zachowuje dokładne dawne zachowanie, żeby nie psuć istniejących
  * wywołań/testów.
  */
-export function projectHistory(history: HistoryPoint[], count = 3, nowIso?: string): HistoryPoint[] {
+export function projectHistory(history: HistoryPoint[], count = 3, nowIso?: string, cap?: number): HistoryPoint[] {
   if (history.length < 2) return [];
   const n = history.length;
-  const { slope, avgIntervalMs } = linearTrendE1rm(history);
+  const { slope, avgIntervalMs } = linearTrendE1rm(history, cap);
   const lastPoint = history[n - 1];
   const lastTime = new Date(lastPoint.date).getTime();
   const now = nowIso !== undefined ? new Date(nowIso).getTime() : undefined;
@@ -983,7 +1076,7 @@ export interface GoalEta {
  * albo regres) → `reachable: false` — apka NIE zmyśla optymistycznej daty,
  * zgodnie z uczciwym framowaniem (§11); ekran ma podpowiedzieć plateau breaker.
  */
-export function estimateGoalEta(history: HistoryPoint[], goal: number): GoalEta {
+export function estimateGoalEta(history: HistoryPoint[], goal: number, cap?: number): GoalEta {
   if (history.length < 2 || goal <= 0) {
     return { reachable: false, alreadyReached: false, weeks: 0, etaIso: null };
   }
@@ -991,7 +1084,7 @@ export function estimateGoalEta(history: HistoryPoint[], goal: number): GoalEta 
   if (last.e1rm >= goal) {
     return { reachable: true, alreadyReached: true, weeks: 0, etaIso: last.date };
   }
-  const { slope, avgIntervalMs } = linearTrendE1rm(history);
+  const { slope, avgIntervalMs } = linearTrendE1rm(history, cap);
   if (slope <= 0) {
     return { reachable: false, alreadyReached: false, weeks: 0, etaIso: null };
   }

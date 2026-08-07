@@ -46,6 +46,9 @@ import {
   plannedSets,
   exerciseForDay,
   prefillRepsForEntry,
+  progressSince,
+  maxGainPerSession,
+  exerciseHistory,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -2726,6 +2729,59 @@ check(
     "migracja B: usuniecie suwnicy po dosiewie jest trwale",
     !stillRemoved.days.find((d) => d.id === "wed")!.exerciseIds.includes("leg_press")
   );
+}
+
+// ── Motywacja: progressSince / toNext / sufit projekcji ────────────────────
+{
+  const now = "2026-07-25T12:00:00.000Z";
+  const st = migrateState(null);
+
+  const ps = progressSince(st, 4, now);
+  const dl = ps.find((p) => p.exId === "deadlift")!;
+  check("progressSince: martwy 70x7 -> 77,5x7", dl.thenWeight === 70 && dl.nowWeight === 77.5, dl);
+  check("progressSince: procent liczony z e1RM", dl.deltaPct === 10.8, dl.deltaPct);
+  check("progressSince: sortowanie malejaco po procencie", ps[0].deltaPct >= ps[ps.length - 1].deltaPct);
+  const bench = ps.find((p) => p.exId === "bench_bb")!;
+  check("progressSince: REGRES pokazywany tak samo (bench -0,4%)", bench.deltaPct < 0, bench.deltaPct);
+  check(
+    "progressSince: okno tnie historie (1 tydzien -> mniej cwiczen niz 4 tygodnie)",
+    progressSince(st, 1, now).length < ps.length,
+    [progressSince(st, 1, now).length, ps.length]
+  );
+  check("progressSince: cwiczenie z <2 punktami pomijane", !ps.some((p) => p.exId === "leg_press"));
+
+  // Prog: NAJBLIZSZY nieosiagniety, lacznie z dolnym (referencyjnym).
+  const stBody = migrateState(null);
+  stBody.body = [{ date: "2026-07-24", weight: 88 }];
+  const ratios = strengthRatios(stBody);
+  const ohp = ratios.find((r) => r.exId === "ohp")!;
+  check("strengthRatios: OHP 0,43x -> najblizszy prog to dolny 0,45", ohp.toNext?.ratio === 0.45, ohp.toNext);
+  check("strengthRatios: brakujace kg policzone", ohp.toNext !== null && ohp.toNext.kgNeeded > 0 && ohp.toNext.kgNeeded < 3, ohp.toNext);
+  const stStrong = migrateState(null);
+  stStrong.body = [{ date: "2026-07-24", weight: 40 }]; // sztucznie: wszystko powyzej najwyzszego progu
+  check("strengthRatios: powyzej najwyzszego progu -> toNext null", strengthRatios(stStrong).every((r) => r.toNext === null));
+
+  // Sufit projekcji: opcjonalny, dziala TYLKO w gore.
+  const hist = exerciseHistory(st, "pulldown");
+  const pulldown = SEED_EXERCISES.find((e) => e.id === "pulldown")!;
+  const bez = projectHistory(hist, 3);
+  const zSufitem = projectHistory(hist, 3, undefined, maxGainPerSession(pulldown));
+  check("projectHistory: bez sufitu = dawne zachowanie", bez.length === 3 && bez[2].e1rm > hist[hist.length - 1].e1rm);
+  check("projectHistory: sufit tnie nierealny skok", zSufitem[2].e1rm < bez[2].e1rm, [bez[2].e1rm, zSufitem[2].e1rm]);
+  check(
+    "projectHistory: sufit = jeden krok obciazenia na trening",
+    Math.abs(zSufitem[2].e1rm - (hist[hist.length - 1].e1rm + 3 * maxGainPerSession(pulldown))) < 0.11,
+    [zSufitem[2].e1rm, maxGainPerSession(pulldown)]
+  );
+  const histBench = exerciseHistory(st, "bench_bb");
+  const benchEx = SEED_EXERCISES.find((e) => e.id === "bench_bb")!;
+  check(
+    "projectHistory: sufit NIE podnosi trendu spadkowego (bench zostaje w dol)",
+    JSON.stringify(projectHistory(histBench, 3, undefined, maxGainPerSession(benchEx))) ===
+      JSON.stringify(projectHistory(histBench, 3)),
+    projectHistory(histBench, 3).map((p) => p.e1rm)
+  );
+  check("maxGainPerSession: isHold = sam increment", maxGainPerSession(plank) === plank.increment);
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

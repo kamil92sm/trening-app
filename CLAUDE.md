@@ -898,3 +898,53 @@ niż sam licznik serii partii. Liczone teraz z tych samych serii co `sets`.
 **Testy:** 357 (dopisane m.in. przysiad w hipertrofii zachowuje RIR 2, sufit RIR 4
 w deloadzie, deload nigdy powyżej 90% dla ŻADNEGO ćwiczenia z bazy, isHold zostawia
 obciążenie).
+
+---
+
+## 21. Sesja 07.08.2026 (V) — analiza danych + motywacja
+
+Prośba Kamila: głębsza analiza i „ma mnie motywować trening". Analiza poszła po
+REALNYCH danych z historii startowej (9 sesji, 6–24.07.2026), nie po samym silniku.
+
+### 21.1 Co pokazały dane
+- **Rosło:** RDL +40%, francuz +35%, ściąganie drążka +25%, wiosłowanie hantlem
+  +14%, wspięcia +12,5%, zakroki +12%, martwy +10,8%, hip thrust +10%, OHP +9,2%,
+  wiosłowanie sztangą +9%, przysiad +8,3% (e1RM, pierwsza vs ostatnia sesja).
+- **Stało:** uginanie bicepsa 0%, wyciskanie hantli płasko 0%, wyciskanie sztangi
+  płasko −0,4%, allahy −6,2%.
+- **Tonaż:** stabilny 6,1–7,1 t/sesja, lekki trend w górę w „Treningu 1".
+- **Interpretacja:** największe skoki to w dużej mierze DOBIERANIE ciężaru
+  roboczego po przerwie (RDL 15→20 kg, francuz 17,5→22,5), nie przyrost siły.
+  Podawanie ich jako „tempa" byłoby zawyżaniem (§11).
+
+### 21.2 Sufit projekcji — obietnice, których plan nie dowiezie
+Regresja liniowa na 3 tygodniach powrotu do formy dawała „ściąganie drążka
+66,7 → 86,8 kg w trzy treningi" (+30%) i „RDL +43%". **Wykres, który obiecuje
+i nie dowozi, zniechęca skuteczniej niż brak wykresu.**
+`maxGainPerSession(ex)` = `increment × (1 + repMax/30)` — najszybszy przyrost
+e1RM, jaki podwójna progresja FIZYCZNIE dowozi (jeden krok obciążenia na trening).
+Sufit z mechaniki planu, nie z arbitralnego procentu. Podawany jako **opcjonalny**
+parametr do `projectHistory`/`estimateGoalEta` (brak = dokładnie dawne zachowanie,
+więc żaden istniejący test nie musiał się zmieniać), wpięty w `ProgressScreen`.
+Działa TYLKO w górę — zastój i regres przechodzą bez zmian. Efekt: ściąganie
+66,7 → 69,7 zamiast 86,8; martwy 95,6 → 99,9 zamiast 109,5.
+
+### 21.3 „Ile już urosłeś" — motywacja bez prognoz
+Nowa karta w Progresie + `progressSince(state, weeks, nowIso?)`: najstarszy punkt
+historii w oknie N tygodni zestawiony z najnowszym, per ćwiczenie, posortowane po
+procencie. Pokazuje WYŁĄCZNIE to, co realnie podniósł — czyli czegoś, czym nie da
+się rozczarować, w przeciwieństwie do prognozy. Świadomie **nie przelicza na
+„tempo na tydzień"** (patrz 21.1) i **pokazuje regres tak samo jak progres**.
+Wyróżniona linia z największym skokiem („27,5 kg×8 zmieniło się w 30 kg×8 —
+to już zrobione, nikt Ci tego nie zabierze").
+
+### 21.4 „Ile brakuje" w Standardach siłowych
+`StrengthRatio.toNext` — NAJBLIŻSZY nieosiągnięty próg i brakujące kilogramy e1RM.
+Celowo liczy też próg DOLNY (referencyjny, nie steruje `level`): przy masie 88 kg
+do średniozaawansowanego brakuje 27–36 kg (bez znaczenia motywacyjnego), a do progu
+dolnego — OHP **1,6 kg**, przysiad **5,7 kg**. To jest kamień milowy w zasięgu
+kilku tygodni, i to on popycha do roboty.
+
+**Testy:** 371 łącznie (14 nowych: `progressSince` łącznie z regresem i oknem,
+`toNext` dla progu dolnego/środkowego/braku, sufit projekcji w górę i brak wpływu
+na trend spadkowy, `maxGainPerSession` dla `isHold`).
