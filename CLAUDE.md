@@ -224,10 +224,18 @@ dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri
 | 5 | Wiosłowanie hantlem | 2×10–12 | 20 kg |
 | 6 | Francuz (triceps) | 2×10–12 | 22,5 kg |
 
-### BONUS (opcjonalny) — Ramiona, Łydki i Core (Pump)
-Wznosy bokiem 3×12–15 · Uginanie bicepsa 2×10–12 · Francuz 2×10–12 ·
-Wspięcia na palce 3×10–15 · Allahy 3×10–15 · Wiosłowanie hantlem 2×10–12.
-Cel: dobić partie niedotrenowane w planie 3-dniowym (barki, ramiona, łydki, core).
+### BONUS (opcjonalny) — Uzupełnienie: tył barków, ramiona, łydki, core
+Face pull (wyciąg) 3×12–15 · Uginanie młotkowe hantli 2×10–12 ·
+Prostowanie ramion na wyciągu 2×10–12 · Wspięcia na palce siedząc 3×12–20 ·
+Plank bokiem 3×30 s.
+Cel: dobić partie niedotrenowane w planie 3-dniowym (tył barków, ramiona, łydki, core).
+
+**Bonus NIE dzieli ani jednej pozycji z dniami głównymi** — celowo, to osobne
+warianty ćwiczeń (młotkowe zamiast sztangi, wyciąg zamiast francuza, plank bokiem
+zamiast allahów). Wcześniejsza wersja tej sekcji opisywała stary skład
+(wznosy bokiem / uginanie sztangą / francuz / wspięcia / allahy / wiosłowanie
+hantlem), który pokrywał się z planem głównym — nieaktualne od czasu rozbudowy
+bazy ćwiczeń (P3-8), poprawione 07.08.2026.
 
 ---
 
@@ -632,9 +640,11 @@ przyrostu powtórzeń.
 - **Było:** „Dodaj serię" dokładało serię tylko do bieżącego draftu; w przyszłym
   tygodniu dzień wracał do `ex.targetSets` z bazy ćwiczeń.
 - **Model danych:** nowe `WorkoutDay.setsOverride?: Record<exId, number>` (`types.ts`).
-  **Nadpisanie jest PER DZIEŃ, nie globalne na ćwiczeniu** — dzień bonusowy dzieli
-  z planem głównym te same pozycje, więc dołożenie serii w „Treningu 1" nie może
-  po cichu rozdmuchać bonusu. Bez bumpa `SCHEMA_VERSION` (pole opcjonalne).
+  **Nadpisanie jest PER DZIEŃ, nie globalne na ćwiczeniu** — to samo ćwiczenie może
+  stać w kilku dniach (dziś seed tego nie robi: bonus ma własne warianty, patrz §6,
+  ale użytkownik dowolnie dokłada pozycje do dni w Planie), a dołożenie serii
+  w „Treningu 1" nie może po cichu rozdmuchać innego dnia ani globalnej objętości
+  tygodniowej. Bez bumpa `SCHEMA_VERSION` (pole opcjonalne).
 - **Logika:** `plannedSets(day, ex)` i `exerciseForDay(ex, day)` w `logic.ts`
   (`exerciseForDay` podmienia `targetSets`, wynik idzie do `computeProgression`/
   `failedAtRirZero`). `weeklyMuscleVolume` liczy `plannedSets(day, ex)` zamiast
