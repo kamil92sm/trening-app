@@ -186,6 +186,9 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
 
 Ciężary = „na ten tydzień". Hantle podane jako ciężar na jedną rękę (2× = para).
 
+**Pogrubienia = dosiew objętości z 07.08.2026 (wariant B, §19)** — serie liczone PER DZIEŃ
+przez `WorkoutDay.setsOverride`, więc `Exercise.targetSets` w bazie ćwiczeń zostaje bez zmian.
+
 **Nazwy dni (Zadanie 3, 28.07.2026): neutralna rotacja, nie sztywny kalendarz.**
 Apka pokazuje „Trening 1 / Trening 2 / Trening 3" (`SEED_DAYS[i].name`), NIE
 „Poniedziałek/Środa/Piątek" — nazwy dni sugerowały obowiązkowy kalendarz, którego
@@ -202,7 +205,7 @@ dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri
 | 2 | Hip Thrust ze sztangą | 3×8–12 | 57,5 kg |
 | 3 | Wiosłowanie sztangą | 3×6–8 | 60 kg |
 | 4 | Wznosy bokiem hantli | 3×12–15 | 2×9 kg |
-| 5 | Uginanie bicepsa (sztanga) | 2×10–12 | 17,5 kg |
+| 5 | Uginanie bicepsa (sztanga) | **3**×10–12 | 17,5 kg |
 | 6 | Allahy (brzuch) | 3×10–15 | 37,5 kg |
 
 ### ŚRODA ("Trening 2" w apce) — Ciężki Dół + Klatka Skos
@@ -210,10 +213,11 @@ dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri
 |---|-----------|-------------|--------|
 | 1 | Przysiad ze sztangą | 3×5–8 | 65 kg |
 | 2 | Martwy ciąg klasyczny | 2×5–6 | 77,5 kg |
-| 3 | Wyciskanie hantli skos | 3×8–12 | 2×16 kg |
-| 4 | Zakroki z hantlami | 3×10–12 | 2×14 kg |
-| 5 | Wspięcia na palce | 3×10–15 | 45 kg |
-| 6 | Plank (deska) | 4×40 s | +10 kg |
+| 3 | **Suwnica (wypychanie nogami)** | 3×10–12 | 120 kg |
+| 4 | Wyciskanie hantli skos | 3×8–12 | 2×16 kg |
+| 5 | Zakroki z hantlami | 3×10–12 | 2×14 kg |
+| 6 | Wspięcia na palce | **4**×10–15 | 45 kg |
+| 7 | Plank (deska) | 4×40 s | +10 kg |
 
 ### PIĄTEK ("Trening 3" w apce) — Góra II + Tył Ud
 | # | Ćwiczenie | Serie×Zakres | Ciężar |
@@ -223,7 +227,7 @@ dzień roboczy), a nie nazwa, którą zobaczy w UI. **`id` dni (`mon`/`wed`/`fri
 | 3 | RDL z hantlami | 3×8–12 | 2×22 kg |
 | 4 | Wyciskanie hantli płasko | 3×8–12 | 2×17,5 kg |
 | 5 | Wiosłowanie hantlem | 2×10–12 | 20 kg |
-| 6 | Francuz (triceps) | 2×10–12 | 22,5 kg |
+| 6 | Francuz (triceps) | **3**×10–12 | 22,5 kg |
 
 ### BONUS (opcjonalny) — Uzupełnienie: tył barków, ramiona, łydki, core
 Face pull (wyciąg) 3×12–15 · Uginanie młotkowe hantli 2×10–12 ·
@@ -777,3 +781,53 @@ w 4 wariantach, autoregulacja w `computeProgression`, prefill +1 przy RIR 3, har
 stary stan z jednolitym `rir: 2` po wczytaniu daje lateral 1 / bench 2 / squat 3 /
 deadlift 3 / plank 0, a tydzień deloadu startuje z 11 serii zamiast 17 i celem 40 kg
 zamiast 45 na wyciskaniu.
+
+---
+
+## 19. Sesja 07.08.2026 (III) — wariant B: dosiew objętości do planu
+
+Wdrożenie punktu 1 z analizy §18.5 (decyzja Kamila: „wdroż B"). Cel: domknąć
+partie, które w planie 3-dniowym miały realnie za mało serii, BEZ dokładania
+czwartego dnia i bez przebudowy podziału.
+
+| Partia | Było | Jest | Jak |
+|---|---|---|---|
+| Nogi | 6 @ 1×/tydz. | **9** | + Suwnica 3×10–12 (120 kg) w „Treningu 2" |
+| Łydki | 3 | **4** | Wspięcia na palce 3 → 4 serie |
+| Biceps (bezpośr.) | 2 | **3** | Uginanie bicepsa 2 → 3 serie |
+| Triceps (bezpośr.) | 2 | **3** | Francuz 2 → 3 serie |
+
+Skutki uboczne (policzone, nie zaprojektowane): Pośladki 8,5 → 10 (`ok`),
+Triceps łącznie 8 → 9 (`ok`). Klatka/Plecy/Barki/Brzuch bez zmian.
+
+**Suwnica stoi TRZECIA** (`squat, deadlift, leg_press, incline_db, lunges, calf,
+plank`) — czworogłowe dostają objętość jeszcze na świeżo, a maszyna jest
+bezpieczna po ciężkim przysiadzie i martwym ciągu.
+
+**Serie liczone PER DZIEŃ** (`WorkoutDay.setsOverride` z §17), NIE przez zmianę
+`Exercise.targetSets` — dzięki temu baza ćwiczeń zostaje nietknięta i dołożenie
+tego samego ćwiczenia do innego dnia nie odziedziczy podbitej liczby serii.
+`SEED_DAYS` niosą teraz własne `setsOverride` (`mon: {curl_bb: 3}`,
+`wed: {calf: 4}`, `fri: {french: 3}`).
+
+**Migracja `applyPlanVolumeBumpOnce`** (flaga `planVolumeBumpSeeded`, bez bumpa
+`SCHEMA_VERSION`) — `migrateState` w ścieżce „aktualny schemat" przykrywa seed
+tablicą `old.days` (pułapka z §13), więc sama zmiana `SEED_DAYS` nie dotarłaby
+do stanu Kamila. Migracja jest zachowawcza:
+- ćwiczenie dokłada TYLKO gdy go w dniu nie ma (druga migracja nie duplikuje),
+- liczbę serii podnosi TYLKO gdy jest niższa niż docelowa (ręczne 5 zostaje 5),
+- cel suwnicy bierze z `SEED_TARGETS` wyłącznie gdy go jeszcze nie ma,
+- po dosiewie usunięcie suwnicy z dnia jest TRWAŁE (flaga blokuje powrót).
+
+**Czego NIE ruszono:** częstotliwości. Nogi/Łydki/Biceps/Triceps nadal 1×/tydz. —
+podniesienie tego wymagałoby przebudowy podziału na dni, a przy rytmie „co drugi
+dzień roboczy" dołożenie objętości do istniejącego dnia daje większość korzyści
+mniejszym kosztem. Zostaje jako otwarty temat.
+
+**Testy:** 14 nowych w `tests/logic.test.ts` (objętość po zmianie dla 5 partii,
+kolejność ćwiczeń w środzie, migracja na starym stanie, cel suwnicy, idempotencja,
+poszanowanie wyższej wartości użytkownika, trwałość usunięcia). Trzy testy z §17
+przestrojone, bo `mon` niesie teraz nadpisanie w seedzie — bazą „bez nadpisania"
+jest tam `bench_bb`. Zweryfikowane w Chromium: stan sprzed zmiany po wczytaniu
+dostaje suwnicę na 3. pozycji z celem 120 kg, a „Trening 2" startuje z 22 seriami
+zamiast 18.

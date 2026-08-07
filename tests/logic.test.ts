@@ -2288,7 +2288,8 @@ check(
   const curl = SEED_EXERCISES.find((e) => e.id === "curl_bb")!;
   const mon = SEED_DAYS.find((d) => d.id === "mon")!;
 
-  check("plannedSets: brak override -> targetSets z bazy", plannedSets(mon, curl) === curl.targetSets);
+  check("plannedSets: brak override -> targetSets z bazy", plannedSets(mon, bench) === bench.targetSets);
+  check("plannedSets: seed moze niesc wlasne nadpisanie dnia (mon: curl_bb 3)", plannedSets(mon, curl) === 3);
   check("plannedSets: brak dnia -> targetSets z bazy", plannedSets(undefined, curl) === curl.targetSets);
 
   const dayWith = { ...mon, setsOverride: { curl_bb: 4 } };
@@ -2298,7 +2299,7 @@ check(
   check("plannedSets: override jest PER DZIEN (bonus nietkniety)", plannedSets(bonus, curl) === curl.targetSets);
 
   check("exerciseForDay: podmienia targetSets", exerciseForDay(curl, dayWith).targetSets === 4);
-  check("exerciseForDay: bez override zwraca ten sam obiekt", exerciseForDay(curl, mon) === curl);
+  check("exerciseForDay: bez override zwraca ten sam obiekt", exerciseForDay(bench, mon) === bench);
 
   // Dolozona seria realnie podnosi prog podwojnej progresji: 3x12 przy planie
   // 4 serii to juz NIE komplet, dopiero 4x12 podnosi ciezar.
@@ -2320,7 +2321,7 @@ check(
   // Objetosc tygodniowa liczy z planu DNIA, nie z globalnego targetSets.
   const stSets = defaultState();
   const bicepsBefore = weeklyMuscleVolume(stSets).find((v) => v.muscle === "Biceps")!.direct;
-  stSets.days.find((d) => d.id === "mon")!.setsOverride = { curl_bb: 4 };
+  stSets.days.find((d) => d.id === "mon")!.setsOverride = { curl_bb: 5 };
   const bicepsAfter = weeklyMuscleVolume(stSets).find((v) => v.muscle === "Biceps")!.direct;
   check("weeklyMuscleVolume: override dnia dolicza serie", bicepsAfter === bicepsBefore + 2, {
     bicepsBefore,
@@ -2612,6 +2613,72 @@ check(
   check(
     "backfill RIR: recznie ustawione 0 zostaje",
     migratedManual.exercises.find((e) => e.id === "lateral")!.rir === 0
+  );
+}
+
+// ── Wariant B: dosiew objętości do planu ───────────────────────────────────
+{
+  const st = defaultState();
+  const vol = weeklyMuscleVolume(st, "hypertrophy");
+  const direct = (m: string) => vol.find((v) => v.muscle === m)!.direct;
+
+  check("plan B: Nogi 6 -> 9 serii (suwnica w Treningu 2)", direct("Nogi") === 9, direct("Nogi"));
+  check("plan B: Biceps 2 -> 3 serie bezposrednie", direct("Biceps") === 3, direct("Biceps"));
+  check("plan B: Triceps 2 -> 3 serie bezposrednie", direct("Triceps") === 3, direct("Triceps"));
+  check("plan B: Łydki 3 -> 4 serie", direct("Łydki") === 4, direct("Łydki"));
+  check(
+    "plan B: suwnica stoi po martwym ciagu (jeszcze na swiezo)",
+    SEED_DAYS.find((d) => d.id === "wed")!.exerciseIds.join(",") ===
+      "squat,deadlift,leg_press,incline_db,lunges,calf,plank"
+  );
+  check("plan B: partie spoza wariantu bez zmian (Klatka 9)", direct("Klatka") === 9, direct("Klatka"));
+
+  // Migracja do ISTNIEJACEGO stanu (bez niej zmiana SEED_DAYS nie dotarlaby - §13).
+  const oldState = defaultState();
+  oldState.days = oldState.days.map((d) =>
+    d.id === "wed"
+      ? { ...d, exerciseIds: ["squat", "deadlift", "incline_db", "lunges", "calf", "plank"], setsOverride: undefined }
+      : { ...d, setsOverride: undefined }
+  );
+  oldState.planVolumeBumpSeeded = undefined;
+  const m = migrateState({ ...oldState, version: SCHEMA_VERSION });
+  const wed = m.days.find((d) => d.id === "wed")!;
+  check("migracja B: suwnica dolozona po martwym ciagu", wed.exerciseIds[2] === "leg_press", wed.exerciseIds);
+  check("migracja B: cel suwnicy z SEED_TARGETS", m.targets.leg_press === SEED_TARGETS.leg_press);
+  check("migracja B: serie lydek 3 -> 4", wed.setsOverride?.calf === 4, wed.setsOverride);
+  check("migracja B: serie bicepsa 2 -> 3", m.days.find((d) => d.id === "mon")!.setsOverride?.curl_bb === 3);
+  check("migracja B: serie tricepsa 2 -> 3", m.days.find((d) => d.id === "fri")!.setsOverride?.french === 3);
+  check("migracja B: flaga ustawiona", m.planVolumeBumpSeeded === true);
+  check(
+    "migracja B: objetosc po migracji zgodna z seedem",
+    weeklyMuscleVolume(m, "hypertrophy").find((v) => v.muscle === "Nogi")!.direct === 9
+  );
+
+  // Idempotencja + poszanowanie decyzji uzytkownika.
+  const twice = migrateState({ ...m, version: SCHEMA_VERSION });
+  check(
+    "migracja B: druga migracja nie dokłada suwnicy po raz drugi",
+    twice.days.find((d) => d.id === "wed")!.exerciseIds.filter((id) => id === "leg_press").length === 1
+  );
+  const userHigher = defaultState();
+  userHigher.days = userHigher.days.map((d) =>
+    d.id === "mon" ? { ...d, setsOverride: { curl_bb: 5 } } : d
+  );
+  userHigher.planVolumeBumpSeeded = undefined;
+  const kept = migrateState({ ...userHigher, version: SCHEMA_VERSION });
+  check(
+    "migracja B: wyzsza wartosc uzytkownika NIE jest obnizana do 3",
+    kept.days.find((d) => d.id === "mon")!.setsOverride?.curl_bb === 5
+  );
+  const removed = defaultState();
+  removed.days = removed.days.map((d) =>
+    d.id === "wed" ? { ...d, exerciseIds: d.exerciseIds.filter((id) => id !== "leg_press") } : d
+  );
+  removed.planVolumeBumpSeeded = true; // dosiew juz byl - usuniecie jest decyzja uzytkownika
+  const stillRemoved = migrateState({ ...removed, version: SCHEMA_VERSION });
+  check(
+    "migracja B: usuniecie suwnicy po dosiewie jest trwale",
+    !stillRemoved.days.find((d) => d.id === "wed")!.exerciseIds.includes("leg_press")
   );
 }
 

@@ -165,6 +165,8 @@ export interface AppState {
   restSecondsBackfilled?: boolean;
   /** Czy RIR został przeliczony z jednolitego 2 na skalibrowany per typ ćwiczenia (seed.ts: defaultRir) — jednorazowo. */
   rirCalibrated?: boolean;
+  /** Czy plan dostał już dosiew objętości (wariant B: suwnica + serie na biceps/triceps/łydki) — jednorazowo. */
+  planVolumeBumpSeeded?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */

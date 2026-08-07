@@ -465,6 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           restSecondsBackfilled: true,
           neutralDayLabelsSeeded: true,
           rirCalibrated: true,
+          planVolumeBumpSeeded: true,
         });
       },
 

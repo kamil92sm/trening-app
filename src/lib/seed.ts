@@ -491,13 +491,17 @@ export const SEED_DAYS: WorkoutDay[] = [
     short: "Góra + Pośladki",
     accent: "#ef4444",
     exerciseIds: ["bench_bb", "hipthrust", "row_bb", "lateral", "curl_bb", "crunch"],
+    setsOverride: { curl_bb: 3 },
   },
   {
     id: "wed",
     name: "Trening 2",
     short: "Ciężki Dół + Klatka Skos",
     accent: "#3b82f6",
-    exerciseIds: ["squat", "deadlift", "incline_db", "lunges", "calf", "plank"],
+    // Suwnica trzecia w kolejce: czworogłowe dostają objętość jeszcze na
+    // świeżo, a maszyna jest bezpieczna po ciężkim przysiadzie i martwym.
+    exerciseIds: ["squat", "deadlift", "leg_press", "incline_db", "lunges", "calf", "plank"],
+    setsOverride: { calf: 4 },
   },
   {
     id: "fri",
@@ -505,6 +509,7 @@ export const SEED_DAYS: WorkoutDay[] = [
     short: "Góra II + Tył Ud",
     accent: "#eab308",
     exerciseIds: ["ohp", "pulldown", "rdl", "bench_db", "row_db", "french"],
+    setsOverride: { french: 3 },
   },
   {
     id: "bonus",
@@ -847,6 +852,69 @@ function calibrateRirOnce(state: AppState): AppState {
 }
 
 /**
+ * Wariant B (§19): dołożenie objętości partiom, które w planie 3-dniowym miały
+ * jej realnie za mało — Nogi 6 serii/tydz. przy 1×/tydz. (zero udziału
+ * pomocniczego: martwy/RDL/hip thrust nie trenują czworogłowych), Biceps
+ * i Triceps po 2 serie bezpośrednie, Łydki 3.
+ *
+ * `migrateState` w ścieżce „aktualny schemat" przykrywa seed tablicą
+ * `old.days` (§13), więc sama zmiana `SEED_DAYS` nie dotarłaby do zapisanego
+ * stanu — stąd ten jednorazowy dosiew (flaga `planVolumeBumpSeeded`).
+ * Idempotentny i zachowawczy: dokłada ćwiczenie tylko gdy go w dniu NIE MA,
+ * a liczbę serii podnosi tylko gdy jest niższa niż docelowa (ręczne
+ * zwiększenie przez użytkownika zostaje). Późniejsze usunięcie suwnicy z dnia
+ * jest trwałe — flaga nie pozwoli dołożyć jej drugi raz.
+ */
+const PLAN_VOLUME_BUMP: { dayId: string; addAfter?: string; addExerciseId?: string; sets?: Record<string, number> }[] = [
+  { dayId: "wed", addAfter: "deadlift", addExerciseId: "leg_press", sets: { calf: 4 } },
+  { dayId: "mon", sets: { curl_bb: 3 } },
+  { dayId: "fri", sets: { french: 3 } },
+];
+
+function applyPlanVolumeBump(state: AppState): AppState {
+  const exercises = state.exercises.map((e) => ({ ...e }));
+  const targets = { ...state.targets };
+
+  const days = state.days.map((day) => {
+    const plan = PLAN_VOLUME_BUMP.find((p) => p.dayId === day.id);
+    if (!plan) return day;
+    let exerciseIds = [...day.exerciseIds];
+
+    if (plan.addExerciseId && !exerciseIds.includes(plan.addExerciseId)) {
+      const seedEx = SEED_EXERCISES.find((e) => e.id === plan.addExerciseId);
+      if (seedEx) {
+        if (!exercises.some((e) => e.id === seedEx.id)) exercises.push(structuredClone(seedEx));
+        const own = exercises.find((e) => e.id === seedEx.id)!;
+        own.archived = false;
+        if (targets[seedEx.id] === undefined) targets[seedEx.id] = SEED_TARGETS[seedEx.id] ?? 0;
+        const at = plan.addAfter ? exerciseIds.indexOf(plan.addAfter) : -1;
+        if (at >= 0) exerciseIds.splice(at + 1, 0, seedEx.id);
+        else exerciseIds.push(seedEx.id);
+      }
+    }
+
+    const setsOverride = { ...(day.setsOverride ?? {}) };
+    for (const [exId, want] of Object.entries(plan.sets ?? {})) {
+      if (!exerciseIds.includes(exId)) continue;
+      const base = exercises.find((e) => e.id === exId)?.targetSets ?? want;
+      const current = setsOverride[exId] ?? base;
+      if (current < want) setsOverride[exId] = want;
+    }
+
+    const next: WorkoutDay = { ...day, exerciseIds };
+    if (Object.keys(setsOverride).length > 0) next.setsOverride = setsOverride;
+    return next;
+  });
+
+  return { ...state, days, exercises, targets };
+}
+
+function applyPlanVolumeBumpOnce(state: AppState): AppState {
+  if (state.planVolumeBumpSeeded) return state;
+  return { ...applyPlanVolumeBump(state), planVolumeBumpSeeded: true };
+}
+
+/**
  * Zadanie 3: nazwy dni "Poniedziałek/Środa/Piątek" sugerowały sztywny
  * kalendarz, którego apka nie wymaga — to tylko zwyczajowy rytm Kamila.
  * Jednorazowo nadpisuje `name` dni `mon`/`wed`/`fri` na neutralne
@@ -871,8 +939,10 @@ function neutralizeDayLabelsOnce(state: AppState): AppState {
 }
 
 function applyOneTimeSeeds(state: AppState): AppState {
-  return calibrateRirOnce(
-    backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))))
+  return applyPlanVolumeBumpOnce(
+    calibrateRirOnce(
+      backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))))
+    )
   );
 }
 
