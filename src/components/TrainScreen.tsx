@@ -39,6 +39,7 @@ import {
   deloadSets,
   progressGoal,
   exerciseForDay,
+  referenceEntry,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -1042,6 +1043,8 @@ export function TrainScreen() {
           // wiec nie ma czego pokazywac.
           const goal =
             draft.mode === "deload" ? null : progressGoal(state, ex, exerciseForDay(hEx, day));
+          // Serie z ostatniego treningu (poza deloadem) - do podpowiedzi "ost." przy wierszu.
+          const refSets = referenceEntry(state, ex.id)?.sets ?? [];
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
           const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
           // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
@@ -1332,6 +1335,33 @@ export function TrainScreen() {
                       placeholder={unitLabel}
                       onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
                     />
+                    {/* Co zrobiłeś w TEJ serii ostatnio — dyskretnie, obok pola.
+                        Ciężar dopisany tylko wtedy, gdy różnił się od dzisiejszego
+                        (inaczej samo "10" sugerowałoby porównanie jak z jak, choć
+                        tamta seria szła na innym obciążeniu). Kolor pojawia się
+                        DOPIERO po zaliczeniu serii — przed nim pole trzyma cel
+                        (górny limit), więc zieleń świeciłaby się od startu. */}
+                    {refSets[si] !== undefined && (
+                      <span
+                        className={cn(
+                          "hidden shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums xs:inline-block",
+                          // Kropkowane podkreślenie = tamta seria szła na INNYM
+                          // ciężarze, więc same powtórzenia to nie porównanie
+                          // jak z jak. Pełny zapis jest w linii "Ostatnie:" wyżej
+                          // i w tooltipie — do wiersza nie wchodzi, bo przy
+                          // trzycyfrowym ciężarze wypychał haczyk poza ekran 320 px.
+                          Math.abs(refSets[si].weight - set.weight) > 1e-9 &&
+                            "border-b border-dotted border-muted-foreground/50",
+                          !set.done && "text-muted-foreground/70",
+                          set.done && set.reps > refSets[si].reps && "text-green-400",
+                          set.done && set.reps < refSets[si].reps && "text-amber-400",
+                          set.done && set.reps === refSets[si].reps && "text-muted-foreground/70"
+                        )}
+                        title={`Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} ${unitLabel}`}
+                      >
+                        ost. {refSets[si].reps}
+                      </span>
+                    )}
                     {recordKind && (
                       <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
                         PR

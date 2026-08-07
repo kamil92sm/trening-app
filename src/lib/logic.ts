@@ -1133,6 +1133,19 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
 }
 
 /**
+ * Punkt odniesienia dla „co zrobiłeś ostatnio": najnowsza ukończona sesja
+ * z tym ćwiczeniem POZA tygodniem deloadu (deload ma obniżony ciężar, więc
+ * porównywanie się z nim wprowadzałoby w błąd). Gdy w oknie są same deloady —
+ * bierze najnowszy, żeby nie zostawiać użytkownika bez odniesienia.
+ * Jedno źródło prawdy dla `prefillRepsForEntry`, `progressGoal` i podpowiedzi
+ * „ost." przy każdej serii w loggerze.
+ */
+export function referenceEntry(state: AppState, exId: string): LastEntry | null {
+  const recent = lastEntries(state, exId, 4);
+  return recent.find((e) => e.mode !== "deload") ?? recent[0] ?? null;
+}
+
+/**
  * Powtórzenia, którymi logger wypełnia serie na starcie. Zasada: **pole pokazuje
  * CEL na dziś, nie wynik z przeszłości** — historię widać obok, w linii
  * "Ostatnie:", więc powtarzanie jej w polach marnowałoby je (zgłoszenie Kamila:
@@ -1158,8 +1171,7 @@ export function prefillRepsForEntry(
   setCount: number
 ): number[] {
   const fill = (r: number) => Array.from({ length: setCount }, () => r);
-  const recent = lastEntries(state, ex.id, 4);
-  const ref = recent.find((e) => e.mode !== "deload") ?? recent[0];
+  const ref = referenceEntry(state, ex.id);
   if (!ref || ref.sets.length === 0) return fill(modeEx.repMin);
 
   const refTop = Math.max(...ref.sets.map((s) => s.weight));
@@ -1183,8 +1195,7 @@ export interface ProgressGoal {
  * `null`, gdy brak historii — nie ma do czego porównywać.
  */
 export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): ProgressGoal | null {
-  const recent = lastEntries(state, ex.id, 4);
-  const ref = recent.find((e) => e.mode !== "deload") ?? recent[0];
+  const ref = referenceEntry(state, ex.id);
   if (!ref || ref.sets.length === 0) return null;
   const working = ref.sets.slice(0, modeEx.targetSets);
   let missing = 0;

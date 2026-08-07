@@ -993,3 +993,36 @@ W karcie ćwiczenia pod „Ostatnie:":
 `progressGoal`). Zweryfikowane w Chromium na realnym scenariuszu ze zrzutu:
 OHP „Do skoku ciężaru: 3×12 powt. — ostatnio zabrakło 8 powt.", pola 12/12/12;
 ściąganie drążka „3×10 powt. — ostatnio zabrakło 1 powt.", pola 10/10/10.
+
+---
+
+## 23. Sesja 07.08.2026 (VII) — podpowiedź „ost. N" przy każdej serii
+
+**Prośba Kamila:** przy każdym wierszu serii, w wolnym miejscu przed haczykiem,
+pokazać dyskretnie ile zrobił w TEJ serii ostatnim razem.
+
+### Co doszło
+Kratka między polem powtórzeń a przyciskiem zaliczenia: `ost. 10`.
+- **Treść: same powtórzenia.** Ciężar świadomie NIE wchodzi do wiersza — przy
+  trzycyfrowym obciążeniu (`ost. 117,5×12`) wypychał haczyk poza ekran.
+  Pełny zapis jest w linii „Ostatnie:" nad seriami oraz w `title` kratki.
+- **Kropkowane podkreślenie**, gdy tamta seria szła na INNYM ciężarze niż
+  dzisiejszy — sygnał „to nie jest porównanie jak z jak".
+- **Kolor dopiero PO zaliczeniu serii** (zielony = pobiłeś, bursztynowy = mniej,
+  szary = tyle samo). Przed zaliczeniem pole trzyma cel (górny limit, §22),
+  więc kolorowanie od startu świeciłoby się na zielono w każdym wierszu.
+- Seria bez odpowiednika w historii (np. dołożona czwarta) — bez kratki.
+- Deload nie jest punktem odniesienia (`referenceEntry`).
+
+### `referenceEntry()` — jedno źródło prawdy
+Wydzielone z `prefillRepsForEntry` i `progressGoal`, które liczyły to samo
+osobno: najnowsza ukończona sesja z tym ćwiczeniem POZA deloadem (a gdy są same
+deloady — najnowszy, żeby nie zostawiać użytkownika bez odniesienia).
+
+### Nowy breakpoint `xs: 360px` (tailwind.config.js)
+Kratka nie mieści się na 320 px (iPhone SE 1. gen) — wiersz rozpychał stronę
+do 382 px i haczyk wychodził poza ekran. **Zweryfikowane przez porównanie
+z buildem sprzed zmiany: przy 320/360 px scrollWidth był równy szerokości okna,
+więc przepełnienie wprowadziła ta kratka, nie istniejący układ.** Poniżej 360 px
+kratka jest ukryta (`hidden xs:inline-block`) — historia zostaje w linii
+„Ostatnie:". Zmierzone po poprawce: 320/360/390/430 px bez poziomego scrolla.

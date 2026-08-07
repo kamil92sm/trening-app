@@ -4,6 +4,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Najwezsze realne telefony (iPhone SE 1. gen) maja 320 px logicznych -
+      // wiersz serii w loggerze nie miesci tam juz podpowiedzi "ost. N" bez
+      // wypchniecia haczyka poza ekran, wiec ponizej tego progu ja chowamy
+      // (pelna historia zostaje w linii "Ostatnie:" nad seriami).
+      screens: { xs: "360px" },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
