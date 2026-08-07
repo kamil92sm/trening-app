@@ -389,6 +389,9 @@ export function ProgressScreen() {
               <span className="font-medium text-foreground/80">Kolorowa liczba</span> = serie
               zrobione w ostatnich 7 dniach · <span className="font-medium text-foreground/80">plan</span>{" "}
               = serie zaplanowane na tydzień. Równe wartości = zrobiłeś dokładnie to, co przewiduje plan.
+              Liczą się tylko serie <span className="font-medium text-foreground/80">robocze</span> — takie,
+              które weszły w dolną granicę zakresu powtórzeń. Seria urwana niżej nie jest bodźcem i nie
+              podbija tej liczby.
             </p>
           )}
           {(() => {
@@ -612,7 +615,7 @@ export function ProgressScreen() {
           {selected && detectPlateau(state, selected.id) && (
             <p className="rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
               Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku kompletu
-              powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana ćwiczenia na 4–6 tyg.
+              powtórzeń, LUB tydzień deloadu (połowa serii), LUB zamiana ćwiczenia na 4–6 tyg.
             </p>
           )}
         </CardContent>

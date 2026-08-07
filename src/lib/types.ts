@@ -163,6 +163,8 @@ export interface AppState {
   historyTargetsSeeded?: boolean;
   /** P6-5: czy ćwiczeniom z seeda bez własnego `restSeconds` dolano wartosc z seeda — jednorazowo. */
   restSecondsBackfilled?: boolean;
+  /** Czy RIR został przeliczony z jednolitego 2 na skalibrowany per typ ćwiczenia (seed.ts: defaultRir) — jednorazowo. */
+  rirCalibrated?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */

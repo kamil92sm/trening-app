@@ -36,6 +36,7 @@ import {
   fmtLastEntries,
   plannedSets,
   prefillRepsForEntry,
+  deloadSets,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -105,13 +106,13 @@ const MODE_BADGE: Record<TrainingMode, { label: string; short: string; color: st
   deload: { label: "Deload", short: "deload", color: "#f59e0b" },
 };
 
-// P2-8: deload dobija o jedna serie robocza mniej (min. 2), zeby objetosc
-// spadala tez przez serie, nie tylko przez ciezar. Inne tryby bez zmian.
-// Baza to liczba serii z planu TEGO dnia (`day.setsOverride`), nie globalne
-// `ex.targetSets` - seria dolozona przyciskiem "Dodaj serie" zostaje w planie.
+// Deload tnie objetosc do polowy serii przy ~90% ciezaru (logic.ts: deloadSets
+// / DELOAD_LOAD_FACTOR). Baza to liczba serii z planu TEGO dnia
+// (`day.setsOverride`), nie globalne `ex.targetSets` - seria dolozona
+// przyciskiem "Dodaj serie" zostaje w planie.
 function setsForMode(ex: Exercise, mode: TrainingMode, day?: WorkoutDay): number {
   const planned = plannedSets(day, ex);
-  return mode === "deload" ? Math.max(2, planned - 1) : planned;
+  return mode === "deload" ? deloadSets(planned) : planned;
 }
 
 function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
@@ -563,7 +564,7 @@ export function TrainScreen() {
     // musi trafić w górny limit, żeby ciężar wskoczył (podwójna progresja).
     // Liczone poza updaterem setDraft: ten musi zostać czysty (StrictMode
     // wywołuje go dwa razy w dev), a store.setDaySets to efekt uboczny.
-    if (!draft || draft.mode === "deload") return; // deload celowo ma serię mniej — nie dotyka planu
+    if (!draft || draft.mode === "deload") return; // deload celowo ma mniej serii — nie dotyka planu
     const entry = draft.entries[entryIdx];
     const ex = entry && state.exercises.find((e) => e.id === entry.exerciseId);
     const day = state.days.find((d) => d.id === draft.dayId);
@@ -787,7 +788,7 @@ export function TrainScreen() {
                   {detectPlateau(state, exercise.id) && (
                     <p className="mt-1.5 rounded-md bg-amber-500/10 p-2 text-[11px] leading-snug text-amber-300">
                       Zastój (3 treningi bez postępu). Opcje: mikro-skok +1,25 kg mimo braku
-                      kompletu powtórzeń, LUB tydzień -30% ciężaru (deload), LUB zamiana
+                      kompletu powtórzeń, LUB tydzień deloadu (połowa serii), LUB zamiana
                       ćwiczenia na 4–6 tyg.
                     </p>
                   )}
@@ -829,7 +830,7 @@ export function TrainScreen() {
                         ? "Tydzień deloadu"
                         : "Zmieniono cel tygodnia",
                       m === "deload"
-                        ? "65% ciężaru, o jedną serię mniej — cele zostają zamrożone, progresja wraca w przyszłym tygodniu."
+                        ? "90% ciężaru, połowa serii w zaokrągleniu w górę (3→2, 2→1) — tniemy objętość, ciężar zostaje wysoko. Cele zamrożone, progresja wraca w przyszłym tygodniu."
                         : "Pamiętaj też o przełączniku Cel: Siła/Hipertrofia w zakładce Progres."
                     );
                   }

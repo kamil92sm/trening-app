@@ -25,7 +25,14 @@ import {
   SCHEMA_VERSION,
   STORAGE_KEY,
 } from "./seed";
-import { computeProgression, exerciseForDay, exerciseForMode, failedAtRirZero, type ProgressionResult } from "./logic";
+import {
+  computeProgression,
+  easyAtRirHigh,
+  exerciseForDay,
+  exerciseForMode,
+  failedAtRirZero,
+  type ProgressionResult,
+} from "./logic";
 import { serializeBackup } from "./backup";
 import { validateBackup } from "./validate";
 import { uid } from "./utils";
@@ -208,19 +215,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // zeszłego tygodnia mógłby wyglądać jak fail przez sam próg zakresu.
           const prevSession = priorSessions.find((s) => s.entries.some((e) => e.exerciseId === ex.id && e.sets.some((st) => st.done)));
           const prevEntry = prevSession?.entries.find((e) => e.exerciseId === ex.id);
-          const priorSessionFailedWithRir0 =
+          const prevPlanEx =
             prevSession && prevEntry
-              ? failedAtRirZero(
-                  exerciseForDay(
-                    exerciseForMode(ex, prevSession.mode ?? "strength"),
-                    state.days.find((d) => d.id === prevSession.dayId)
-                  ),
-                  prevEntry.sets
+              ? exerciseForDay(
+                  exerciseForMode(ex, prevSession.mode ?? "strength"),
+                  state.days.find((d) => d.id === prevSession.dayId)
                 )
-              : false;
+              : null;
+          const priorSessionFailedWithRir0 =
+            prevPlanEx && prevEntry ? failedAtRirZero(prevPlanEx, prevEntry.sets) : false;
+          // Druga strona autoregulacji: poprzedni trening skończony z 3+ w zapasie
+          // i bez kompletu powtórzeń = ciężar za lekki (patrz easyAtRirHigh).
+          const priorSessionEasyAtRir3 =
+            prevPlanEx && prevEntry ? easyAtRirHigh(prevPlanEx, prevEntry.sets) : false;
           summaries.push({
             exercise: ex,
-            result: computeProgression(modeEx, entry.targetWeight, entry.sets, lastRir, priorSessionFailedWithRir0),
+            result: computeProgression(
+              modeEx,
+              entry.targetWeight,
+              entry.sets,
+              lastRir,
+              priorSessionFailedWithRir0,
+              priorSessionEasyAtRir3
+            ),
           });
         }
         // P2-9: id i snapshot celów SPRZED zapisu — wygenerowane tutaj (nie w
@@ -447,6 +464,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           historyTargetsSeeded: true,
           restSecondsBackfilled: true,
           neutralDayLabelsSeeded: true,
+          rirCalibrated: true,
         });
       },
 

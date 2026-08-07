@@ -15,6 +15,43 @@ export const SCHEMA_VERSION = 5;
 export const STORAGE_KEY = "trening-app-v2";
 export const OLD_STORAGE_KEY = "trening-app-v1";
 
+/**
+ * Ćwiczenia jednostawowe, które mimo wpisanej partii wspomagającej są izolacją
+ * (rozpiętki „pracują" barkiem, uginanie nóg leżąc łydką itd.) — heurystyka
+ * „brak partii wspomagającej = izolacja" sama by ich nie złapała.
+ */
+const ISOLATION_IDS = new Set([
+  "fly_db", "fly_cable", "rear_delt_db", "rear_delt_machine",
+  "shrug_db", "shrug_bb", "leg_curl_lying", "cable_kickback", "back_ext",
+]);
+
+/** Duże ruchy osiowe — najwyższy koszt zmęczenia i największa cena błędu technicznego. */
+const HEAVY_AXIAL_IDS = new Set([
+  "deadlift", "deadlift_sumo", "rack_pull", "squat", "front_squat", "good_morning", "rdl_bb",
+]);
+
+/**
+ * Domyślny RIR (powtórzenia w zapasie) skalibrowany wg KOSZTU dojścia do granicy,
+ * zamiast jednolitego RIR 2 dla wszystkiego.
+ *
+ * Podstawa: bliskość upadku jest ciągłym predyktorem hipertrofii (Robinson,
+ * Pelland, Remmert i wsp. 2024, meta-regresja) — czyli bliżej granicy = więcej
+ * bodźca. Ale koszt tej bliskości jest bardzo różny: seria wznosów bokiem do
+ * granicy kosztuje niemal nic (zmęczenie lokalne, zerowe ryzyko), seria
+ * przysiadów albo martwego ciągu kosztuje dużo (zmęczenie ogólnoustrojowe,
+ * ryzyko techniczne). Stąd:
+ *   izolacja jednostawowa → RIR 1  (bierz bodziec, jest tani)
+ *   pozostałe złożone     → RIR 2  (jak dotąd)
+ *   duże ruchy osiowe     → RIR 3  (margines bezpieczeństwa)
+ * `isHold` (plank) ma własne RIR 0 podawane wprost — do granicy formy.
+ */
+function defaultRir(id: string, isHold: boolean, secondaryMuscles: Muscle[]): number {
+  if (isHold) return 0;
+  if (HEAVY_AXIAL_IDS.has(id)) return 3;
+  if (ISOLATION_IDS.has(id) || secondaryMuscles.length === 0) return 1;
+  return 2;
+}
+
 const ex = (
   id: string,
   name: string,
@@ -38,10 +75,10 @@ const ex = (
   repMax,
   targetSets,
   increment,
-  rir: 2,
+  rir: defaultRir(id, extra.isHold ?? false, secondaryMuscles),
   primaryMuscle,
   secondaryMuscles,
-  ...extra,
+  ...extra, // jawny `rir` w extra nadal wygrywa
 });
 
 export const SEED_EXERCISES: Exercise[] = [
@@ -782,6 +819,34 @@ function backfillRestSecondsOnce(state: AppState): AppState {
 }
 
 /**
+ * Kalibracja RIR (patrz `defaultRir`): do tej pory KAŻDE ćwiczenie miało
+ * jednolite `rir: 2`, więc stan zapisany u użytkownika też. `mergeExerciseLibrary`
+ * świadomie nie dolewa pól z seeda do istniejących ćwiczeń, więc bez backfillu
+ * nowe wartości nigdy by tam nie dotarły.
+ *
+ * Rusza WYŁĄCZNIE ćwiczenia, które mają dziś dokładnie starą wartość domyślną
+ * (`rir === 2`) i których ID istnieje w seedzie z INNĄ wartością. Ćwiczenia
+ * z ręcznie ustawionym 0/1/3 i te spoza seeda zostają nietknięte. Świadome
+ * ograniczenie: jeśli ktoś ręcznie wpisał 2 tam, gdzie seed daje 1, ta zmiana
+ * to nadpisze — nie da się odróżnić „wybrałem 2" od „tak było domyślnie".
+ */
+function calibrateRirFromSeed(state: AppState): AppState {
+  const seedById = new Map(SEED_EXERCISES.map((e) => [e.id, e]));
+  const exercises = state.exercises.map((ex) => {
+    if (ex.rir !== 2) return ex;
+    const seedEx = seedById.get(ex.id);
+    if (!seedEx || seedEx.rir === 2) return ex;
+    return { ...ex, rir: seedEx.rir };
+  });
+  return { ...state, exercises };
+}
+
+function calibrateRirOnce(state: AppState): AppState {
+  if (state.rirCalibrated) return state;
+  return { ...calibrateRirFromSeed(state), rirCalibrated: true };
+}
+
+/**
  * Zadanie 3: nazwy dni "Poniedziałek/Środa/Piątek" sugerowały sztywny
  * kalendarz, którego apka nie wymaga — to tylko zwyczajowy rytm Kamila.
  * Jednorazowo nadpisuje `name` dni `mon`/`wed`/`fri` na neutralne
@@ -806,7 +871,9 @@ function neutralizeDayLabelsOnce(state: AppState): AppState {
 }
 
 function applyOneTimeSeeds(state: AppState): AppState {
-  return backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))));
+  return calibrateRirOnce(
+    backfillRestSecondsOnce(catchUpTargetsOnce(seedHistoryOnce(neutralizeDayLabelsOnce(state))))
+  );
 }
 
 /**

@@ -230,10 +230,16 @@ export function actualWeeklyMuscleVolume(
     if (!session.completed) continue;
     const d = session.date.slice(0, 10);
     if (d < cutoffStr || d > nowStr) continue;
+    const sessionMode = session.mode ?? "strength";
     for (const entry of session.entries) {
       const ex = exById.get(entry.exerciseId);
       if (!ex || ex.archived) continue;
-      const doneSets = entry.sets.filter((s) => s.done).length;
+      // Objętość to SERIE ROBOCZE, nie serie w ogóle: liczymy tylko te, które
+      // weszły w dolną granicę zakresu (dla trybu tygodnia, w którym zapisano
+      // sesję). Seria urwana na 4 powtórzeniach przy zakresie 10-12 nie jest
+      // bodźcem hipertroficznym i zawyżała metrykę.
+      const workingRepMin = exerciseForMode(ex, sessionMode).repMin;
+      const doneSets = entry.sets.filter((s) => s.done && s.reps >= workingRepMin).length;
       if (doneSets === 0) continue;
       const tonnage = entryVolume(ex, entry);
       if (ex.primaryMuscle) {
@@ -392,6 +398,23 @@ export function failedAtRirZero(ex: Exercise, sets: SetLog[]): boolean {
 }
 
 /**
+ * Lustro `failedAtRirZero`: próba skończona z 3+ powtórzeniami w zapasie, a mimo
+ * to BEZ kompletu powtórzeń. Czyli zatrzymałeś się daleko od granicy, choć
+ * zakres był w zasięgu — ciężar jest za lekki na ten zakres i podwójna
+ * progresja stoi w miejscu, bo nikt nie goni górnego limitu. Sygnał liczony
+ * przez wywołującego na POPRZEDNIEJ sesji, żeby wychwycić dwa takie treningi
+ * z rzędu (patrz `computeProgression`, parametr `priorSessionEasyAtRir3`).
+ */
+export function easyAtRirHigh(ex: Exercise, sets: SetLog[]): boolean {
+  const working = sets.filter((s) => s.done).slice(0, ex.targetSets);
+  if (working.length === 0) return false;
+  const allAtTop = working.length >= ex.targetSets && working.every((s) => s.reps >= ex.repMax);
+  if (allAtTop) return false;
+  const rir = working[working.length - 1].rir;
+  return rir !== undefined && rir >= 3;
+}
+
+/**
  * Ciężar rośnie o increment dopiero, gdy WSZYSTKIE serie robocze (targetSets)
  * osiągną repMax. Jeśli >=2 serie poniżej repMin -> sygnał deloadu, ciężar zostaje.
  * Dla isHold (plank) próg to sekundy, progresja dokłada obciążenie.
@@ -412,7 +435,8 @@ export function computeProgression(
   targetWeight: number,
   sets: SetLog[],
   lastRir?: number,
-  priorSessionFailedWithRir0?: boolean
+  priorSessionFailedWithRir0?: boolean,
+  priorSessionEasyAtRir3?: boolean
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -464,6 +488,17 @@ export function computeProgression(
       status: "deload",
       nextWeight: targetWeight,
       message: `RIR 0 dwa treningi z rzędu bez kompletu ${unitWord} — rozważ tydzień deloadu na tym ćwiczeniu.`,
+    };
+  }
+
+  // Druga strona autoregulacji: dwa treningi z rzędu skończone z 3+ w zapasie
+  // i wciąż bez kompletu. Ciężar zostaje (decyzja należy do trenującego), ale
+  // apka nazywa rzecz po imieniu, zamiast w nieskończoność powtarzać "walcz".
+  if (lastRir !== undefined && lastRir >= 3 && priorSessionEasyAtRir3) {
+    return {
+      status: "hold",
+      nextWeight: targetWeight,
+      message: `Dwa treningi z rzędu 3+ w zapasie, a zakres wciąż niedomknięty — ciężar jest za lekki. Dobij do ${ex.repMax} ${unitWord} albo od razu dołóż ${ex.increment} kg.`,
     };
   }
 
@@ -665,9 +700,9 @@ export function strengthRatios(state: AppState): StrengthRatio[] {
 export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
   if (mode === "strength") return ex;
   if (mode === "deload") {
-    // Zakres powtórzeń zostaje bazowy (siłowy) — schodzisz z CIĘŻAREM, nie
-    // z powtórzeniami: objętość spada przez ciężar (65%) i serię mniej,
-    // nie przez bicie rekordów w powtórzeniach na lekkim ciężarze.
+    // Zakres powtórzeń zostaje bazowy — schodzisz OBJĘTOŚCIĄ (patrz
+    // DELOAD_LOAD_FACTOR / deloadSets), nie powtórzeniami. Przy ~90% ciężaru
+    // te same powtórzenia zostawiają ok. 2 więcej w zapasie, stąd rir + 2.
     return { ...ex, rir: ex.rir + 2 };
   }
   if (ex.isHold) return ex;
@@ -710,14 +745,33 @@ export function hyperTargetFor(state: AppState, ex: Exercise): number {
 }
 
 /**
- * Cel deloadu — 65% celu SIŁOWEGO (zawsze `targets`, nawet gdy poprzedni
- * tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów, nie
- * kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
+ * Deload tnie OBJĘTOŚĆ, a nie intensywność.
+ *
+ * Wcześniej apka schodziła do 65% ciężaru zostawiając prawie wszystkie serie —
+ * to jest odwrotnie niż wskazują dane o taperze i zarządzaniu zmęczeniem:
+ * głównym źródłem zmęczenia jest objętość, a utrzymanie ciężaru blisko
+ * roboczego najlepiej chroni adaptację (meta-analiza taperów Bosquet i wsp.;
+ * praktyka Israetela/Helmsa: serie −50%, ciężar wysoko). Stąd ~90% ciężaru
+ * i połowa serii. Zejście z ciężarem NIE jest bezsensowne (odciąża stawy
+ * i tkankę łączną), ale jest słabiej wsparte niż cięcie objętości — dlatego
+ * 90%, a nie 100%.
+ */
+export const DELOAD_LOAD_FACTOR = 0.9;
+
+/** Serie robocze w tygodniu deloadu — połowa planu dnia, min. 1. */
+export function deloadSets(plannedSetCount: number): number {
+  return Math.max(1, Math.round(plannedSetCount / 2));
+}
+
+/**
+ * Cel deloadu — `DELOAD_LOAD_FACTOR` celu SIŁOWEGO (zawsze `targets`, nawet gdy
+ * poprzedni tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów,
+ * nie kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
  */
 export function deloadTargetFor(state: AppState, ex: Exercise): number {
   const strengthTarget = state.targets[ex.id] ?? 0;
   const inc = ex.increment > 0 ? ex.increment : 0.5;
-  return Math.round((strengthTarget * 0.65) / inc) * inc;
+  return Math.round((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */
@@ -975,7 +1029,7 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
  *     zgadywać go od zera — 12/11 wraca jako 12/11, do domknięcia zostaje ta jedna.
  *  3. Brak historii → `repMin` (start od dołu zakresu).
  *
- * Tygodnie deloadu są pomijane jako punkt odniesienia (65% ciężaru zawyżyłoby
+ * Tygodnie deloadu są pomijane jako punkt odniesienia (obniżony ciężar zawyżyłby
  * "ciężar wzrósł" przy powrocie do normalnych obciążeń).
  */
 export function prefillRepsForEntry(
@@ -993,9 +1047,14 @@ export function prefillRepsForEntry(
   const refTop = Math.max(...ref.sets.map((s) => s.weight));
   if (targetWeight > refTop + 1e-9) return fill(modeEx.repMin);
 
+  // Autoregulacja: 3+ powtórzeń w zapasie na ostatniej serii roboczej znaczy,
+  // że stać Cię było na więcej — celuj o jedno powtórzenie wyżej, zamiast
+  // powtarzać ten sam wynik w nieskończoność.
+  const refRir = ref.sets[ref.sets.length - 1]?.rir;
+  const bonus = refRir !== undefined && refRir >= 3 ? 1 : 0;
   const clamp = (r: number) => Math.min(modeEx.repMax, Math.max(modeEx.repMin, Math.round(r)));
   const lastRefSet = ref.sets[ref.sets.length - 1];
-  return Array.from({ length: setCount }, (_, i) => clamp((ref.sets[i] ?? lastRefSet).reps));
+  return Array.from({ length: setCount }, (_, i) => clamp((ref.sets[i] ?? lastRefSet).reps + bonus));
 }
 
 /** Punkt historii ćwiczenia wzbogacony o kontekst progresji (tryb tygodnia + serie robocze dnia). */

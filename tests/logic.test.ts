@@ -31,6 +31,9 @@ import {
   hyperTargetFor,
   targetForMode,
   deloadTargetFor,
+  deloadSets,
+  DELOAD_LOAD_FACTOR,
+  easyAtRirHigh,
   weeksSinceDeload,
   weeklyReport,
   weeklyReportDefaultExpanded,
@@ -1373,19 +1376,25 @@ check(
   plankDeload.repMin === plank.repMin && plankDeload.repMax === plank.repMax && plankDeload.rir === plank.rir + 2,
   plankDeload
 );
+// Deload tnie OBJETOSC, nie intensywnosc: ~90% ciezaru (45 -> 40) i polowa serii.
 check(
-  "deloadTargetFor: 65% celu silowego zaokraglone do increment (45 -> 30)",
-  deloadTargetFor(defaultState(), bench) === 30,
+  "deloadTargetFor: 90% celu silowego zaokraglone do increment (45 -> 40)",
+  deloadTargetFor(defaultState(), bench) === 40,
   deloadTargetFor(defaultState(), bench)
 );
 const stDeloadHyper = defaultState();
 stDeloadHyper.hyperTargets = { bench_bb: 99 };
 check(
   "deloadTargetFor: baza ZAWSZE targets (sila), nawet gdy jest hyperTargets",
-  deloadTargetFor(stDeloadHyper, bench) === 30,
+  deloadTargetFor(stDeloadHyper, bench) === 40,
   deloadTargetFor(stDeloadHyper, bench)
 );
-check("targetForMode: deload -> deloadTargetFor", targetForMode(defaultState(), bench, "deload") === 30);
+check("targetForMode: deload -> deloadTargetFor", targetForMode(defaultState(), bench, "deload") === 40);
+check("deloadSets: 3 serie -> 2", deloadSets(3) === 2);
+check("deloadSets: 2 serie -> 1", deloadSets(2) === 1);
+check("deloadSets: 4 serie -> 2 (-50%)", deloadSets(4) === 2);
+check("deloadSets: nigdy ponizej 1", deloadSets(1) === 1);
+check("DELOAD_LOAD_FACTOR: intensywnosc zostaje wysoko", DELOAD_LOAD_FACTOR === 0.9);
 
 check("weeksSinceDeload: brak historii -> 0", weeksSinceDeload(defaultState()) === 0);
 const stWeeksA = defaultState();
@@ -2463,6 +2472,146 @@ check(
     "prefill: deload pomijany jako punkt odniesienia",
     JSON.stringify(prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)) === JSON.stringify([12, 11]),
     prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)
+  );
+}
+
+// ── Autoregulacja z zalogowanego RIR ───────────────────────────────────────
+{
+  const curl = SEED_EXERCISES.find((e) => e.id === "curl_bb")!; // 10-12 powt., 2 serie
+
+  // easyAtRirHigh: 3+ w zapasie i zakres NIEdomkniety = ciezar za lekki.
+  check(
+    "easyAtRirHigh: 10/10 przy RIR 3 -> ciezar za lekki",
+    easyAtRirHigh(curl, [
+      { weight: 17.5, reps: 10, done: true },
+      { weight: 17.5, reps: 10, done: true, rir: 3 },
+    ])
+  );
+  check(
+    "easyAtRirHigh: komplet powtorzen NIGDY nie jest 'za lekki' (progresja i tak podniesie)",
+    !easyAtRirHigh(curl, [
+      { weight: 17.5, reps: 12, done: true },
+      { weight: 17.5, reps: 12, done: true, rir: 3 },
+    ])
+  );
+  check(
+    "easyAtRirHigh: RIR 2 to nie sygnal",
+    !easyAtRirHigh(curl, [
+      { weight: 17.5, reps: 10, done: true },
+      { weight: 17.5, reps: 10, done: true, rir: 2 },
+    ])
+  );
+  check(
+    "easyAtRirHigh: brak zapisanego RIR -> brak sygnalu",
+    !easyAtRirHigh(curl, [
+      { weight: 17.5, reps: 10, done: true },
+      { weight: 17.5, reps: 10, done: true },
+    ])
+  );
+
+  // computeProgression: dwa treningi z rzedu 3+ w zapasie bez kompletu.
+  const easySets = [
+    { weight: 17.5, reps: 10, done: true },
+    { weight: 17.5, reps: 10, done: true, rir: 3 },
+  ];
+  const twice = computeProgression(curl, 17.5, easySets, 3, false, true);
+  check(
+    "computeProgression: 2x RIR 3+ bez kompletu -> nazywa rzecz po imieniu",
+    twice.status === "hold" && twice.nextWeight === 17.5 && /za lekki/.test(twice.message),
+    twice
+  );
+  const once = computeProgression(curl, 17.5, easySets, 3, false, false);
+  check(
+    "computeProgression: pojedynczy latwy trening -> zwykle 'walcz'",
+    once.status === "hold" && /walcz/.test(once.message),
+    once
+  );
+  // Komplet powtorzen ma pierwszenstwo - to i tak podnosi ciezar.
+  const topWithRir3 = computeProgression(
+    curl,
+    17.5,
+    [
+      { weight: 17.5, reps: 12, done: true },
+      { weight: 17.5, reps: 12, done: true, rir: 3 },
+    ],
+    3,
+    false,
+    true
+  );
+  check("computeProgression: komplet + RIR 3 -> podwojny skok, nie ostrzezenie", topWithRir3.status === "up", topWithRir3);
+
+  // Prefill celuje o jedno powtorzenie wyzej, gdy zostawiles 3+ w zapasie.
+  const stEasy = defaultState();
+  stEasy.sessions = [
+    {
+      id: "e1", dayId: "mon", date: "2026-07-08", completed: true, mode: "strength",
+      entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: [
+        { weight: 17.5, reps: 10, done: true },
+        { weight: 17.5, reps: 10, done: true, rir: 3 },
+      ] }],
+    },
+  ];
+  check(
+    "prefill: RIR 3 w zapasie -> celuj o jedno powtorzenie wyzej",
+    JSON.stringify(prefillRepsForEntry(stEasy, curl, curl, 17.5, 2)) === JSON.stringify([11, 11]),
+    prefillRepsForEntry(stEasy, curl, curl, 17.5, 2)
+  );
+}
+
+// ── Objętość = serie ROBOCZE (hard sets), nie serie w ogóle ────────────────
+{
+  const stHard = defaultState();
+  const nowIso = "2026-07-10T12:00:00.000Z";
+  stHard.sessions = [
+    {
+      id: "hs1", dayId: "mon", date: "2026-07-09T18:00:00.000Z", completed: true, mode: "strength",
+      entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: [
+        { weight: 17.5, reps: 12, done: true },  // robocza
+        { weight: 17.5, reps: 10, done: true },  // robocza (repMin=10)
+        { weight: 17.5, reps: 4, done: true },   // urwana - NIE liczy sie
+      ] }],
+    },
+  ];
+  const biceps = actualWeeklyMuscleVolume(stHard, "hypertrophy", nowIso).find((v) => v.muscle === "Biceps")!;
+  check(
+    "actualWeeklyMuscleVolume: seria urwana ponizej repMin nie liczy sie do objetosci",
+    biceps.direct === 2,
+    biceps
+  );
+}
+
+// ── Kalibracja RIR wg kosztu dojścia do granicy ────────────────────────────
+{
+  const rirOf = (id: string) => SEED_EXERCISES.find((e) => e.id === id)!.rir;
+  check("RIR: izolacja blisko granicy (wznosy bokiem = 1)", rirOf("lateral") === 1, rirOf("lateral"));
+  check("RIR: izolacja blisko granicy (uginanie bicepsa = 1)", rirOf("curl_bb") === 1, rirOf("curl_bb"));
+  check("RIR: rozpietki to izolacja mimo partii wspomagajacej (= 1)", rirOf("fly_db") === 1, rirOf("fly_db"));
+  check("RIR: uginanie nog lezac to izolacja (= 1)", rirOf("leg_curl_lying") === 1, rirOf("leg_curl_lying"));
+  check("RIR: zwykly compound bez zmian (wyciskanie plasko = 2)", rirOf("bench_bb") === 2, rirOf("bench_bb"));
+  check("RIR: duzy ruch osiowy z marginesem (martwy ciag = 3)", rirOf("deadlift") === 3, rirOf("deadlift"));
+  check("RIR: duzy ruch osiowy z marginesem (przysiad = 3)", rirOf("squat") === 3, rirOf("squat"));
+  check("RIR: plank zostaje na 0 (do granicy formy)", rirOf("plank") === 0, rirOf("plank"));
+
+  // Backfill: stary stan ma jednolite rir=2 i musi dostac nowe wartosci.
+  const stale = defaultState();
+  stale.exercises = stale.exercises.map((e) => ({ ...e, rir: 2 }));
+  stale.rirCalibrated = undefined;
+  const migrated = migrateState({ ...stale, version: SCHEMA_VERSION });
+  const mRir = (id: string) => migrated.exercises.find((e) => e.id === id)!.rir;
+  check("backfill RIR: jednolite 2 -> skalibrowane (lateral 1, deadlift 3)", mRir("lateral") === 1 && mRir("deadlift") === 3, {
+    lateral: mRir("lateral"),
+    deadlift: mRir("deadlift"),
+  });
+  check("backfill RIR: flaga ustawiona po przeliczeniu", migrated.rirCalibrated === true);
+
+  // Recznie ustawione RIR (inne niz stare domyslne 2) zostaja nietkniete.
+  const manual = defaultState();
+  manual.exercises = manual.exercises.map((e) => (e.id === "lateral" ? { ...e, rir: 0 } : e));
+  manual.rirCalibrated = undefined;
+  const migratedManual = migrateState({ ...manual, version: SCHEMA_VERSION });
+  check(
+    "backfill RIR: recznie ustawione 0 zostaje",
+    migratedManual.exercises.find((e) => e.id === "lateral")!.rir === 0
   );
 }
 

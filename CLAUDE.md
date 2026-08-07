@@ -156,10 +156,11 @@ edycja sesji w Historii (`store.updateSession`), plateau breaker (`logic.detectP
 - Podstawa naukowa (meta-analizy Robinson/Pelland/Schoenfeld/Currier/Grgic) i pełne
   uzasadnienie każdej decyzji: `POMYSLY.md` sekcja P0-5.
 - **Deload** (trzeci tryb, P2-8) — też POCHODNY z planu siłowego, odpoczynek od obu pozostałych
-  trybów: `exerciseForMode(ex, "deload")` zostawia zakres powtórzeń bez zmian, `rir: ex.rir + 2`
-  (schodzisz ciężarem, nie powtórzeniami). Cel liczy `deloadTargetFor()` — 65% ZAWSZE celu
-  siłowego (`targets`, nigdy hipertrofii), zaokrąglone do `increment`. Logger dobija o jedną
-  serię mniej (min. 2). **Progresja WYŁĄCZONA:** `finishSession` przy `mode==="deload"` nie
+  trybów: `exerciseForMode(ex, "deload")` zostawia zakres powtórzeń bez zmian, `rir: ex.rir + 2`.
+  **Tnie OBJĘTOŚĆ, nie intensywność** (zmiana 07.08.2026, §18): `deloadTargetFor()` = 90%
+  (`DELOAD_LOAD_FACTOR`) ZAWSZE celu siłowego (`targets`, nigdy hipertrofii), zaokrąglone do
+  `increment`; `deloadSets(planned)` = połowa serii dnia w zaokrągleniu, min. 1 (3→2, 2→1).
+  Wcześniej było odwrotnie (65% ciężaru, −1 seria) — patrz uzasadnienie w §18. **Progresja WYŁĄCZONA:** `finishSession` przy `mode==="deload"` nie
   zapisuje ani `targets`, ani `hyperTargets` — cele zamrożone, podsumowanie pokazuje jeden
   komunikat zamiast per-ćwiczeniowych kart progresji. `weeksSinceDeload()` + `detectPlateau`
   (≥3 ćwiczenia) napędzają bursztynowy nudge na ekranie wyboru dnia — sugestia, nie automat.
@@ -698,3 +699,81 @@ override per dzień/objętość, 5× `detectPlateau` łącznie ze scenariuszem z
 „nowy ciężar 18.75 kg, wracasz do 10 powt." BEZ banera zastoju, następny trening
 startuje z 10/10, a „Dodaj serię" zapisuje `setsOverride: {curl_bb: 3}` w `mon`
 zostawiając `bonus` nietknięty.
+
+---
+
+## 18. Sesja 07.08.2026 (II) — kalibracja silnika pod dane naukowe
+
+Analiza silnika na realnych liczbach planu Kamila. **Wniosek nadrzędny: algorytm był
+zdrowy, wąskim gardłem jest ZAWARTOŚĆ planu, nie logika.** Podstawa naukowa z
+`POMYSLY.md` P0-5 (ciężar nieistotny przy bliskości upadku, RIR jako predyktor
+ciągły, długie przerwy też dla hipertrofii, periodyzacja falująca) została
+potwierdzona i NIE jest zmieniana. Wdrożone cztery korekty.
+
+### 18.1 Deload tnie objętość, nie intensywność
+- **Było:** 65% ciężaru, `max(2, serie - 1)`, RIR +2 — duże cięcie intensywności,
+  minimalne cięcie objętości.
+- **Dlaczego zmiana:** objętość jest głównym źródłem zmęczenia, a utrzymanie ciężaru
+  blisko roboczego najlepiej chroni adaptację (meta-analiza taperów Bosquet i wsp.;
+  praktyka Israetela/Helmsa). Zejście z ciężarem nie jest bezsensowne (odciąża stawy
+  i tkankę łączną) — dlatego 90%, a nie 100%.
+- **Jest:** `DELOAD_LOAD_FACTOR = 0.9` + `deloadSets(planned)` = połowa serii
+  w zaokrągleniu, min. 1 (3→2, 2→1). `deloadTargetFor` i `setsForMode` w TrainScreen
+  używają obu. **Uwaga praktyczna:** tydzień deloadu ma teraz WYŻSZY tonaż niż
+  poprzednio (cięższa sztanga przy podobnej liczbie serii) — świadomy kompromis,
+  fatyga spada przez serie i RIR +2, adaptacja jest lepiej chroniona.
+
+### 18.2 RIR skalibrowany wg kosztu dojścia do granicy (`seed.ts: defaultRir`)
+- **Było:** jednolite `rir: 2` dla KAŻDEGO ćwiczenia — ławka tak samo jak wznosy bokiem.
+- **Jest:** izolacja jednostawowa → **1**, zwykłe compoundy → **2**, duże ruchy osiowe
+  (`HEAVY_AXIAL_IDS`: martwy/sumo/rack pull/przysiad/przysiad przedni/good morning/RDL
+  ze sztangą) → **3**. `isHold` bez zmian (0). Heurystyka „brak partii wspomagającej
+  = izolacja" nie łapie rozpiętek/rear deltów/szrugsów/uginania nóg leżąc/hiperekstensji
+  — stąd jawny `ISOLATION_IDS`. Jawny `rir` w `extra` nadal wygrywa.
+- **Uzasadnienie:** bliskość upadku to ciągły predyktor hipertrofii, ale jej KOSZT jest
+  bardzo różny — seria wznosów bokiem do granicy kosztuje niemal nic, seria przysiadów
+  kosztuje dużo.
+- **Backfill** `calibrateRirOnce` (flaga `rirCalibrated`, bez bumpa `SCHEMA_VERSION`) —
+  `mergeExerciseLibrary` nie dolewa pól do istniejących ćwiczeń (pułapka z §13), więc bez
+  tego nowe wartości nigdy nie dotarłyby do stanu Kamila. Rusza WYŁĄCZNIE ćwiczenia
+  z dokładnie starą wartością domyślną (`rir === 2`); ręczne 0/1/3 i ćwiczenia spoza
+  seeda zostają. Ograniczenie: nie da się odróżnić „wybrałem 2" od „tak było domyślnie".
+
+### 18.3 Autoregulacja: druga strona RIR
+- **Było:** zalogowany RIR napędzał tylko podwójny skok (RIR ≥3 + komplet) i ostrzeżenie
+  przy RIR ≤1. Przypadek „ciężar za lekki" nie istniał — apka w nieskończoność pisała
+  „walcz o powtórzenia".
+- **Jest:** `easyAtRirHigh(ex, sets)` (lustro `failedAtRirZero`) = 3+ w zapasie ORAZ brak
+  kompletu powtórzeń. `computeProgression` dostał 6. parametr `priorSessionEasyAtRir3`;
+  dwa takie treningi z rzędu → status `hold`, ale komunikat mówi wprost „ciężar jest za
+  lekki, dobij do repMax albo dołóż increment". Świadomie NIE podnosi ciężaru sam —
+  decyzja należy do trenującego, jak przy `detectPlateau`.
+- `prefillRepsForEntry` dokłada **+1 powtórzenie**, gdy referencyjna sesja skończyła się
+  z RIR ≥3 (przycięte do `repMax`) — zamiast w kółko podstawiać ten sam wynik.
+
+### 18.4 Objętość liczy serie ROBOCZE (hard sets)
+- **Było:** `actualWeeklyMuscleVolume` liczyło każdą zaznaczoną serię tak samo.
+- **Jest:** liczy tylko serie, które weszły w `repMin` zakresu **trybu, w którym zapisano
+  sesję** (`exerciseForMode(ex, session.mode)`). Seria urwana na 4 powtórzeniach przy
+  zakresie 10–12 nie jest bodźcem i zawyżała metrykę. Legenda w Progresie mówi o tym
+  wprost. `tonnage` celowo BEZ zmian — to literalnie przeniesione kilogramy.
+
+### 18.5 Zdiagnozowane, NIE wdrożone (decyzja treningowa Kamila)
+Luki objętości/częstotliwości w planie 3-dniowym (bonus OFF), policzone z `weeklyMuscleVolume`:
+**Nogi 6 serii @ 1×/tydz.** (zero udziału pomocniczego — martwy/RDL/hip thrust nie trenują
+czworogłowych), **Łydki 3 @ 1×**, **Biceps 2 bezpośrednie @ 1×**, **Triceps 2 bezpośrednie
+@ 1×**, Pośladki 3 bezpośrednie. Klatka (9 @ 3×) i Plecy (9 @ 2×) są obsłużone dobrze.
+To zmiana treningu, nie kodu — biblioteka ma wszystko, co potrzebne (suwnica, hack squat,
+prostowanie nóg, uginanie nóg, bułgarskie, calf press, warianty uginania/prostowania ramion).
+
+**Drobiazgi do rozważenia:** Epley zawyża e1RM powyżej ~10 powt. (używany konsekwentnie,
+więc błąd częściowo się znosi); stały `increment` w kg daje nierówny skok procentowy
+(2,5 kg na ławce 45 kg = 5,5%); `volumeProgressionSuggestions` mogłoby po zmianie z §17
+realnie dokładać serię do konkretnego dnia przez `setDaySets`.
+
+**Testy:** 27 nowych w `tests/logic.test.ts` (deload 90%/połowa serii, `easyAtRirHigh`
+w 4 wariantach, autoregulacja w `computeProgression`, prefill +1 przy RIR 3, hard sets,
+8× kalibracja RIR + 2× backfill). Zweryfikowane w Chromium na zbudowanym `docs/index.html`:
+stary stan z jednolitym `rir: 2` po wczytaniu daje lateral 1 / bench 2 / squat 3 /
+deadlift 3 / plank 0, a tydzień deloadu startuje z 11 serii zamiast 17 i celem 40 kg
+zamiast 45 na wyciskaniu.
