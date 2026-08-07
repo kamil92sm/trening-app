@@ -25,7 +25,7 @@ import {
   SCHEMA_VERSION,
   STORAGE_KEY,
 } from "./seed";
-import { computeProgression, exerciseForMode, failedAtRirZero, type ProgressionResult } from "./logic";
+import { computeProgression, exerciseForDay, exerciseForMode, failedAtRirZero, type ProgressionResult } from "./logic";
 import { serializeBackup } from "./backup";
 import { validateBackup } from "./validate";
 import { uid } from "./utils";
@@ -78,6 +78,8 @@ export function readAutoBackupSnapshot(): AutoBackupSnapshot | null {
 interface Store {
   state: AppState;
   setDayActive(dayId: string, active: boolean): void;
+  /** Serie robocze ćwiczenia w TYM dniu planu (`day.setsOverride`); wartość == `ex.targetSets` czyści nadpisanie. */
+  setDaySets(dayId: string, exerciseId: string, sets: number): void;
   setTarget(exerciseId: string, weight: number): void;
   finishSession(session: Omit<Session, "id" | "completed">): FinishResult;
   undoFinishSession(undo: UndoSnapshot): void;
@@ -153,6 +155,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       },
 
+      setDaySets(dayId, exerciseId, sets) {
+        mutate((d) => {
+          const day = d.days.find((x) => x.id === dayId);
+          if (!day) return d;
+          const ex = d.exercises.find((e) => e.id === exerciseId);
+          const n = Math.max(1, Math.round(sets));
+          const next = { ...(day.setsOverride ?? {}) };
+          // Powrót do wartości bazowej kasuje nadpisanie — plan zostaje czysty
+          // i późniejsza zmiana `targetSets` w bazie ćwiczeń znów działa.
+          if (ex && n === ex.targetSets) delete next[exerciseId];
+          else next[exerciseId] = n;
+          if (Object.keys(next).length === 0) delete day.setsOverride;
+          else day.setsOverride = next;
+          return d;
+        });
+      },
+
       setTarget(exerciseId, weight) {
         mutate((d) => {
           d.targets[exerciseId] = weight;
@@ -173,12 +192,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // do wykrycia "dwa treningi z rzędu RIR 0 bez kompletu" per ćwiczenie.
         const priorSessions = [...state.sessions].filter((s) => s.completed).sort((a, b) => b.date.localeCompare(a.date));
         const summaries: FinishSummary[] = [];
+        const sessionDay = state.days.find((d) => d.id === sessionData.dayId);
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) continue;
           // Progresja liczona na ćwiczeniu przeliczonym pod tryb tygodnia (zakres
-          // powtórzeń), ale zapisywana pod ID oryginalnego ćwiczenia.
-          const modeEx = exerciseForMode(ex, mode);
+          // powtórzeń) ORAZ pod liczbę serii roboczych z planu TEGO dnia
+          // (`day.setsOverride` — seria dołożona w loggerze zostaje w planie),
+          // ale zapisywana pod ID oryginalnego ćwiczenia.
+          const modeEx = exerciseForDay(exerciseForMode(ex, mode), sessionDay);
           const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
           const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
           // P4-4: poprzednia sesja liczona w JEJ WŁASNYM trybie tygodnia (repMax/
@@ -188,7 +210,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const prevEntry = prevSession?.entries.find((e) => e.exerciseId === ex.id);
           const priorSessionFailedWithRir0 =
             prevSession && prevEntry
-              ? failedAtRirZero(exerciseForMode(ex, prevSession.mode ?? "strength"), prevEntry.sets)
+              ? failedAtRirZero(
+                  exerciseForDay(
+                    exerciseForMode(ex, prevSession.mode ?? "strength"),
+                    state.days.find((d) => d.id === prevSession.dayId)
+                  ),
+                  prevEntry.sets
+                )
               : false;
           summaries.push({
             exercise: ex,

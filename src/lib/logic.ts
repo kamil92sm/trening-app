@@ -7,6 +7,7 @@ import type {
   Session,
   SetLog,
   TrainingMode,
+  WorkoutDay,
 } from "./types";
 
 // ── Objętość per partia ────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ export function weeklyMuscleVolume(state: AppState, goal: VolumeGoal = "hypertro
     for (const exId of day.exerciseIds) {
       const ex = exById.get(exId);
       if (!ex || ex.archived) continue;
-      const sets = ex.targetSets;
+      const sets = plannedSets(day, ex);
       const target = state.targets[ex.id] ?? 0;
       const avgReps = (ex.repMin + ex.repMax) / 2;
       const tonnage = ex.isHold ? 0 : target * avgReps * sets * (ex.perHand ? 2 : 1);
@@ -337,6 +338,30 @@ export function suggestBonusExercises(state: AppState, count: number, nowIso?: s
   }
 
   return picked;
+}
+
+// ── Serie robocze per dzień ────────────────────────────────────────────────
+
+/**
+ * Ile serii roboczych ma to ćwiczenie W TYM DNIU planu: nadpisanie z
+ * `day.setsOverride` (zapisywane przez "Dodaj serię" w loggerze i edytor Planu),
+ * a gdy go brak — bazowe `ex.targetSets`. Override jest PER DZIEŃ, bo dzień
+ * bonusowy dzieli z planem głównym te same ćwiczenia i dokładanie serii
+ * w poniedziałek nie może po cichu rozdmuchać bonusu.
+ */
+export function plannedSets(day: WorkoutDay | undefined, ex: Exercise): number {
+  const v = day?.setsOverride?.[ex.id];
+  return v !== undefined && v > 0 ? Math.round(v) : ex.targetSets;
+}
+
+/**
+ * Ćwiczenie z `targetSets` podmienionym na liczbę serii z danego dnia — wynik
+ * podawaj do `computeProgression`/`failedAtRirZero`, żeby "wszystkie serie
+ * robocze" znaczyło tyle, ile faktycznie jest w planie tego dnia.
+ */
+export function exerciseForDay(ex: Exercise, day: WorkoutDay | undefined): Exercise {
+  const sets = plannedSets(day, ex);
+  return sets === ex.targetSets ? ex : { ...ex, targetSets: sets };
 }
 
 // ── Podwójna progresja ─────────────────────────────────────────────────────
@@ -937,19 +962,113 @@ export function lastEntry(state: AppState, exId: string): LastEntry | null {
 }
 
 /**
- * Zastój: 3 ostatnie treningi tego ćwiczenia mają ten sam topWeight
- * i e1RM w widełkach ±1%. Sugestia, nie automat — decyzję podejmuje trenujący.
+ * Powtórzenia, którymi logger wypełnia serie na starcie — zgodnie z regułą
+ * podwójnej progresji, a nie "zawsze górny limit" (zgłoszenie Kamila: apka
+ * wrzucała `repMax` nawet zaraz po skoku ciężaru, czyli kazała od razu powtórzyć
+ * komplet na cięższej sztandze):
+ *
+ *  1. `targetWeight` WYŻSZY niż na ostatnim treningu → ciężar właśnie wskoczył,
+ *     więc wracasz na DÓŁ zakresu (`repMin`) i przez kolejne tygodnie dokładasz
+ *     powtórzenia aż do `repMax`. To jest ta druga połowa podwójnej progresji.
+ *  2. Ciężar bez zmian → prefill = to, co zrobiłeś ostatnio w tej serii
+ *     (przycięte do zakresu bieżącego trybu). Masz POBIĆ swój wynik, a nie
+ *     zgadywać go od zera — 12/11 wraca jako 12/11, do domknięcia zostaje ta jedna.
+ *  3. Brak historii → `repMin` (start od dołu zakresu).
+ *
+ * Tygodnie deloadu są pomijane jako punkt odniesienia (65% ciężaru zawyżyłoby
+ * "ciężar wzrósł" przy powrocie do normalnych obciążeń).
+ */
+export function prefillRepsForEntry(
+  state: AppState,
+  ex: Exercise,
+  modeEx: Exercise,
+  targetWeight: number,
+  setCount: number
+): number[] {
+  const fill = (r: number) => Array.from({ length: setCount }, () => r);
+  const recent = lastEntries(state, ex.id, 4);
+  const ref = recent.find((e) => e.mode !== "deload") ?? recent[0];
+  if (!ref || ref.sets.length === 0) return fill(modeEx.repMin);
+
+  const refTop = Math.max(...ref.sets.map((s) => s.weight));
+  if (targetWeight > refTop + 1e-9) return fill(modeEx.repMin);
+
+  const clamp = (r: number) => Math.min(modeEx.repMax, Math.max(modeEx.repMin, Math.round(r)));
+  const lastRefSet = ref.sets[ref.sets.length - 1];
+  return Array.from({ length: setCount }, (_, i) => clamp((ref.sets[i] ?? lastRefSet).reps));
+}
+
+/** Punkt historii ćwiczenia wzbogacony o kontekst progresji (tryb tygodnia + serie robocze dnia). */
+interface ProgressionPoint {
+  topWeight: number;
+  e1rm: number;
+  /** Suma powtórzeń z serii ROBOCZYCH (tyle, ile plan tego dnia) — rosnąca = realny progres. */
+  totalReps: number;
+  /** Czy podwójna progresja się domknęła (wszystkie serie robocze w górnym limicie). */
+  allAtTop: boolean;
+  mode: TrainingMode;
+}
+
+/**
+ * Do `count` ostatnich ukończonych sesji z tym ćwiczeniem (najstarsza pierwsza),
+ * każda oceniona w SWOIM trybie tygodnia i przy SWOJEJ liczbie serii roboczych.
+ */
+function progressionPoints(state: AppState, ex: Exercise, count: number): ProgressionPoint[] {
+  const sorted = [...state.sessions]
+    .filter((s) => s.completed)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const out: ProgressionPoint[] = [];
+  for (const session of sorted) {
+    if (out.length >= count) break;
+    const entry = session.entries.find((e) => e.exerciseId === ex.id);
+    if (!entry) continue;
+    const done = entry.sets.filter((s) => s.done);
+    if (done.length === 0) continue;
+    const mode = session.mode ?? "strength";
+    const day = state.days.find((d) => d.id === session.dayId);
+    const planEx = exerciseForDay(exerciseForMode(ex, mode), day);
+    const working = done.slice(0, planEx.targetSets);
+    const top = done.reduce((a, b) =>
+      ex.isHold ? (b.reps > a.reps ? b : a) : e1rm(b.weight, b.reps) > e1rm(a.weight, a.reps) ? b : a
+    );
+    out.push({
+      topWeight: top.weight,
+      e1rm: ex.isHold ? top.reps : Math.round(e1rm(top.weight, top.reps) * 10) / 10,
+      totalReps: working.reduce((sum, s) => sum + s.reps, 0),
+      allAtTop: working.length >= planEx.targetSets && working.every((s) => s.reps >= planEx.repMax),
+      mode,
+    });
+  }
+  return out.reverse();
+}
+
+/**
+ * Zastój: 3 ostatnie treningi tego ćwiczenia stoją na tym samym ciężarze, bez
+ * przyrostu powtórzeń i z e1RM w widełkach ±1%. Sugestia, nie automat — decyzję
+ * podejmuje trenujący.
+ *
+ * Świadomie NIE jest zastojem (fałszywe alarmy zgłoszone przez Kamila —
+ * "klepnąłem maxa, a apka pisze zastój"):
+ *  - ostatni trening domknął podwójną progresję (`allAtTop`) — ciężar rośnie
+ *    w następnym treningu, więc nazwanie tego zastojem jest po prostu nieprawdą;
+ *  - powtórzenia w seriach roboczych urosły w oknie 3 treningów (np. 12/10 →
+ *    12/11 → 12/12) — stare `detectPlateau` patrzyło WYŁĄCZNIE na e1RM najlepszej
+ *    serii, więc dokładanie powtórzeń w kolejnych seriach było niewidoczne;
+ *  - w oknie jest tydzień deloadu — celowo lżejszy tydzień, nie brak postępu.
  */
 export function detectPlateau(state: AppState, exId: string): boolean {
   const ex = state.exercises.find((e) => e.id === exId);
   // Ćwiczenia na czas (plank) oraz o stałym celu (repMin==repMax) z definicji
   // "stoją" na tym samym wyniku, gdy progresują poprawnie — to nie jest zastój.
   if (!ex || ex.isHold || ex.repMin === ex.repMax) return false;
-  const history = exerciseHistory(state, exId);
-  if (history.length < 3) return false;
-  const [a, b, c] = history.slice(-3);
-  if (a.topWeight !== b.topWeight || b.topWeight !== c.topWeight) return false;
-  const es = [a.e1rm, b.e1rm, c.e1rm];
+  const points = progressionPoints(state, ex, 3);
+  if (points.length < 3) return false;
+  if (points.some((p) => p.mode === "deload")) return false;
+  const last = points[points.length - 1];
+  if (last.allAtTop) return false;
+  if (last.totalReps > points[0].totalReps) return false;
+  if (points.some((p) => p.topWeight !== points[0].topWeight)) return false;
+  const es = points.map((p) => p.e1rm);
   const maxE = Math.max(...es);
   const minE = Math.min(...es);
   if (maxE === 0) return false;

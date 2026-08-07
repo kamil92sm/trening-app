@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Pencil, Plus, RotateCcw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Category, Exercise, Unit } from "@/lib/types";
-import { fmtKg } from "@/lib/logic";
+import { fmtKg, plannedSets } from "@/lib/logic";
 import { SEED_DAYS } from "@/lib/seed";
 import { MuscleTags } from "@/components/Gym";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -163,6 +163,9 @@ export function PlanScreen() {
               {day.exerciseIds.map((exId, idx) => {
                 const ex = state.exercises.find((e) => e.id === exId);
                 if (!ex) return null;
+                // Serie liczone PER DZIEŃ (day.setsOverride) — ta sama pozycja
+                // może mieć inną liczbę serii w planie głównym i w bonusie.
+                const sets = plannedSets(day, ex);
                 return (
                   <div key={exId} className="flex items-center gap-1.5 text-xs">
                     <div className="min-w-0 flex-1">
@@ -173,13 +176,34 @@ export function PlanScreen() {
                       >
                         {ex.name}{" "}
                         <span className="text-muted-foreground">
-                          {ex.targetSets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
+                          {sets}×{ex.repMin === ex.repMax ? ex.repMin : `${ex.repMin}–${ex.repMax}`} ·{" "}
                           {fmtKg(state.targets[exId] ?? 0)}
                         </span>
                       </button>
                       <div className="px-1">
                         <MuscleTags exercise={ex} />
                       </div>
+                    </div>
+                    <div className="flex shrink-0 items-center" title="Serie robocze w tym dniu">
+                      <button
+                        type="button"
+                        onClick={() => store.setDaySets(day.id, ex.id, sets - 1)}
+                        className="p-1 text-muted-foreground disabled:opacity-30"
+                        disabled={sets <= 1}
+                        aria-label={`Mniej serii: ${ex.name}`}
+                      >
+                        <Minus size={13} />
+                      </button>
+                      <span className="w-4 text-center tabular-nums text-muted-foreground">{sets}</span>
+                      <button
+                        type="button"
+                        onClick={() => store.setDaySets(day.id, ex.id, sets + 1)}
+                        className="p-1 text-muted-foreground disabled:opacity-30"
+                        disabled={sets >= 10}
+                        aria-label={`Więcej serii: ${ex.name}`}
+                      >
+                        <Plus size={13} />
+                      </button>
                     </div>
                     <button type="button" onClick={() => moveExercise(day.id, idx, -1)} className="p-1 text-muted-foreground disabled:opacity-30" disabled={idx === 0} aria-label="W górę">
                       <ArrowUp size={13} />

@@ -618,3 +618,73 @@ Cztery zadania, każde osobnym commitem:
   kropek) i raport tygodniowy („4 z 3 zaplanowanych") wyglądały na zepsute. Bonus
   nigdy nie jest wymagany do pełnego tygodnia (`done >= planned` nie liczy bonusu)
   ani nie wpływa na rekomendację „Najpierw domknij regularność".
+
+---
+
+## 17. Sesja 07.08.2026 — podwójna progresja domknięta (3 zgłoszenia Kamila)
+
+Trzy nieścisłości ze zrzutów ekranu. Wspólny mianownik: apka liczyła progresję
+poprawnie, ale **logger i komunikaty przeczyły temu, co policzyła** — prefill kazał
+od razu powtarzać komplet na cięższej sztandze, a licznik zastoju nie widział
+przyrostu powtórzeń.
+
+### Zgłoszenie 1 — „Dodana seria ma zostać w planie tego dnia"
+- **Było:** „Dodaj serię" dokładało serię tylko do bieżącego draftu; w przyszłym
+  tygodniu dzień wracał do `ex.targetSets` z bazy ćwiczeń.
+- **Model danych:** nowe `WorkoutDay.setsOverride?: Record<exId, number>` (`types.ts`).
+  **Nadpisanie jest PER DZIEŃ, nie globalne na ćwiczeniu** — dzień bonusowy dzieli
+  z planem głównym te same pozycje, więc dołożenie serii w „Treningu 1" nie może
+  po cichu rozdmuchać bonusu. Bez bumpa `SCHEMA_VERSION` (pole opcjonalne).
+- **Logika:** `plannedSets(day, ex)` i `exerciseForDay(ex, day)` w `logic.ts`
+  (`exerciseForDay` podmienia `targetSets`, wynik idzie do `computeProgression`/
+  `failedAtRirZero`). `weeklyMuscleVolume` liczy `plannedSets(day, ex)` zamiast
+  `ex.targetSets`, więc objętość tygodniowa i `volumeProgressionSuggestions`
+  (P4-5) same się dostrajają.
+- **Store:** `setDaySets(dayId, exerciseId, sets)`; wartość równa `ex.targetSets`
+  KASUJE nadpisanie (plan zostaje czysty, późniejsza zmiana bazy znów działa).
+- **UI:** `TrainScreen.addSet` zapisuje nową liczbę serii do planu dnia + toast
+  („od teraz N serie w dniu …"). `PlanScreen` dostał stepper −/N/+ per ćwiczenie
+  per dzień. **Świadoma asymetria: `removeSet` NIE zapisuje się do planu** —
+  gorszy dzień (zmęczenie, siłownia zamykana) nie może po cichu okroić programu;
+  trwałe zmniejszenie robi się w Planie. Deload (`mode === "deload"`, ma celowo
+  serię mniej) i ćwiczenie podmienione w drafcie nigdy nie ruszają planu.
+- **Konsekwencja dla progresji (zamierzona):** 4 serie w planie = ciężar rośnie
+  dopiero przy 4× górny limit, nie 3×.
+
+### Zgłoszenie 2 i 3 — „Po skoku ciężaru ma wskoczyć dolna granica powtórzeń"
+- **Tak, to jest poprawna reguła** — i tego właśnie brakowało. `computeProgression`
+  liczyło dobrze i pisało „wracasz do 10 powt.", ale logger i tak wypełniał serie
+  `repMax` (`TrainScreen.startDay`, stary komentarz „dążymy do maksimum powtórzeń”).
+  Komunikat i pole przeczyły sobie nawzajem — stąd wrażenie, że „nie ma podwójnej
+  progresji".
+- **Fix:** `prefillRepsForEntry(state, ex, modeEx, targetWeight, setCount)` w `logic.ts`:
+  1. `targetWeight` wyższy niż na ostatnim treningu → ciężar wskoczył → **`repMin`**
+     (dolna granica, przez kolejne tygodnie dokładasz powtórzenia do `repMax`);
+  2. ciężar bez zmian → **powtórzenia z ostatniego treningu, seria po serii**,
+     przycięte do zakresu bieżącego trybu (12/11 wraca jako 12/11 — masz pobić
+     swój wynik, nie zgadywać go od zera);
+  3. brak historii → `repMin`.
+  Tygodnie deloadu są pomijane jako punkt odniesienia (65% ciężaru fałszywie
+  wyglądałoby jak „ciężar właśnie wzrósł" przy powrocie do normalnych obciążeń).
+  Używane w `startDay` ORAZ `swapExercise`.
+
+### Zgłoszenie 3b — „Zrobiłem 12 powtórzeń, a apka pisze zastój"
+- **Root cause:** `detectPlateau` porównywało WYŁĄCZNIE `topWeight` i e1RM
+  **najlepszej serii**. Przy zakresie 10–12 seria szczytowa stoi na 12 przez cały
+  czas budowania powtórzeń w pozostałych seriach, więc 12/10 → 12/11 → 12/12 dawało
+  trzy identyczne e1RM = „zastój" — dokładnie w treningu, który domknął progresję
+  i podniósł ciężar.
+- **Fix:** nowy `progressionPoints()` ocenia każdą z 3 ostatnich sesji w JEJ
+  trybie tygodnia i przy JEJ liczbie serii roboczych (`exerciseForDay`). Zastojem
+  **nie jest**: (a) ostatni trening z kompletem powtórzeń (`allAtTop` — ciężar
+  rośnie w następnym treningu), (b) przyrost sumy powtórzeń w seriach roboczych
+  w oknie 3 treningów, (c) okno zawierające tydzień deloadu. Reszta reguły
+  (ten sam ciężar + e1RM w ±1%) bez zmian.
+
+**Testy:** 26 nowych w `tests/logic.test.ts` (`plannedSets`/`exerciseForDay`/
+override per dzień/objętość, 5× `detectPlateau` łącznie ze scenariuszem ze zrzutu,
+6× `prefillRepsForEntry`). Zweryfikowane też end-to-end w Chromium na zbudowanym
+`docs/index.html`: scenariusz Kamila (17,5×12/11 · 17,5×12/11 → dziś 12/12) daje
+„nowy ciężar 18.75 kg, wracasz do 10 powt." BEZ banera zastoju, następny trening
+startuje z 10/10, a „Dodaj serię" zapisuje `setsOverride: {curl_bb: 3}` w `mon`
+zostawiając `bonus` nietknięty.

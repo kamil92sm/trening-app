@@ -34,6 +34,8 @@ import {
   weeksSinceDeload,
   lastEntries,
   fmtLastEntries,
+  plannedSets,
+  prefillRepsForEntry,
   type LastEntry,
   type PersonalBests,
 } from "@/lib/logic";
@@ -105,8 +107,11 @@ const MODE_BADGE: Record<TrainingMode, { label: string; short: string; color: st
 
 // P2-8: deload dobija o jedna serie robocza mniej (min. 2), zeby objetosc
 // spadala tez przez serie, nie tylko przez ciezar. Inne tryby bez zmian.
-function setsForMode(ex: Exercise, mode: TrainingMode): number {
-  return mode === "deload" ? Math.max(2, ex.targetSets - 1) : ex.targetSets;
+// Baza to liczba serii z planu TEGO dnia (`day.setsOverride`), nie globalne
+// `ex.targetSets` - seria dolozona przyciskiem "Dodaj serie" zostaje w planie.
+function setsForMode(ex: Exercise, mode: TrainingMode, day?: WorkoutDay): number {
+  const planned = plannedSets(day, ex);
+  return mode === "deload" ? Math.max(2, planned - 1) : planned;
 }
 
 function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
@@ -412,16 +417,15 @@ export function TrainScreen() {
         if (!ex || ex.archived) return null;
         const hEx = exerciseForMode(ex, mode);
         const target = targetForMode(state, ex, mode);
+        const count = setsForMode(ex, mode, day);
+        // Podwójna progresja: po skoku ciężaru prefill wraca na DÓŁ zakresu,
+        // przy tym samym ciężarze podpowiada wynik z ostatniego treningu
+        // (masz go pobić). Szczegóły: logic.ts → prefillRepsForEntry.
+        const reps = prefillRepsForEntry(state, ex, hEx, target, count);
         return {
           exerciseId: exId,
           targetWeight: target,
-          sets: Array.from({ length: setsForMode(ex, mode) }, () => ({
-            weight: target,
-            // Prefill górnym limitem zakresu (dla trybu tygodnia) — dążymy do
-            // maksimum powtórzeń, więc częściej trafisz od razu.
-            reps: hEx.repMax,
-            done: false,
-          })),
+          sets: reps.map((r) => ({ weight: target, reps: r, done: false })),
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
@@ -500,7 +504,9 @@ export function TrainScreen() {
       const totalEntries = draft?.entries.length ?? 0;
       const draftMode = draft?.mode;
       if (layout === "focus" && entryIdx === focusIdx && exerciseNowComplete && entryIdx < totalEntries - 1 && draftMode) {
-        const lastWorkingIdx = ex ? setsForMode(ex, draftMode) - 1 : -1;
+        const lastWorkingIdx = ex
+          ? setsForMode(ex, draftMode, state.days.find((d) => d.id === draft?.dayId)) - 1
+          : -1;
         const rirAnswered = lastWorkingIdx >= 0 ? sets[lastWorkingIdx]?.rir !== undefined : false;
         if (draftMode === "deload" || rirAnswered) {
           scheduleVisibleAdvance(entryIdx);
@@ -551,8 +557,30 @@ export function TrainScreen() {
       sets.push({ weight: last?.weight ?? 0, reps: last?.reps ?? 0, done: false });
       return next;
     });
+
+    // Seria dołożona w loggerze zostaje w planie TEGO dnia na stałe — od
+    // następnego tygodnia dzień startuje już z tą liczbą serii i tyle serii
+    // musi trafić w górny limit, żeby ciężar wskoczył (podwójna progresja).
+    // Liczone poza updaterem setDraft: ten musi zostać czysty (StrictMode
+    // wywołuje go dwa razy w dev), a store.setDaySets to efekt uboczny.
+    if (!draft || draft.mode === "deload") return; // deload celowo ma serię mniej — nie dotyka planu
+    const entry = draft.entries[entryIdx];
+    const ex = entry && state.exercises.find((e) => e.id === entry.exerciseId);
+    const day = state.days.find((d) => d.id === draft.dayId);
+    if (!ex || !day || !day.exerciseIds.includes(ex.id)) return; // podmienione ćwiczenie = tylko ta sesja
+    const newCount = entry.sets.length + 1;
+    if (newCount <= plannedSets(day, ex)) return;
+    store.setDaySets(day.id, ex.id, newCount);
+    toast(
+      "Seria dodana do planu",
+      `${ex.name}: od teraz ${newCount} serie w dniu „${day.name}". Zmienisz to w Planie.`
+    );
   }
 
+  // Usunięcie serii dotyczy TYLKO tej sesji — plan zostaje. Świadoma
+  // asymetria względem addSet: gorszy dzień (zmęczenie, siłownia zamykana)
+  // nie może po cichu okroić programu na stałe. Trwałe zmniejszenie liczby
+  // serii robi się w Planie.
   function removeSet(entryIdx: number, setIdx: number) {
     setDraft((prev) => {
       if (!prev) return prev;
@@ -581,17 +609,16 @@ export function TrainScreen() {
     if (!newEx) return;
     const hEx = exerciseForMode(newEx, mode);
     const target = targetForMode(state, newEx, mode);
+    const swapDay = state.days.find((d) => d.id === draft?.dayId);
+    const count = setsForMode(newEx, mode, swapDay);
+    const reps = prefillRepsForEntry(state, newEx, hEx, target, count); // ta sama reguła co przy starcie dnia
     setDraft((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next.entries[entryIdx] = {
         exerciseId: newExId,
         targetWeight: target,
-        sets: Array.from({ length: setsForMode(newEx, mode) }, () => ({
-          weight: target,
-          reps: hEx.repMax, // górny limit zakresu (dla trybu tygodnia), jak przy starcie dnia
-          done: false,
-        })),
+        sets: reps.map((r) => ({ weight: target, reps: r, done: false })),
       };
       return next;
     });
@@ -1232,7 +1259,7 @@ export function TrainScreen() {
                   // P4-4: pytamy o RIR TYLKO po ostatniej serii ROBOCZEJ (nie po
                   // każdej, nie po dodatkowych seriach z "Dodaj serię") i tylko
                   // gdy progresja w ogóle liczy się w tym trybie (deload - nie).
-                  const isLastWorkingSet = si === setsForMode(ex, draft.mode) - 1;
+                  const isLastWorkingSet = si === setsForMode(ex, draft.mode, day) - 1;
                   return (
                   <div key={si}>
                   <div
@@ -1296,7 +1323,7 @@ export function TrainScreen() {
                     >
                       <Check size={16} />
                     </button>
-                    {si >= setsForMode(ex, draft.mode) && (
+                    {si >= setsForMode(ex, draft.mode, day) && (
                       <button
                         type="button"
                         onClick={() => removeSet(ei, si)}

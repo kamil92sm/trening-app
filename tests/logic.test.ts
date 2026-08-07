@@ -40,6 +40,9 @@ import {
   estimateGoalEta,
   mesocycleWeek,
   volumeProgressionSuggestions,
+  plannedSets,
+  exerciseForDay,
+  prefillRepsForEntry,
   type HistoryPoint,
 } from "../src/lib/logic";
 import {
@@ -2269,6 +2272,198 @@ check(
   );
 
   check("sessionsToCsv: pusta historia -> tylko naglowek", sessionsToCsv(defaultState()).slice(1).split("\r\n").length === 1);
+}
+
+// ── Serie robocze per dzien (day.setsOverride) ─────────────────────────────
+{
+  const curl = SEED_EXERCISES.find((e) => e.id === "curl_bb")!;
+  const mon = SEED_DAYS.find((d) => d.id === "mon")!;
+
+  check("plannedSets: brak override -> targetSets z bazy", plannedSets(mon, curl) === curl.targetSets);
+  check("plannedSets: brak dnia -> targetSets z bazy", plannedSets(undefined, curl) === curl.targetSets);
+
+  const dayWith = { ...mon, setsOverride: { curl_bb: 4 } };
+  check("plannedSets: override dnia wygrywa", plannedSets(dayWith, curl) === 4);
+  check("plannedSets: override nie przecieka na inne cwiczenie", plannedSets(dayWith, bench) === bench.targetSets);
+  const bonus = SEED_DAYS.find((d) => d.id === "bonus")!;
+  check("plannedSets: override jest PER DZIEN (bonus nietkniety)", plannedSets(bonus, curl) === curl.targetSets);
+
+  check("exerciseForDay: podmienia targetSets", exerciseForDay(curl, dayWith).targetSets === 4);
+  check("exerciseForDay: bez override zwraca ten sam obiekt", exerciseForDay(curl, mon) === curl);
+
+  // Dolozona seria realnie podnosi prog podwojnej progresji: 3x12 przy planie
+  // 4 serii to juz NIE komplet, dopiero 4x12 podnosi ciezar.
+  const curl4 = exerciseForDay(curl, dayWith);
+  const three = computeProgression(curl4, 17.5, [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ]);
+  check("4 serie w planie: 3x12 -> hold (nie komplet)", three.status === "hold", three);
+  const four = computeProgression(curl4, 17.5, [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ]);
+  check("4 serie w planie: 4x12 -> +1.25 kg", four.status === "up" && four.nextWeight === 18.75, four);
+
+  // Objetosc tygodniowa liczy z planu DNIA, nie z globalnego targetSets.
+  const stSets = defaultState();
+  const bicepsBefore = weeklyMuscleVolume(stSets).find((v) => v.muscle === "Biceps")!.direct;
+  stSets.days.find((d) => d.id === "mon")!.setsOverride = { curl_bb: 4 };
+  const bicepsAfter = weeklyMuscleVolume(stSets).find((v) => v.muscle === "Biceps")!.direct;
+  check("weeklyMuscleVolume: override dnia dolicza serie", bicepsAfter === bicepsBefore + 2, {
+    bicepsBefore,
+    bicepsAfter,
+  });
+}
+
+// ── detectPlateau: koniec falszywych alarmow ───────────────────────────────
+{
+  const curlSession = (id: string, date: string, reps: number[], mode?: Session["mode"]): Session => ({
+    id,
+    dayId: "mon",
+    date,
+    completed: true,
+    mode,
+    entries: [
+      {
+        exerciseId: "curl_bb",
+        targetWeight: 17.5,
+        sets: reps.map((r) => ({ weight: 17.5, reps: r, done: true })),
+      },
+    ],
+  });
+
+  // Zgloszenie Kamila: 12/12 domyka podwojna progresje (ciezar rosnie w nastepnym
+  // treningu), a apka i tak pisala "zastoj" - bo patrzyla wylacznie na e1RM
+  // najlepszej serii, ktore przy 12 powtorzeniach nie drgnelo.
+  const stTop = defaultState();
+  stTop.sessions = [
+    curlSession("c1", "2026-07-01", [12, 11]),
+    curlSession("c2", "2026-07-08", [12, 11]),
+    curlSession("c3", "2026-07-15", [12, 12]),
+  ];
+  check("detectPlateau: komplet powtorzen w ostatnim treningu to NIE zastoj", !detectPlateau(stTop, "curl_bb"));
+
+  // Powtorzenia rosna w seriach roboczych (22 -> 22 -> 23) mimo tego samego
+  // szczytu 12 - to progres, nie zastoj.
+  const stReps = defaultState();
+  stReps.sessions = [
+    curlSession("r1", "2026-07-01", [12, 10]),
+    curlSession("r2", "2026-07-08", [12, 10]),
+    curlSession("r3", "2026-07-15", [12, 11]),
+  ];
+  check("detectPlateau: przyrost powtorzen to NIE zastoj", !detectPlateau(stReps, "curl_bb"));
+
+  // Realny zastoj: ten sam ciezar, te same powtorzenia, trzeci raz z rzedu.
+  const stFlat = defaultState();
+  stFlat.sessions = [
+    curlSession("f1", "2026-07-01", [12, 10]),
+    curlSession("f2", "2026-07-08", [12, 10]),
+    curlSession("f3", "2026-07-15", [12, 10]),
+  ];
+  check("detectPlateau: 3x identyczny wynik -> zastoj", detectPlateau(stFlat, "curl_bb"));
+
+  // Tydzien deloadu w oknie to celowo lzejszy tydzien, nie brak postepu.
+  const stDeload = defaultState();
+  stDeload.sessions = [
+    curlSession("d1", "2026-07-01", [12, 10]),
+    curlSession("d2", "2026-07-08", [12, 10], "deload"),
+    curlSession("d3", "2026-07-15", [12, 10]),
+  ];
+  check("detectPlateau: deload w oknie -> brak zastoju", !detectPlateau(stDeload, "curl_bb"));
+
+  const stShort = defaultState();
+  stShort.sessions = [curlSession("s1", "2026-07-01", [12, 10]), curlSession("s2", "2026-07-08", [12, 10])];
+  check("detectPlateau: 2 treningi to za malo danych", !detectPlateau(stShort, "curl_bb"));
+}
+
+// ── prefillRepsForEntry: podwojna progresja w loggerze ─────────────────────
+{
+  const curl = SEED_EXERCISES.find((e) => e.id === "curl_bb")!; // 10-12 powt., 2 serie
+  const curlSession = (id: string, date: string, weight: number, reps: number[], mode?: Session["mode"]): Session => ({
+    id,
+    dayId: "mon",
+    date,
+    completed: true,
+    mode,
+    entries: [
+      {
+        exerciseId: "curl_bb",
+        targetWeight: weight,
+        sets: reps.map((r) => ({ weight, reps: r, done: true })),
+      },
+    ],
+  });
+
+  check(
+    "prefill: brak historii -> dol zakresu",
+    JSON.stringify(prefillRepsForEntry(defaultState(), curl, curl, 17.5, 2)) === JSON.stringify([10, 10])
+  );
+
+  // Sedno zgloszenia: po skoku ciezaru logger NIE moze podstawiac repMax.
+  const stUp = defaultState();
+  stUp.sessions = [curlSession("u1", "2026-07-08", 17.5, [12, 12])];
+  check(
+    "prefill: po skoku ciezaru wracasz na DOL zakresu",
+    JSON.stringify(prefillRepsForEntry(stUp, curl, curl, 18.75, 2)) === JSON.stringify([10, 10]),
+    prefillRepsForEntry(stUp, curl, curl, 18.75, 2)
+  );
+
+  const stSame = defaultState();
+  stSame.sessions = [curlSession("h1", "2026-07-08", 17.5, [12, 11])];
+  check(
+    "prefill: ten sam ciezar -> wynik z ostatniego treningu (masz go pobic)",
+    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 2)) === JSON.stringify([12, 11]),
+    prefillRepsForEntry(stSame, curl, curl, 17.5, 2)
+  );
+
+  check(
+    "prefill: wiecej serii niz w historii -> ostatnia znana wartosc",
+    JSON.stringify(prefillRepsForEntry(stSame, curl, curl, 17.5, 3)) === JSON.stringify([12, 11, 11])
+  );
+
+  // Zmiana trybu tygodnia przycina wynik do zakresu NOWEGO trybu.
+  const stClamp = defaultState();
+  stClamp.sessions = [
+    {
+      id: "cl1",
+      dayId: "mon",
+      date: "2026-07-08",
+      completed: true,
+      mode: "hypertrophy",
+      entries: [
+        {
+          exerciseId: "bench_bb",
+          targetWeight: 45,
+          sets: [
+            { weight: 45, reps: 12, done: true },
+            { weight: 45, reps: 12, done: true },
+            { weight: 45, reps: 12, done: true },
+          ],
+        },
+      ],
+    },
+  ];
+  check(
+    "prefill: powrot na sile przycina 12 powt. do repMax=8",
+    JSON.stringify(prefillRepsForEntry(stClamp, bench, bench, 45, 3)) === JSON.stringify([8, 8, 8]),
+    prefillRepsForEntry(stClamp, bench, bench, 45, 3)
+  );
+
+  // Tydzien deloadu (65% ciezaru) nie moze udawac, ze ciezar wlasnie wskoczyl.
+  const stAfterDeload = defaultState();
+  stAfterDeload.sessions = [
+    curlSession("ad1", "2026-07-01", 17.5, [12, 11]),
+    curlSession("ad2", "2026-07-08", 11.25, [12, 12], "deload"),
+  ];
+  check(
+    "prefill: deload pomijany jako punkt odniesienia",
+    JSON.stringify(prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)) === JSON.stringify([12, 11]),
+    prefillRepsForEntry(stAfterDeload, curl, curl, 17.5, 2)
+  );
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

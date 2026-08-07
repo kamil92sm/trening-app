@@ -58,6 +58,13 @@ export interface WorkoutDay {
   optional?: boolean;
   active?: boolean;
   accent?: string;
+  /**
+   * Liczba serii roboczych per ćwiczenie TYLKO w tym dniu (klucz = `Exercise.id`).
+   * Brak wpisu = `Exercise.targetSets`. Dzięki temu "Dodaj serię" w loggerze
+   * zapisuje się do planu TEGO dnia, nie wszystkich dni z tym ćwiczeniem
+   * (bonus dzieli z planem głównym wszystkie 6 pozycji).
+   */
+  setsOverride?: Record<string, number>;
 }
 
 export interface SetLog {
