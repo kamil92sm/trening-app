@@ -239,7 +239,8 @@ export function actualWeeklyMuscleVolume(
       // sesję). Seria urwana na 4 powtórzeniach przy zakresie 10-12 nie jest
       // bodźcem hipertroficznym i zawyżała metrykę.
       const workingRepMin = exerciseForMode(ex, sessionMode).repMin;
-      const doneSets = entry.sets.filter((s) => s.done && s.reps >= workingRepMin).length;
+      const workingSets = entry.sets.filter((s) => s.done && s.reps >= workingRepMin);
+      const doneSets = workingSets.length;
       if (doneSets === 0) continue;
       const tonnage = entryVolume(ex, entry);
       if (ex.primaryMuscle) {
@@ -250,7 +251,10 @@ export function actualWeeklyMuscleVolume(
         if (ex.isHold) {
           a.hold += doneSets;
         } else {
-          a.zero += entry.sets.filter((s) => s.done && s.weight === 0).length;
+          // Liczone z tych samych serii co `sets` — inaczej wyjaśnienie
+          // „N serii z masą własną" mogłoby podać liczbę wyższą niż sam licznik
+          // serii tej partii (seria urwana poniżej repMin nie wchodzi do żadnego).
+          a.zero += workingSets.filter((s) => s.weight === 0).length;
         }
       }
       for (const m of ex.secondaryMuscles ?? []) {
@@ -703,18 +707,31 @@ export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
     // Zakres powtórzeń zostaje bazowy — schodzisz OBJĘTOŚCIĄ (patrz
     // DELOAD_LOAD_FACTOR / deloadSets), nie powtórzeniami. Przy ~90% ciężaru
     // te same powtórzenia zostawiają ok. 2 więcej w zapasie, stąd rir + 2.
-    return { ...ex, rir: ex.rir + 2 };
+    // Sufit 4: wyżej liczba przestaje nieść informację (to już po prostu
+    // "bardzo lekko"), a licznik RIR w loggerze i tak kończy się na "3+".
+    // Czysto wyświetlane — w deloadzie progresja jest wyłączona, więc ta
+    // wartość nie wchodzi do żadnego rachunku.
+    return { ...ex, rir: Math.min(4, ex.rir + 2) };
   }
   if (ex.isHold) return ex;
+  // Hipertrofia = o JEDEN krok bliżej granicy niż baza TEGO ćwiczenia, nie
+  // sztywne RIR 1. Sztywna jedynka była poprawna, dopóki cała baza stała na
+  // RIR 2; po kalibracji (seed.ts: defaultRir) kasowałaby cały margines
+  // bezpieczeństwa dużych ruchów osiowych — przysiad schodziłby z RIR 3 na 1,
+  // czyli na serie po 12 powtórzeń o włos od upadku. Teraz:
+  //   izolacja  1 → 0 (do granicy — tanio i zgodnie z danymi)
+  //   compound  2 → 1 (jak dotąd)
+  //   osiowe    3 → 2 (margines zostaje)
+  const rir = Math.max(0, ex.rir - 1);
   if (ex.id === "deadlift") {
     // Wyjątek bezpieczeństwa: klasyczny MC nie schodzi na wysokie powtórzenia
     // blisko upadku — nota "UWAGA NA PLECY" w seedzie zostaje aktualna.
-    return { ...ex, repMin: 6, repMax: 8, rir: 2 };
+    return { ...ex, repMin: 6, repMax: 8, rir };
   }
   if (ex.repMax <= 8) {
-    return { ...ex, repMin: 8, repMax: 12, rir: 1 };
+    return { ...ex, repMin: 8, repMax: 12, rir };
   }
-  return { ...ex, rir: 1 };
+  return { ...ex, rir };
 }
 
 /** Odwrócony wzór Epleya — ciężar, przy którym `reps` powtórzeń zostawia ~`rir` w zapasie. */
@@ -770,8 +787,15 @@ export function deloadSets(plannedSetCount: number): number {
  */
 export function deloadTargetFor(state: AppState, ex: Exercise): number {
   const strengthTarget = state.targets[ex.id] ?? 0;
+  // Ćwiczenia na czas (plank): obciążenie zostaje, deload robi połowa serii.
+  // Skok obciążenia jest tu zgrubny (plank: +5 kg przy celu 10 kg), więc każde
+  // "obniżenie" oznaczałoby -50% — a to już nie deload, tylko inne ćwiczenie.
+  if (ex.isHold) return strengthTarget;
   const inc = ex.increment > 0 ? ex.increment : 0.5;
-  return Math.round((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
+  // W DÓŁ, nie do najbliższego: przy zgrubnym kroku (np. cel 10 kg, krok 2,5)
+  // zaokrąglenie do najbliższego wracało na 100% celu i tydzień deloadu wcale
+  // nie schodził z ciężaru. Teraz wynik nigdy nie przekracza DELOAD_LOAD_FACTOR.
+  return Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */

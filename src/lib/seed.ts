@@ -972,6 +972,16 @@ export function computeRestoredDayPlan(state: AppState, dayId: string): AppState
     }
   }
 
-  const days = state.days.map((d) => (d.id === dayId ? { ...d, exerciseIds: [...seedDay.exerciseIds] } : d));
+  const days = state.days.map((d) => {
+    if (d.id !== dayId) return d;
+    // Liczba serii to część PLANU dnia, więc wraca do wartości z seeda razem
+    // ze składem ćwiczeń (inaczej „przywróć plan" zostawiałoby ręczne 7 serii
+    // przysiadu w odtworzonym dniu). `targets` to co innego — wypracowana
+    // progresja, celowo nietknięta.
+    const next: WorkoutDay = { ...d, exerciseIds: [...seedDay.exerciseIds] };
+    if (seedDay.setsOverride) next.setsOverride = { ...seedDay.setsOverride };
+    else delete next.setsOverride;
+    return next;
+  });
   return { ...state, exercises, days, targets };
 }

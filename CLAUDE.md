@@ -831,3 +831,70 @@ przestrojone, bo `mon` niesie teraz nadpisanie w seedzie — bazą „bez nadpis
 jest tam `bench_bb`. Zweryfikowane w Chromium: stan sprzed zmiany po wczytaniu
 dostaje suwnicę na 3. pozycji z celem 120 kg, a „Trening 2" startuje z 22 seriami
 zamiast 18.
+
+---
+
+## 20. Sesja 07.08.2026 (IV) — audyt weryfikacyjny całości
+
+Pełny przegląd po §17–19 na prośbę Kamila. Testy jednostkowe i tak przechodziły,
+więc audyt szedł NIEZALEŻNYMI ścieżkami: skrypty liczące silnik na wszystkich
+90 ćwiczeniach i we wszystkich trybach, symulacja 10 tygodni progresji, przebieg
+wszystkich ścieżek `migrateState`, round-trip backupu i E2E w Chromium na
+zbudowanym `docs/index.html`. **Znalazł 4 realne błędy — wszystkie z §18/§19.**
+
+### 20.1 Hipertrofia kasowała margines bezpieczeństwa dużych ruchów (NAJWAŻNIEJSZY)
+`exerciseForMode(ex, "hypertrophy")` ustawiał **sztywne `rir: 1`**. Było to poprawne,
+dopóki cała baza stała na RIR 2, ale po kalibracji z §18.2 oznaczało, że **przysiad
+schodził z RIR 3 na RIR 1** — serie po 12 powtórzeń o włos od upadku, dokładnie
+odwrotnie niż intencja kalibracji. Dotyczyło 6 z 7 ruchów osiowych (martwy ciąg
+miał własną gałąź i był bezpieczny).
+**Fix:** hipertrofia to KROK od bazy tego ćwiczenia — `Math.max(0, ex.rir - 1)`.
+Izolacja 1→0, compound 2→1 (bez zmian względem starej reguły), osiowe 3→2.
+
+### 20.2 Deload zaokrąglał ciężar W GÓRĘ do 100% celu
+`deloadTargetFor` używało `Math.round`, więc przy zgrubnym kroku obciążenia wynik
+wracał na pełny cel — **7 ćwiczeń nie schodziło z ciężaru w ogóle** (np. cel 10 kg
+przy kroku 2,5). **Fix:** `Math.floor` (wynik NIGDY nie przekracza
+`DELOAD_LOAD_FACTOR`) + `isHold` zostawia obciążenie bez zmian, bo przy kroku 5 kg
+na celu 10 kg każde obniżenie to −50%; deload planku robi połowa serii (4→2).
+
+### 20.3 „Przywróć plan dnia" nie przywracało liczby serii
+`computeRestoredDayPlan` resetowało `exerciseIds`, ale zostawiało `day.setsOverride`
+użytkownika — po przywróceniu dnia przysiad dalej miał ręczne 7 serii. Liczba serii
+jest częścią PLANU, więc wraca razem ze składem. `targets` (wypracowana progresja)
+nadal celowo nietknięte.
+
+### 20.4 `zeroLoadSets` liczyło serie spoza filtra serii roboczych
+Po zmianie z §18.4 wyjaśnienie „N serii z masą własną" mogło podać liczbę WYŻSZĄ
+niż sam licznik serii partii. Liczone teraz z tych samych serii co `sets`.
+
+### 20.5 Zgłoszenia, które okazały się NIE być błędami
+- **„Cofnij zakończenie" nie działa** — działa. Playwright domyślnie odrzuca
+  `confirm()`; po `dialog.accept()` sesja znika i cele wracają. Artefakt testu.
+- **Fałszywy zastój w E2E** — zastój był UCZCIWY: test logował prefill 1:1, czyli
+  powtarzał wynik sprzed tygodnia trzeci raz z rzędu (wznosy bokiem 15/15/12 →
+  15/15/10 → 15/15/12). Dokładnie to, co reguła ma wykrywać.
+- **Brak progresji w E2E** — również poprawne: powtórzenie wyniku nie domyka
+  zakresu, więc ciężar zostaje. To jest sedno zmiany z §17.
+- **Deload 86% na zakrokach** — granulacja kroku obciążenia (14 kg, krok 2 kg),
+  nie błąd; reguła gwarantuje tylko „nigdy powyżej 90%".
+
+### 20.6 Zweryfikowane bez zastrzeżeń
+- **Symulacja 10 tygodni** (uginanie bicepsa 3×10–12): 10/10/10 → … → 12/12/12
+  podnosi cel na 18,75 i prefill wraca na 10/10/10; drugi cykl kończy się na 20 kg.
+  Zastój NIE odpala ani razu, gdy powtórzenia rosną; przy 12/11/11 w kółko odpala
+  w 3. tygodniu. Deload zamraża cele i nie psuje prefillu po powrocie.
+- **Wszystkie ścieżki `migrateState`** (null/undefined/`{}`/tekst/v2/v5/stan Kamila):
+  brak wyjątków, idempotentne (3× migracja = ten sam wynik), zachowane cele, sesje,
+  waga, squash, token i `restSeconds`; usunięcie suwnicy przez użytkownika trwałe,
+  ręczne 5 serii i ręczny RIR 0 nienadpisane.
+- **Backup:** `setsOverride` i nowe flagi przechodzą round-trip; backup BEZ nowych
+  pól (starszy plik) importuje się i dostaje dosiew.
+- **E2E w Chromium:** 5 zakładek renderuje się bez błędów JS, komplet powtórzeń
+  podnosi 6 ciężarów i NIE pokazuje zastoju, cofnięcie czyści sesję i cele, następny
+  tydzień startuje z `repMin` dla wszystkich 6 pozycji, „Dodaj serię" zapisuje do
+  `mon` nie ruszając `bonus`, deload daje 88–89% ciężaru i połowę serii.
+
+**Testy:** 357 (dopisane m.in. przysiad w hipertrofii zachowuje RIR 2, sufit RIR 4
+w deloadzie, deload nigdy powyżej 90% dla ŻADNEGO ćwiczenia z bazy, isHold zostawia
+obciążenie).

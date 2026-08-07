@@ -1302,9 +1302,32 @@ check(
 );
 const lateralHyper = exerciseForMode(lateral, "hypertrophy");
 check(
-  "exerciseForMode: lateral 12-15 -> zakres bez zmian + RIR1",
-  lateralHyper.repMin === 12 && lateralHyper.repMax === 15 && lateralHyper.rir === 1,
+  "exerciseForMode: lateral 12-15 -> zakres bez zmian, izolacja o krok blizej granicy (1 -> 0)",
+  lateralHyper.repMin === 12 && lateralHyper.repMax === 15 && lateralHyper.rir === 0,
   lateralHyper
+);
+// Hipertrofia to KROK od bazy tego cwiczenia, nie sztywne RIR 1: duze ruchy
+// osiowe musza zachowac swoj margines (3 -> 2), inaczej przysiad schodzilby
+// na serie po 12 powtorzen o wlos od upadku.
+const squatEx = SEED_EXERCISES.find((e) => e.id === "squat")!;
+const squatHyper = exerciseForMode(squatEx, "hypertrophy");
+check(
+  "exerciseForMode: przysiad zachowuje margines w hipertrofii (RIR 3 -> 2, zakres 8-12)",
+  squatHyper.rir === 2 && squatHyper.repMin === 8 && squatHyper.repMax === 12,
+  squatHyper
+);
+check(
+  "exerciseForMode: compound bez zmian wzgledem poprzedniej reguly (bench 2 -> 1)",
+  exerciseForMode(bench, "hypertrophy").rir === 1
+);
+check(
+  "exerciseForMode: deload ma sufit RIR 4 (licznik w loggerze konczy sie na 3+)",
+  exerciseForMode(squatEx, "deload").rir === 4 && exerciseForMode(bench, "deload").rir === 4,
+  [exerciseForMode(squatEx, "deload").rir, exerciseForMode(bench, "deload").rir]
+);
+check(
+  "exerciseForMode: deload izolacji nie przekracza sufitu (1 -> 3)",
+  exerciseForMode(lateral, "deload").rir === 3
 );
 const plankHyper = exerciseForMode(plank, "hypertrophy");
 check(
@@ -1395,6 +1418,29 @@ check("deloadSets: 2 serie -> 1", deloadSets(2) === 1);
 check("deloadSets: 4 serie -> 2 (-50%)", deloadSets(4) === 2);
 check("deloadSets: nigdy ponizej 1", deloadSets(1) === 1);
 check("DELOAD_LOAD_FACTOR: intensywnosc zostaje wysoko", DELOAD_LOAD_FACTOR === 0.9);
+// Zaokraglenie W DOL: przy zgrubnym kroku zaokraglenie do najbliższego wracalo
+// na 100% celu i tydzien deloadu wcale nie schodzil z ciezaru.
+const stCoarse = defaultState();
+stCoarse.targets = { ...stCoarse.targets, fly_cable: 10 };
+const flyCable = SEED_EXERCISES.find((e) => e.id === "fly_cable")!;
+check(
+  "deloadTargetFor: cel 10 kg przy kroku 2,5 schodzi na 7,5 (nie zostaje na 10)",
+  deloadTargetFor(stCoarse, flyCable) === 7.5,
+  deloadTargetFor(stCoarse, flyCable)
+);
+{
+  const stAll = migrateState(null);
+  const overshoot = stAll.exercises.filter((e) => {
+    const target = stAll.targets[e.id] ?? 0;
+    return !e.isHold && target > 0 && deloadTargetFor(stAll, e) > target * DELOAD_LOAD_FACTOR + 1e-9;
+  });
+  check("deloadTargetFor: ZADNE cwiczenie nie przekracza 90% celu", overshoot.length === 0, overshoot.map((e) => e.name));
+}
+check(
+  "deloadTargetFor: isHold zostawia obciazenie (deload robi polowa serii)",
+  deloadTargetFor(defaultState(), plank) === (defaultState().targets.plank ?? 0),
+  deloadTargetFor(defaultState(), plank)
+);
 
 check("weeksSinceDeload: brak historii -> 0", weeksSinceDeload(defaultState()) === 0);
 const stWeeksA = defaultState();
