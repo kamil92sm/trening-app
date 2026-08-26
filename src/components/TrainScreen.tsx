@@ -105,6 +105,10 @@ interface RecordHit {
   exercise: Exercise;
   kind: "weight" | "e1rm" | "hold";
   value: number;
+  /** P7-6: obciążenie serii rekordowej — TYLKO dla kind==="hold" (plank).
+   *  Rekord planku to teraz para (czas, obciążenie), sama liczba sekund
+   *  gubiła połowę informacji. */
+  weight?: number;
 }
 
 // P2-8: wspolna etykieta/kolor trybu tygodnia - plakietka w loggerze, przelacznik, "Ostatnio".
@@ -123,8 +127,10 @@ function setsForMode(ex: Exercise, mode: TrainingMode, day?: WorkoutDay): number
   return mode === "deload" ? deloadSets(planned) : planned;
 }
 
-function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
-  if (kind === "hold") return `${value} s`;
+function fmtRecordHit(kind: RecordHit["kind"], value: number, weight?: number): string {
+  // P7-6: obciążenie dopisane, gdy niezerowe — rekord planku jest teraz parą
+  // (czas, obciążenie), sama liczba sekund gubiła połowę informacji.
+  if (kind === "hold") return weight ? `${value} s @ ${fmtKg(weight)}` : `${value} s`;
   return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
 }
 
@@ -501,7 +507,8 @@ export function TrainScreen() {
         if (kind) {
           const value = kind === "hold" ? finalSet.reps : kind === "weight" ? finalSet.weight : e1rm(finalSet.weight, finalSet.reps);
           const suffix = kind === "weight" ? ` × ${finalSet.reps}` : "";
-          toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10)}${suffix}`);
+          const weight = kind === "hold" ? finalSet.weight : undefined;
+          toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10, weight)}${suffix}`);
         }
       }
 
@@ -663,7 +670,16 @@ export function TrainScreen() {
         const kind = isSetRecord(ex, set, best);
         if (!kind) continue;
         const value = kind === "hold" ? set.reps : kind === "weight" ? set.weight : e1rm(set.weight, set.reps);
-        if (!top || value > top.value) top = { exercise: ex, kind, value };
+        const weight = kind === "hold" ? set.weight : undefined;
+        // P7-6: dla "hold" najlepsza seria SESJI to ta sama dominacja co
+        // personalBests — dłuższy czas wygrywa, przy remisie cięższe
+        // obciążenie (samo `value > top.value` gubiłoby wagę przy remisie sekund).
+        const better =
+          !top ||
+          (kind === "hold" && top.kind === "hold"
+            ? value > top.value || (value === top.value && (weight ?? 0) > (top.weight ?? 0))
+            : value > top.value);
+        if (better) top = { exercise: ex, kind, value, weight };
       }
       if (top) recordHits.push(top);
     }
@@ -768,7 +784,7 @@ export function TrainScreen() {
               {sessionRecords.map((r) => (
                 <div key={r.exercise.id} className="flex items-center justify-between text-xs">
                   <span>{r.exercise.name}</span>
-                  <span className="font-semibold text-amber-300">{fmtRecordHit(r.kind, Math.round(r.value * 10) / 10)}</span>
+                  <span className="font-semibold text-amber-300">{fmtRecordHit(r.kind, Math.round(r.value * 10) / 10, r.weight)}</span>
                 </div>
               ))}
             </CardContent>
