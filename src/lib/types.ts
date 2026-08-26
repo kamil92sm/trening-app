@@ -94,6 +94,12 @@ export interface Session {
   mode?: TrainingMode;
   /** Moment zakończenia (ISO) — `date` to moment STARTU. Brak = czas nieznany (stare sesje/historia startowa). */
   finishedAt?: string;
+  /** P7-4: moment PIERWSZEJ zaliczonej serii — realny start treningu. `date` to
+   * moment WEJŚCIA w dzień i bywa o godziny wcześniejszy (Kamil przegląda plan
+   * z wyprzedzeniem). Brak = stara sesja / czas nieznany, `sessionDuration`
+   * spada wtedy na `date` jak dawniej. NIGDY nie zastępuj `date` tym polem —
+   * `date` jest kluczem sortowania Historii i oknem tygodnia/cyklu. */
+  startedAt?: string;
   /** Check-in gotowości (opcjonalny, P2-4) — obie skale 1 (słabo) – 5 (świetnie/brak zakwasów). Każde pole niezależnie opcjonalne (P3-1). */
   readiness?: { sleep?: number; doms?: number };
 }

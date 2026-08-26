@@ -776,8 +776,8 @@ check(
 );
 
 // P1-10: czas trwania treningu
-function mkSessionAt(date: string, finishedAt?: string): Session {
-  return { id: "dur", dayId: "mon", date, completed: true, entries: [], finishedAt };
+function mkSessionAt(date: string, finishedAt?: string, startedAt?: string): Session {
+  return { id: "dur", dayId: "mon", date, completed: true, entries: [], finishedAt, startedAt };
 }
 check(
   "sessionDuration: liczy minuty (58 min)",
@@ -790,6 +790,37 @@ check(
 check(
   "sessionDuration: 5h -> null (za dlugo, apka zostawiona otwarta)",
   sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T15:00:00.000Z")) === null
+);
+
+// P7-4: czas liczony od startedAt (pierwsza zaliczona seria), nie od date
+// (moment wejscia w dzien, ktory bywa o godziny wczesniejszy).
+check(
+  "sessionDuration: liczy od startedAt, nie od date (75 min)",
+  sessionDuration(
+    mkSessionAt("2026-07-26T14:00:00.000Z", "2026-07-26T19:15:00.000Z", "2026-07-26T18:00:00.000Z")
+  ) === 75
+);
+check(
+  "sessionDuration: brak startedAt -> fallback na date (stare sesje, zachowanie jak dawniej)",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T10:58:00.000Z")) === 58
+);
+check(
+  "sessionDuration: startedAt pozniejsze niz finishedAt (cofniety zegar) -> null",
+  sessionDuration(
+    mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T10:30:00.000Z", "2026-07-26T11:00:00.000Z")
+  ) === null
+);
+check(
+  "sessionDuration: ponad 240 min liczone OD startedAt -> null",
+  sessionDuration(
+    mkSessionAt("2026-07-26T02:00:00.000Z", "2026-07-26T13:00:00.000Z", "2026-07-26T08:00:00.000Z")
+  ) === null // startedAt->finishedAt to 5h (300 min > 240) mimo ze date->finishedAt tez by dalo null
+);
+check(
+  "sessionDuration: date bardzo wczesnie, startedAt->finishedAt w limicie -> liczy poprawnie",
+  sessionDuration(
+    mkSessionAt("2026-07-26T06:00:00.000Z", "2026-07-26T19:15:00.000Z", "2026-07-26T18:00:00.000Z")
+  ) === 75 // date->finishedAt to 13h15min (byloby null), ale startedAt->finishedAt to 75 min
 );
 check(
   "sessionDuration: finishedAt przed date -> null",

@@ -532,13 +532,20 @@ export function sessionVolume(state: AppState, session: Session): number {
 }
 
 /**
- * Czas trwania treningu w minutach (`finishedAt` - `date`). `null`, gdy
+ * Czas trwania treningu w minutach (`finishedAt` - realny start). `null`, gdy
  * `finishedAt` nieznane (stare sesje, historia startowa) ALBO wynik > 240 min
  * (apka zostawiona otwarta na noc — lepiej "czas nieznany" niż bzdura).
+ *
+ * P7-4: realny start to `startedAt` (moment PIERWSZEJ zaliczonej serii), a nie
+ * `date` (moment WEJŚCIA w dzień) — Kamil bywa w planie na długo przed
+ * faktycznym treningiem, więc `date` dawało zawyżony, często >240-minutowy
+ * wynik i czas znikał całkowicie. Stare sesje bez `startedAt` liczą się
+ * dokładnie jak dawniej (fallback na `date`).
  */
 export function sessionDuration(session: Session): number | null {
   if (!session.finishedAt) return null;
-  const minutes = (new Date(session.finishedAt).getTime() - new Date(session.date).getTime()) / 60000;
+  const start = new Date(session.startedAt ?? session.date).getTime();
+  const minutes = (new Date(session.finishedAt).getTime() - start) / 60000;
   if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) return null;
   return Math.round(minutes);
 }

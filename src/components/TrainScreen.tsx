@@ -64,6 +64,10 @@ interface Draft {
   mode: TrainingMode;
   /** Check-in gotowości (P2-4) — opcjonalny, wpisany PRZED startem dnia na ekranie wyboru. */
   readiness?: { sleep?: number; doms?: number };
+  /** P7-4: moment PIERWSZEJ zaliczonej serii — ustawiane RAZ w updateSet. `date`
+   * to moment wejścia w dzień i bywa o godziny wcześniejszy, więc czas treningu
+   * (sessionDuration) liczy się od tego pola, nie od `date`. */
+  firstSetAt?: string;
 }
 
 function loadDraft(): Draft | null {
@@ -462,6 +466,10 @@ export function TrainScreen() {
       const next = structuredClone(prev);
       const set = next.entries[entryIdx].sets[setIdx];
       Object.assign(set, patch);
+      // P7-4: realny start treningu — od niego liczy się czas (nie od momentu
+      // wejścia w dzień, które bywa o godziny wcześniejsze). Ustawiane RAZ:
+      // odznaczenie pierwszej serii nie może cofać startu treningu.
+      if (patch.done === true && !next.firstSetAt) next.firstSetAt = new Date().toISOString();
       return next;
     });
     if (patch.done === true) {
@@ -666,6 +674,7 @@ export function TrainScreen() {
       entries: draft.entries,
       mode: draft.mode,
       readiness: draft.readiness,
+      startedAt: draft.firstSetAt,
     });
     setSummary(results.summaries);
     setUndoSnapshot(results.undo);
@@ -681,6 +690,7 @@ export function TrainScreen() {
       completed: true,
       mode: draft.mode,
       finishedAt: new Date().toISOString(),
+      startedAt: draft.firstSetAt,
     });
     setDraft(null);
 
@@ -731,11 +741,21 @@ export function TrainScreen() {
           const volume = sessionVolume(state, summarySession);
           const density = duration ? Math.round(volume / duration) : null;
           return (
-            <p className="text-sm text-muted-foreground">
-              {duration !== null && `${duration} min · `}
-              {fmtTonnage(volume)}
-              {density !== null && ` · ${density} kg/min`}
-            </p>
+            <>
+              <p className="text-sm text-muted-foreground">
+                {duration !== null && `${duration} min · `}
+                {fmtTonnage(volume)}
+                {density !== null && ` · ${density} kg/min`}
+              </p>
+              {/* P7-4: duration===null nie zawsze znaczy "brak danych" — czasem
+                  znaczy "ponad 4h od pierwszej serii". Bez tej linii cichy brak
+                  czasu wygląda jak awaria, nie jak świadomy limit. */}
+              {duration === null && summarySession.startedAt && (
+                <p className="text-xs text-muted-foreground/70">
+                  Czas nieznany — trening zaczęty ponad 4 h przed zakończeniem.
+                </p>
+              )}
+            </>
           );
         })()}
         {sessionRecords.length > 0 && (
