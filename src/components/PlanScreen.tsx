@@ -159,6 +159,24 @@ export function PlanScreen() {
                 )}
               </div>
             </CardHeader>
+            {(state.settings.gymProfiles ?? []).length > 0 && (
+              <div className="px-4 pb-1">
+                <Label className="text-[10px]">Siłownia tego dnia</Label>
+                <Select
+                  value={day.gymProfileId ?? ""}
+                  onChange={(e) =>
+                    store.updateDay({ ...day, gymProfileId: e.target.value || undefined })
+                  }
+                >
+                  <option value="">Well Fitness (domyślna)</option>
+                  {(state.settings.gymProfiles ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <CardContent className="space-y-1">
               {day.exerciseIds.map((exId, idx) => {
                 const ex = state.exercises.find((e) => e.id === exId);

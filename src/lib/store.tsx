@@ -27,10 +27,12 @@ import {
 } from "./seed";
 import {
   computeProgression,
+  dumbbellLadder,
   easyAtRirHigh,
   exerciseForDay,
   exerciseForMode,
   failedAtRirZero,
+  gymForDay,
   loggedWorkingWeight,
   weightVsReference,
   type ProgressionResult,
@@ -202,12 +204,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const priorSessions = [...state.sessions].filter((s) => s.completed).sort((a, b) => b.date.localeCompare(a.date));
         const summaries: FinishSummary[] = [];
         const sessionDay = state.days.find((d) => d.id === sessionData.dayId);
+        // P7-3: drabinka hantli siłowni PRZYPISANEJ DO DNIA (nie ad hoc wybranej
+        // na ten trening) — progresja i `targets` mają reprezentować "normalny"
+        // sprzęt tego dnia, niezależnie od tego, gdzie akurat ćwiczono raz.
+        const dayGymProfile = gymForDay(state, sessionDay);
+        const ladder = dumbbellLadder(state, dayGymProfile);
         // Cel ma się DOSTOSOWAĆ do ciężaru, który realnie poszedł (zgłoszenie
         // Kamila: na siłowni są hantle 22,5 a nie 22 — korekta w loggerze znaczy
-        // "innego po prostu nie ma"). WYJĄTEK: obca siłownia. Wtedy korekta mówi
-        // o TAMTYM sprzęcie, a nie o docelowym ciężarze — przeniesienie jej do
-        // `targets` zepsułoby progresję po powrocie (FEAT-1, §12).
-        const adaptTargetToLoggedWeight = !state.settings.activeGymProfileId;
+        // "innego po prostu nie ma"). WYJĄTEK: siłownia SESJI różni się od
+        // siłowni DNIA — czyli Kamil ręcznie przełączył się na inną niż zwykle
+        // (ad hoc, np. wyjazd). Wtedy korekta mówi o TAMTYM sprzęcie, a nie
+        // o docelowym ciężarze — przeniesienie jej do `targets` zepsułoby
+        // progresję po powrocie (FEAT-1, §12; P7-3 doprecyzowanie: siłownia
+        // przypisana do dnia to normalny sprzęt tego dnia, więc adaptacja MA
+        // działać tam, gdzie kiedyś działała `!activeGymProfileId`).
+        const sessionGymId = sessionData.gymProfileId ?? sessionDay?.gymProfileId;
+        const adaptTargetToLoggedWeight = sessionGymId === sessionDay?.gymProfileId;
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) continue;
@@ -271,7 +283,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               priorSessionFailedWithRir0,
               priorSessionEasyAtRir3,
               weightJustIncreased,
-              mixedWorkingWeights
+              mixedWorkingWeights,
+              ladder
             ),
           });
         }
@@ -504,6 +517,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rdlTargetFixed: true,
           rdlHyperTargetFixed: true,
           plankRangeSeeded: true,
+          gymLaddersSeeded: true,
+          dumbbellTargetsSnapped: true,
         });
       },
 

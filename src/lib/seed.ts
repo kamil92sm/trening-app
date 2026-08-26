@@ -2,6 +2,7 @@ import type {
   AppState,
   Category,
   Exercise,
+  GymProfile,
   Muscle,
   Session,
   Settings,
@@ -9,7 +10,13 @@ import type {
   WorkoutDay,
 } from "./types";
 import { HISTORICAL_SESSIONS } from "./history-seed";
-import { computeProgression } from "./logic";
+import {
+  computeProgression,
+  dumbbellLadder,
+  gymForDay,
+  isDumbbellSnappable,
+  snapLoadNearest,
+} from "./logic";
 
 export const SCHEMA_VERSION = 5;
 export const STORAGE_KEY = "trening-app-v2";
@@ -511,6 +518,10 @@ export const SEED_DAYS: WorkoutDay[] = [
     // świeżo, a maszyna jest bezpieczna po ciężkim przysiadzie i martwym.
     exerciseIds: ["squat", "deadlift", "leg_press", "incline_db", "lunges", "calf", "plank"],
     setsOverride: { calf: 4 },
+    // P7-3: ten dzień Kamil robi na drugiej stałej siłowni (hantle co 2 kg,
+    // nie 2,5) — stąd zakroki 14 kg i wyciskanie hantli skos 16 kg są
+    // POPRAWNE i nietknięte przez migrację snapDumbbellTargetsOnce niżej.
+    gymProfileId: "myfitness",
   },
   {
     id: "fri",
@@ -625,6 +636,24 @@ export const SEED_TARGETS: Record<string, number> = {
   farmer_walk: 24,
 };
 
+/**
+ * P7-3: drabinki hantli obu stałych siłowni Kamila (pon/pt vs śr — nie
+ * "wyjazd", to codzienny rozkład). ⚠️ WSTĘPNY DOMYSŁ — Kamil nie podał
+ * jeszcze dokładnych list ze stojaków, dlatego to pole jest edytowalne
+ * w Więcej → Siłownie i w Planie bez kolejnego builda.
+ */
+const LADDER_WELL_FITNESS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 40];
+const LADDER_MY_FITNESS_PLACE = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
+
+/** P7-3: druga stała siłownia Kamila — środa ("Trening 2"), hantle co 2 kg. */
+const MY_FITNESS_PLACE_PROFILE: GymProfile = {
+  id: "myfitness",
+  name: "My Fitness Place",
+  barWeight: 20,
+  plates: [25, 20, 15, 10, 5, 2.5, 1.25],
+  dumbbells: LADDER_MY_FITNESS_PLACE,
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   name: "Kamil",
   barWeight: 20,
@@ -633,6 +662,10 @@ export const DEFAULT_SETTINGS: Settings = {
   sound: true,
   autoBackup: false,
   loggerLayout: "list",
+  // P7-3: siłownia domowa = "Well Fitness" (pon/pt) — hantle co 2,5 kg
+  // w górnym zakresie (stąd 22,5/25 zamiast wyliczonych 22/24).
+  dumbbells: LADDER_WELL_FITNESS,
+  gymProfiles: [MY_FITNESS_PLACE_PROFILE],
 };
 
 /** Partia domyślna dla ćwiczeń użytkownika bez primaryMuscle */
@@ -1028,6 +1061,86 @@ function neutralizeDayLabelsOnce(state: AppState): AppState {
   return { ...neutralizeDayLabels(state), neutralDayLabelsSeeded: true };
 }
 
+/**
+ * P7-9/P7-3: poprawka celu stosowana do OBU zestawów naraz — siłowego
+ * (`targets`) i hipertroficznego (`hyperTargets`). Cele hipertrofii to
+ * w praktyce cele ROBOCZE (patrz `targetForMode`/`hyperTargetFor`, §5.7) —
+ * migracja, która ich nie rusza, jest dla trenującego w hipertrofii
+ * niewidoczna (dokładnie to, co się stało z `fixRdlTargetOnce` przed §P7-9).
+ * Zachowuje kształt `hyperTargets` — gdy stan wejściowy go nie miał, wynik
+ * też go nie ma (żaden pusty obiekt-śmieć).
+ */
+function mapTargets(state: AppState, fn: (id: string, weight: number) => number): AppState {
+  const targets: Record<string, number> = {};
+  for (const [id, w] of Object.entries(state.targets)) targets[id] = fn(id, w);
+  if (!state.hyperTargets) return { ...state, targets };
+  const hyperTargets: Record<string, number> = {};
+  for (const [id, w] of Object.entries(state.hyperTargets)) hyperTargets[id] = fn(id, w);
+  return { ...state, targets, hyperTargets };
+}
+
+/**
+ * P7-3: dosiew profilu "My Fitness Place" + `wed.gymProfileId` + drabinki
+ * domowej. `migrateState` w ścieżce "aktualny schemat" przykrywa seed
+ * tablicą `old.days`/`old.settings` (§13/§19 pułapka), więc sama zmiana
+ * `SEED_DAYS`/`DEFAULT_SETTINGS` nie dotarłaby do zapisanego stanu.
+ * Zachowawczy: profil dołóż TYLKO gdy go po `id` NIE MA (drugi przebieg nie
+ * duplikuje), `wed.gymProfileId` ustaw TYLKO gdy pusty (nie nadpisuj
+ * ręcznego wyboru w Planie), `settings.dumbbells` dołóż TYLKO gdy brak.
+ * Usunięcie profilu / wyczyszczenie drabinki przez użytkownika jest TRWAŁE —
+ * flaga blokuje powrót (ten sam wzorzec co `applyPlanVolumeBumpOnce`).
+ */
+function seedGymLadders(state: AppState): AppState {
+  const gymProfiles = state.settings.gymProfiles ?? [];
+  const hasMyFitness = gymProfiles.some((p) => p.id === MY_FITNESS_PLACE_PROFILE.id);
+  const settings = {
+    ...state.settings,
+    gymProfiles: hasMyFitness ? gymProfiles : [...gymProfiles, structuredClone(MY_FITNESS_PLACE_PROFILE)],
+    dumbbells: state.settings.dumbbells ?? LADDER_WELL_FITNESS,
+  };
+  const days = state.days.map((d) =>
+    d.id === "wed" && !d.gymProfileId ? { ...d, gymProfileId: MY_FITNESS_PLACE_PROFILE.id } : d
+  );
+  return { ...state, settings, days };
+}
+
+function seedGymLaddersOnce(state: AppState): AppState {
+  if (state.gymLaddersSeeded) return state;
+  return { ...seedGymLadders(state), gymLaddersSeeded: true };
+}
+
+/**
+ * P7-3: jednorazowo dociąga ISTNIEJĄCE cele hantlowe do drabinki ICH DNIA —
+ * bez tego apka dalej proponowałaby "cel 22 kg" (wiosłowanie hantlem) czy
+ * "nowy ciężar 24,5" (RDL) mimo że drabinka jest już w stanie. Uruchamiane
+ * PO `seedGymLaddersOnce`, żeby `wed.gymProfileId` i profil już istniały.
+ *
+ * Jednoznaczna TYLKO gdy ćwiczenie stoi w dniu/dniach o TEJ SAMEJ siłowni —
+ * kilka dni o różnych siłowniach = pomiń (nie ma jednego "właściwego"
+ * hantla). Ćwiczenie w dniu bez drabinki (pusta lista) też pomijane.
+ */
+function snapDumbbellTargets(state: AppState): AppState {
+  const ladderForExercise = new Map<string, number[]>();
+  for (const ex of state.exercises) {
+    if (!isDumbbellSnappable(ex)) continue;
+    const days = state.days.filter((d) => d.exerciseIds.includes(ex.id));
+    if (days.length === 0) continue;
+    const gymIds = new Set(days.map((d) => d.gymProfileId ?? ""));
+    if (gymIds.size > 1) continue; // rozjazd miedzy dniami - niejednoznaczne, pomin
+    const ladder = dumbbellLadder(state, gymForDay(state, days[0]));
+    if (ladder.length > 0) ladderForExercise.set(ex.id, ladder);
+  }
+  return mapTargets(state, (id, weight) => {
+    const ladder = ladderForExercise.get(id);
+    return ladder ? snapLoadNearest(weight, ladder) : weight;
+  });
+}
+
+function snapDumbbellTargetsOnce(state: AppState): AppState {
+  if (state.dumbbellTargetsSnapped) return state;
+  return { ...snapDumbbellTargets(state), dumbbellTargetsSnapped: true };
+}
+
 function applyOneTimeSeeds(state: AppState): AppState {
   // Kolejność ma znaczenie tylko tam, gdzie jeden dosiew czyta wynik drugiego
   // (catchUpTargets po seedHistory). Reszta jest niezależna.
@@ -1040,6 +1153,10 @@ function applyOneTimeSeeds(state: AppState): AppState {
   s = fixRdlTargetOnce(s);
   s = fixHyperRdlTargetOnce(s);
   s = setPlankRangeOnce(s);
+  // seedGymLadders MUSI iść przed snapDumbbellTargets - druga czyta profil/
+  // gymProfileId, który pierwsza dopiero dosiewa.
+  s = seedGymLaddersOnce(s);
+  s = snapDumbbellTargetsOnce(s);
   return s;
 }
 

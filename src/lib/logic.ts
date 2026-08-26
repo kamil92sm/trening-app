@@ -374,6 +374,70 @@ export function exerciseForDay(ex: Exercise, day: WorkoutDay | undefined): Exerc
   return sets === ex.targetSets ? ex : { ...ex, targetSets: sets };
 }
 
+// ── P7-3: drabinka hantli per siłownia ──────────────────────────────────────
+
+/**
+ * `kb_swing` ma `unit: "dumbbell"` (apka nie modeluje kettlebelli osobno), ale
+ * kettlebelle idą po WŁASNEJ drabince (4/8/12/16/20/24…) — snapowanie do
+ * hantli dałoby bzdurne wartości. Jedyny wyjątek dziś; lista, nie pojedynczy
+ * `if`, żeby dołożenie kolejnego było jednowierszową zmianą.
+ */
+const LADDER_EXEMPT_IDS = new Set(["kb_swing"]);
+
+/** Czy progresja/cel tego ćwiczenia w ogóle mogą snapować do drabinki hantli. */
+export function isDumbbellSnappable(ex: Exercise): boolean {
+  return ex.unit === "dumbbell" && !ex.isHold && !LADDER_EXEMPT_IDS.has(ex.id);
+}
+
+/** Sprzęt siłowni danego dnia planu: profil z `day.gymProfileId`, albo `null` (domowa). */
+export function gymForDay(state: AppState, day: WorkoutDay | undefined): GymProfile | null {
+  if (!day?.gymProfileId) return null;
+  return (state.settings.gymProfiles ?? []).find((p) => p.id === day.gymProfileId) ?? null;
+}
+
+/** Drabinka hantli (ciężar NA RĘKĘ) danej siłowni; `profile` `null` = domowa (`settings.dumbbells`). `[]` = brak modelu. */
+export function dumbbellLadder(state: AppState, profile: GymProfile | null): number[] {
+  return (profile ? profile.dumbbells : state.settings.dumbbells) ?? [];
+}
+
+/**
+ * Pierwszy ciężar z drabinki OSTRO większy od `from` i ≥ `candidate`. Gwarantuje
+ * POSTĘP — nigdy nie zwraca `from` z powrotem, inaczej progresja utknęłaby
+ * w miejscu na zawsze przy zgrubnej drabince. Brak drabinki albo brak takiego
+ * ciężaru (poza górnym końcem stojaka) → `candidate` bez zmian.
+ */
+export function snapLoadUp(candidate: number, from: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w > from + 1e-9 && w >= candidate - 1e-9);
+  return options.length > 0 ? Math.min(...options) : candidate;
+}
+
+/** Największy ciężar z drabinki ≤ `candidate`; brak takiego (poniżej najlżejszego hantla) → `candidate`. */
+export function snapLoadDown(candidate: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w <= candidate + 1e-9);
+  return options.length > 0 ? Math.max(...options) : candidate;
+}
+
+/**
+ * Lustro `snapLoadUp` w dół — używane przez stepper „−" w loggerze: pierwszy
+ * ciężar z drabinki OSTRO mniejszy od `from` i ≤ `candidate`. Gwarantuje
+ * postęp w dół (nigdy nie zwraca `from`); brak drabinki/takiego ciężaru
+ * (poniżej najlżejszego hantla) → `candidate` bez zmian.
+ */
+export function snapLoadDownFrom(candidate: number, from: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w < from - 1e-9 && w <= candidate + 1e-9);
+  return options.length > 0 ? Math.max(...options) : candidate;
+}
+
+/** Najbliższy ciężar z drabinki; remis rozstrzyga na korzyść MNIEJSZEGO (jak `nearestAchievable`). */
+export function snapLoadNearest(candidate: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const sorted = [...ladder].sort((a, b) => a - b);
+  return sorted.reduce((best, w) => (Math.abs(w - candidate) < Math.abs(best - candidate) ? w : best));
+}
+
 // ── Podwójna progresja ─────────────────────────────────────────────────────
 
 export type ProgressionStatus = "up" | "hold" | "deload";
@@ -461,6 +525,14 @@ export function easyAtRirHigh(ex: Exercise, sets: SetLog[]): boolean {
  * wywołujący już potwierdził oba warunki (rozjazd + przewyższenie) — samo
  * to sprawia, że gałąź `allAtTop` NIGDY nie jest osiągana z niższym
  * `targetWeight`, więc nie potrzeba osobnego "bezpiecznika" tam niżej.
+ *
+ * P7-3: `ladder` — drabinka hantli siłowni, na której stoi to ćwiczenie w
+ * planie (`gymForDay`/`dumbbellLadder`, liczone przez wywołującego). Gdy
+ * podana i niepusta, oba skoki obciążenia (`allAtTop`, zwykły i podwójny przy
+ * RIR ≥3) idą przez `snapLoadUp` zamiast surowego `targetWeight + increment` —
+ * bez tego progresja proponowała ciężary, których na stojaku nie ma (22,5 kg
+ * + krok 2 = 24,5, a stojak ma 20/22,5/25). Ćwiczenia sztangowe, `isHold`
+ * i `kb_swing` (`isDumbbellSnappable`) mają ten parametr zignorowany.
  */
 export function computeProgression(
   ex: Exercise,
@@ -470,7 +542,8 @@ export function computeProgression(
   priorSessionFailedWithRir0?: boolean,
   priorSessionEasyAtRir3?: boolean,
   weightJustIncreased?: boolean,
-  mixedWorkingWeights?: number
+  mixedWorkingWeights?: number,
+  ladder?: number[]
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -497,7 +570,10 @@ export function computeProgression(
   const belowMin = working.filter((s) => s.reps < ex.repMin).length;
 
   if (allAtTop) {
-    let next = round25(targetWeight + ex.increment);
+    const dumbbellSnap = !!ladder && ladder.length > 0 && isDumbbellSnappable(ex);
+    let next = dumbbellSnap
+      ? snapLoadUp(targetWeight + ex.increment, targetWeight, ladder!)
+      : round25(targetWeight + ex.increment);
     let message = ex.isHold
       ? `Wszystkie serie po ${ex.repMax} ${unitWord} — dokładasz obciążenie: ${next} kg.`
       : `Wszystkie serie po ${ex.repMax} ${unitWord} — nowy ciężar ${next} kg, wracasz do ${ex.repMin} ${unitWord}`;
@@ -505,7 +581,9 @@ export function computeProgression(
     if (lastRir !== undefined) {
       const doubleJumpSafe = ex.id !== "deadlift" && 2 * ex.increment <= 0.15 * targetWeight;
       if (lastRir >= 3 && doubleJumpSafe) {
-        next = round25(targetWeight + 2 * ex.increment);
+        next = dumbbellSnap
+          ? snapLoadUp(targetWeight + 2 * ex.increment, targetWeight, ladder!)
+          : round25(targetWeight + 2 * ex.increment);
         message = ex.isHold
           ? `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok obciążenia: ${next} kg.`
           : `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok: nowy ciężar ${next} kg.`;
@@ -935,7 +1013,7 @@ export function weightForReps(e1: number, reps: number, rir: number): number {
  * bieżącego celu siłowego) — patrz POMYSLY.md P0-5 pkt 2, sanity-check na
  * realnych danych.
  */
-export function hyperTargetFor(state: AppState, ex: Exercise): number {
+export function hyperTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
   if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const target = state.targets[ex.id] ?? 0;
   if (ex.repMax > 8) return target;
@@ -946,7 +1024,11 @@ export function hyperTargetFor(state: AppState, ex: Exercise): number {
   const hEx = exerciseForMode(ex, "hypertrophy");
   const w = weightForReps(e1, hEx.repMin, hEx.rir);
   const inc = ex.increment > 0 ? ex.increment : 0.5;
-  return Math.round(w / inc) * inc;
+  const rounded = Math.round(w / inc) * inc;
+  // P7-3: cel hipertrofii wyliczony przez e1RM prawie nigdy nie trafi w
+  // konkretny hantel — snapuj do najbliższego z drabinki siłowni, na której
+  // ćwiczenie faktycznie stoi w planie.
+  return isDumbbellSnappable(ex) && ladder.length > 0 ? snapLoadNearest(rounded, ladder) : rounded;
 }
 
 /**
@@ -973,7 +1055,7 @@ export function deloadSets(plannedSetCount: number): number {
  * poprzedni tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów,
  * nie kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
  */
-export function deloadTargetFor(state: AppState, ex: Exercise): number {
+export function deloadTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
   const strengthTarget = state.targets[ex.id] ?? 0;
   // Ćwiczenia na czas (plank): obciążenie zostaje, deload robi połowa serii.
   // Skok obciążenia jest tu zgrubny (plank: +5 kg przy celu 10 kg), więc każde
@@ -983,14 +1065,17 @@ export function deloadTargetFor(state: AppState, ex: Exercise): number {
   // W DÓŁ, nie do najbliższego: przy zgrubnym kroku (np. cel 10 kg, krok 2,5)
   // zaokrąglenie do najbliższego wracało na 100% celu i tydzień deloadu wcale
   // nie schodził z ciężaru. Teraz wynik nigdy nie przekracza DELOAD_LOAD_FACTOR.
-  return Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
+  const floored = Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
+  // P7-3: snapLoadDown tylko SCHODZI po drabince (nigdy w górę), więc gwarancja
+  // "nigdy powyżej DELOAD_LOAD_FACTOR" (§20.2) zostaje nietknięta.
+  return isDumbbellSnappable(ex) && ladder.length > 0 ? snapLoadDown(floored, ladder) : floored;
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */
-export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode): number {
+export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode, ladder: number[] = []): number {
   if (mode === "strength") return state.targets[ex.id] ?? 0;
-  if (mode === "deload") return deloadTargetFor(state, ex);
-  return hyperTargetFor(state, ex);
+  if (mode === "deload") return deloadTargetFor(state, ex, ladder);
+  return hyperTargetFor(state, ex, ladder);
 }
 
 /**

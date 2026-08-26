@@ -51,6 +51,13 @@ import {
   maxGainPerSession,
   progressGoal,
   weightVsReference,
+  snapLoadUp,
+  snapLoadDown,
+  snapLoadDownFrom,
+  snapLoadNearest,
+  gymForDay,
+  dumbbellLadder,
+  isDumbbellSnappable,
   exerciseHistory,
   loggedWorkingWeight,
   type HistoryPoint,
@@ -3160,13 +3167,18 @@ check(
   check("migracja: 22 -> 22,5", fixed.targets.rdl === 22.5, fixed.targets.rdl);
   check("migracja: flaga ustawiona", fixed.rdlTargetFixed === true);
 
-  // Wypracowana progresja i recznie ustawiony cel NIE moga zostac nadpisane.
+  // Wypracowana progresja NIE jest nadpisywana przez fixRdlTargetOnce (rusza
+  // wylacznie dokladnie 22) - ALE od P7-3 nadal przechodzi przez
+  // snapDumbbellTargetsOnce (RDL to hantle, fri=Well Fitness), ktore dociaga
+  // ja do najblizszego hantla z drabinki (26 -> 25, nie z powrotem do 22,5
+  // z seeda). To jest zamierzone (kryterium akceptacji P7-3).
   const progressed: any = defaultState();
   progressed.targets = { ...progressed.targets, rdl: 26 };
   delete progressed.rdlTargetFixed;
   check(
-    "migracja: wypracowany cel 26 zostaje nietkniety",
-    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl === 26
+    "migracja: wypracowany cel 26 nie wraca do seeda, snapuje do najblizszego hantla (25)",
+    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl === 25,
+    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl
   );
   check(
     "migracja: idempotentna (drugi przebieg nic nie zmienia)",
@@ -3222,12 +3234,15 @@ check(
   check("migracja: hyperTargets.rdl 22 -> 22,5", fixedHyper.hyperTargets?.rdl === 22.5, fixedHyper.hyperTargets);
   check("migracja: flaga rdlHyperTargetFixed ustawiona", fixedHyper.rdlHyperTargetFixed === true);
 
+  // Tak samo jak targets.rdl wyzej: fixHyperRdlTargetOnce nie rusza (rusza
+  // tylko dokladnie 22), ale snapDumbbellTargetsOnce dociaga do drabinki.
   const progressedHyper: any = defaultState();
   progressedHyper.hyperTargets = { rdl: 26 };
   delete progressedHyper.rdlHyperTargetFixed;
   check(
-    "migracja: wypracowany hyperTargets.rdl (26) zostaje nietkniety",
-    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 26
+    "migracja: wypracowany hyperTargets.rdl (26) nie wraca do seeda, snapuje do 25",
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 25,
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets
   );
   check(
     "migracja: idempotentna (hyperTargets.rdl, drugi przebieg nic nie zmienia)",
@@ -3276,6 +3291,202 @@ check(
   check(
     "migracja: idempotentna (drugi przebieg nic nie zmienia)",
     migrateState({ ...fixed, version: SCHEMA_VERSION }).exercises.find((e) => e.id === "plank")!.repMin === 30
+  );
+}
+
+// ── P7-3: drabinka hantli per siłownia ──────────────────────────────────────
+{
+  const wellFitness = [20, 22.5, 25]; // wycinek do testow snap* w izolacji
+  check("snapLoadUp: 24,5 od 22,5 -> 25 (nastepny szczebel)", snapLoadUp(24.5, 22.5, wellFitness) === 25);
+  check("snapLoadUp: 23 od 22,5 -> 25, NIGDY nie zostaje na from", snapLoadUp(23, 22.5, wellFitness) === 25);
+  check("snapLoadUp: 50 od 45 -> 50 (poza drabinka, brak wyzszego)", snapLoadUp(50, 45, wellFitness) === 50);
+  check("snapLoadUp: pusta drabinka -> candidate bez zmian", snapLoadUp(24.5, 22.5, []) === 24.5);
+  check("snapLoadDown: 24 -> 22,5 (najwiekszy <= candidate)", snapLoadDown(24, wellFitness) === 22.5);
+  check("snapLoadDown: ponizej najlzejszego -> candidate", snapLoadDown(15, wellFitness) === 15);
+  check("snapLoadDown: pusta drabinka -> candidate", snapLoadDown(24, []) === 24);
+  check("snapLoadDownFrom: lustro w dol, gwarantuje postep", snapLoadDownFrom(22, 22.5, wellFitness) === 20);
+  check("snapLoadNearest: 23,5 blizej 22,5 niz 25 -> 22,5", snapLoadNearest(23.5, wellFitness) === 22.5);
+  check("snapLoadNearest: remis (dokladnie posrodku) -> mniejszy", snapLoadNearest(23.75, wellFitness) === 22.5);
+  check("snapLoadNearest: pusta drabinka -> candidate", snapLoadNearest(23.5, []) === 23.5);
+
+  const stLadder = defaultState();
+  const homeLadder = stLadder.settings.dumbbells ?? [];
+  const myFitnessProfile = (stLadder.settings.gymProfiles ?? []).find((p) => p.id === "myfitness") ?? null;
+  const myFitnessLadder = myFitnessProfile?.dumbbells ?? [];
+  check("SEED: Well Fitness (domowa) ma niepusta drabinke", homeLadder.length > 0, homeLadder);
+  check("SEED: My Fitness Place ma niepusta drabinke", myFitnessLadder.length > 0, myFitnessLadder);
+  check("SEED: wed.gymProfileId = myfitness", stLadder.days.find((d) => d.id === "wed")!.gymProfileId === "myfitness");
+  check(
+    "gymForDay: dzien bez gymProfileId -> null (domowa)",
+    gymForDay(stLadder, stLadder.days.find((d) => d.id === "fri")) === null
+  );
+  check(
+    "gymForDay: wed -> profil My Fitness Place",
+    gymForDay(stLadder, stLadder.days.find((d) => d.id === "wed"))?.id === "myfitness"
+  );
+  check(
+    "dumbbellLadder: profil null -> drabinka domowa (settings.dumbbells)",
+    JSON.stringify(dumbbellLadder(stLadder, null)) === JSON.stringify(homeLadder)
+  );
+  check("isDumbbellSnappable: rdl (hantle) -> true", isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "rdl")!));
+  check(
+    "isDumbbellSnappable: kb_swing (wyjatek kettlebell) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "kb_swing")!)
+  );
+  check(
+    "isDumbbellSnappable: french (sztanga) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "french")!)
+  );
+  check(
+    "isDumbbellSnappable: plank (isHold) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "plank")!)
+  );
+
+  // computeProgression: bez drabinki - dowod wstecznej zgodnosci (dokladnie
+  // dawne zachowanie, zaden z 388 istniejacych testow nie musial sie zmienic).
+  const rdlEx = SEED_EXERCISES.find((e) => e.id === "rdl")!;
+  const rdlFullSets = [
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+  ];
+  const rdlNoLadder = computeProgression(rdlEx, 22.5, rdlFullSets);
+  check(
+    "computeProgression bez drabinki: rdl 22,5 + komplet -> 24,5 (dawne zachowanie)",
+    rdlNoLadder.status === "up" && rdlNoLadder.nextWeight === 24.5,
+    rdlNoLadder
+  );
+  // Z drabinka Well Fitness (mon/fri): scenariusz ze screena Kamila.
+  const rdlWithLadder = computeProgression(rdlEx, 22.5, rdlFullSets, undefined, undefined, undefined, undefined, undefined, homeLadder);
+  check(
+    "computeProgression z drabinka mon/fri: rdl 22,5 + komplet -> 25 (nie 24,5, ktorego nie ma na stojaku)",
+    rdlWithLadder.status === "up" && rdlWithLadder.nextWeight === 25,
+    rdlWithLadder
+  );
+  // Z drabinka wed: krok 2 zostaje (16 jest juz na drabince My Fitness Place).
+  const lungesEx = SEED_EXERCISES.find((e) => e.id === "lunges")!;
+  const lungesWithLadder = computeProgression(
+    lungesEx, 14,
+    [
+      { weight: 14, reps: 12, done: true },
+      { weight: 14, reps: 12, done: true },
+      { weight: 14, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, myFitnessLadder
+  );
+  check(
+    "computeProgression z drabinka wed: lunges 14 + komplet -> 16 (krok 2 zachowany)",
+    lungesWithLadder.status === "up" && lungesWithLadder.nextWeight === 16,
+    lungesWithLadder
+  );
+  // Podwojny skok przy RIR>=3 tez snapuje do drabinki.
+  const rdlDoubleJump = computeProgression(
+    rdlEx, 30,
+    [
+      { weight: 30, reps: 12, done: true, rir: 3 },
+      { weight: 30, reps: 12, done: true, rir: 3 },
+      { weight: 30, reps: 12, done: true, rir: 3 },
+    ],
+    3, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression podwojny skok + drabinka: rdl 30 -> 35 (nie 34, ktorego nie ma na stojaku)",
+    rdlDoubleJump.status === "up" && rdlDoubleJump.nextWeight === 35,
+    rdlDoubleJump
+  );
+  // kb_swing pominiety mimo unit="dumbbell" - wlasna drabinka kettlebelli.
+  const kbEx = SEED_EXERCISES.find((e) => e.id === "kb_swing")!;
+  const kbWithLadder = computeProgression(
+    kbEx, 16,
+    [
+      { weight: 16, reps: 20, done: true },
+      { weight: 16, reps: 20, done: true },
+      { weight: 16, reps: 20, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression: kb_swing NIE snapuje (wyjatek kettlebell)",
+    kbWithLadder.status === "up" && kbWithLadder.nextWeight === 20, // round25(16+4)=20, bez zmian od drabinki
+    kbWithLadder
+  );
+  // Sztanga nietknieta przez drabinke hantli.
+  const frenchEx = SEED_EXERCISES.find((e) => e.id === "french")!;
+  const frenchWithLadder = computeProgression(
+    frenchEx, 22.5,
+    [
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression: french (sztanga) nietkniety przez drabinke hantli -> 25",
+    frenchWithLadder.status === "up" && frenchWithLadder.nextWeight === 25,
+    frenchWithLadder
+  );
+
+  // deloadTargetFor z drabinka: nigdy powyzej 90% celu, dla KAZDEGO cwiczenia z bazy.
+  {
+    const stAllLadder = migrateState(null);
+    const overshoot = stAllLadder.exercises.filter((e) => {
+      const target = stAllLadder.targets[e.id] ?? 0;
+      if (e.isHold || target <= 0) return false;
+      const days = stAllLadder.days.filter((d) => d.exerciseIds.includes(e.id));
+      const ladder = days.length > 0 ? dumbbellLadder(stAllLadder, gymForDay(stAllLadder, days[0])) : [];
+      return deloadTargetFor(stAllLadder, e, ladder) > target * DELOAD_LOAD_FACTOR + 1e-9;
+    });
+    check(
+      "deloadTargetFor z drabinka: ZADNE cwiczenie nie przekracza 90% celu",
+      overshoot.length === 0,
+      overshoot.map((e) => e.name)
+    );
+  }
+
+  // Migracja: profil dodany raz, wed.gymProfileId ustawiony, idempotentna.
+  const freshMigrated = migrateState(null);
+  check(
+    "migracja: profil My Fitness Place dolozony raz",
+    (freshMigrated.settings.gymProfiles ?? []).filter((p) => p.id === "myfitness").length === 1
+  );
+  check("migracja: flaga gymLaddersSeeded ustawiona", freshMigrated.gymLaddersSeeded === true);
+  check("migracja: flaga dumbbellTargetsSnapped ustawiona", freshMigrated.dumbbellTargetsSnapped === true);
+  check(
+    "migracja: idempotentna (drugi przebieg nie duplikuje profilu)",
+    (migrateState({ ...freshMigrated, version: SCHEMA_VERSION }).settings.gymProfiles ?? []).filter(
+      (p) => p.id === "myfitness"
+    ).length === 1
+  );
+
+  // Usuniecie profilu przez uzytkownika jest TRWALE - flaga blokuje powrot.
+  const removedProfile: any = migrateState(null);
+  removedProfile.settings = { ...removedProfile.settings, gymProfiles: [] };
+  const afterRemoval = migrateState({ ...removedProfile, version: SCHEMA_VERSION });
+  check(
+    "migracja: usuniecie profilu jest trwale (flaga blokuje ponowny dosiew)",
+    (afterRemoval.settings.gymProfiles ?? []).length === 0,
+    afterRemoval.settings.gymProfiles
+  );
+
+  // Stary stan (sprzed P7-3) bez zadnych flag - dosiew dziala i snapuje istniejace cele.
+  const oldStyleState: any = defaultState();
+  oldStyleState.settings = { ...oldStyleState.settings, gymProfiles: [], dumbbells: undefined };
+  oldStyleState.days = oldStyleState.days.map((d: any) =>
+    d.id === "wed" ? { ...d, gymProfileId: undefined } : d
+  );
+  oldStyleState.targets = { ...oldStyleState.targets, row_db: 22, lunges: 14 };
+  delete oldStyleState.gymLaddersSeeded;
+  delete oldStyleState.dumbbellTargetsSnapped;
+  const migratedOldStyle = migrateState({ ...oldStyleState, version: SCHEMA_VERSION });
+  check(
+    "migracja ze starego stanu: row_db 22 -> 22,5 (dopasowanie do drabinki Well Fitness)",
+    migratedOldStyle.targets.row_db === 22.5,
+    migratedOldStyle.targets.row_db
+  );
+  check(
+    "migracja ze starego stanu: lunges 14 BEZ ZMIAN (juz pasuje do drabinki My Fitness Place, krok 2)",
+    migratedOldStyle.targets.lunges === 14,
+    migratedOldStyle.targets.lunges
   );
 }
 

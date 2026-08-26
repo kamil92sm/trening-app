@@ -25,6 +25,11 @@ import {
   suggestBonusExercises,
   exerciseForMode,
   targetForMode,
+  gymForDay,
+  dumbbellLadder,
+  snapLoadUp,
+  snapLoadDownFrom,
+  isDumbbellSnappable,
   personalBests,
   isSetRecord,
   compareSetToReference,
@@ -69,6 +74,11 @@ interface Draft {
    * to moment wejścia w dzień i bywa o godziny wcześniejszy, więc czas treningu
    * (sessionDuration) liczy się od tego pola, nie od `date`. */
   firstSetAt?: string;
+  /** P7-3: siłownia TEGO treningu — domyślnie `day.gymProfileId`, zmienialna
+   * przełącznikiem w nagłówku na czas sesji (Kamil trenuje na dwóch stałych
+   * siłowniach naprzemiennie, ale czasem robi trening dzień wcześniej gdzie
+   * indziej). Brak = domowa. */
+  gymProfileId?: string;
 }
 
 function loadDraft(): Draft | null {
@@ -361,8 +371,12 @@ export function TrainScreen() {
   const activeDays = state.days.filter((d) => !d.optional || d.active);
   // P2-10: podpowiedz, nie blokada - wszystkie kafelki zostaja klikalne.
   const nextDayId = nextDaySuggestion(state);
+  // P7-3: siłownia TEGO treningu — domyślnie z `day.gymProfileId` (startDay
+  // ustawia `draft.gymProfileId`), zmienialna przełącznikiem w nagłówku na czas
+  // sesji. `settings.activeGymProfileId` już NIE steruje progresją/sugestiami
+  // tutaj — zostaje wyłącznie domyślną wartością Kalkulatora talerzy w Więcej.
   const activeGymProfile = (state.settings.gymProfiles ?? []).find(
-    (p) => p.id === state.settings.activeGymProfileId
+    (p) => p.id === draft?.gymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
   // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
@@ -425,13 +439,16 @@ export function TrainScreen() {
   function startDay(dayId: string, overrideExerciseIds?: string[]) {
     const day = state.days.find((d) => d.id === dayId);
     if (!day) return;
+    // P7-3: drabinka hantli siłowni PRZYPISANEJ DO TEGO DNIA — cel hipertrofii/
+    // deloadu ma od razu snapować do realnego hantla, nie do wyniku dzielenia.
+    const dayLadder = dumbbellLadder(state, gymForDay(state, day));
     const exerciseIds = overrideExerciseIds ?? day.exerciseIds;
     const entries: ExerciseLog[] = exerciseIds
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
         const hEx = exerciseForMode(ex, mode);
-        const target = targetForMode(state, ex, mode);
+        const target = targetForMode(state, ex, mode, dayLadder);
         const count = setsForMode(ex, mode, day);
         // Podwójna progresja: po skoku ciężaru prefill wraca na DÓŁ zakresu,
         // przy tym samym ciężarze podpowiada wynik z ostatniego treningu
@@ -444,7 +461,16 @@ export function TrainScreen() {
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
+    // P7-3: domyślnie siłownia DNIA — Kamil może ją zmienić na czas tego
+    // treningu przełącznikiem w nagłówku (mały switcher, poniżej).
+    setDraft({
+      dayId,
+      date: new Date().toISOString(),
+      entries,
+      mode,
+      readiness: cleanReadiness(readiness),
+      gymProfileId: day.gymProfileId,
+    });
     setReadiness(null);
     setFocusIdx(0);
     // P6-2: timer przerwy zyje w stalym store'ze (poza Reactem), wiec nowy
@@ -640,8 +666,13 @@ export function TrainScreen() {
     const newEx = state.exercises.find((e) => e.id === newExId);
     if (!newEx) return;
     const hEx = exerciseForMode(newEx, mode);
-    const target = targetForMode(state, newEx, mode);
     const swapDay = state.days.find((d) => d.id === draft?.dayId);
+    // P7-3: siłownia AKTUALNA sesji (mogła zostać przełączona w nagłówku),
+    // nie tylko domyślna dnia — zamiana ćwiczenia w trakcie treningu ma
+    // celować w hantel, który naprawdę jest na stojaku TERAZ.
+    const swapGymProfile = (state.settings.gymProfiles ?? []).find((p) => p.id === draft?.gymProfileId) ?? null;
+    const swapLadder = dumbbellLadder(state, swapGymProfile);
+    const target = targetForMode(state, newEx, mode, swapLadder);
     const count = setsForMode(newEx, mode, swapDay);
     const reps = prefillRepsForEntry(state, newEx, hEx, target, count); // ta sama reguła co przy starcie dnia
     setDraft((prev) => {
@@ -1084,6 +1115,10 @@ export function TrainScreen() {
     const ex = state.exercises.find((e) => e.id === entry.exerciseId);
     if (!ex) return null;
     const hEx = exerciseForMode(ex, draft.mode);
+          // P7-3: drabinka AKTUALNEJ siłowni sesji — steppery −/+ mają skakać
+          // po realnych hantlach, nie po "cel ± krok" (22,5 -> 24,5, którego
+          // nie ma na stojaku).
+          const ladderForEx = isDumbbellSnappable(ex) ? dumbbellLadder(state, activeGymProfile) : [];
           const guide = guideFor(ex);
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const lastFew = lastByExercise.get(ex.id) ?? [];
@@ -1383,7 +1418,15 @@ export function TrainScreen() {
                     <button
                       type="button"
                       disabled={set.done}
-                      onClick={() => setWeightWithSync(ei, si, set.weight - hEx.increment)}
+                      onClick={() =>
+                        setWeightWithSync(
+                          ei,
+                          si,
+                          ladderForEx.length > 0
+                            ? snapLoadDownFrom(set.weight - hEx.increment, set.weight, ladderForEx)
+                            : set.weight - hEx.increment
+                        )
+                      }
                       className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
                       aria-label="Zmniejsz ciężar"
                     >
@@ -1401,7 +1444,15 @@ export function TrainScreen() {
                     <button
                       type="button"
                       disabled={set.done}
-                      onClick={() => setWeightWithSync(ei, si, set.weight + hEx.increment)}
+                      onClick={() =>
+                        setWeightWithSync(
+                          ei,
+                          si,
+                          ladderForEx.length > 0
+                            ? snapLoadUp(set.weight + hEx.increment, set.weight, ladderForEx)
+                            : set.weight + hEx.increment
+                        )
+                      }
                       className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
                       aria-label="Zwiększ ciężar"
                     >
@@ -1518,6 +1569,35 @@ export function TrainScreen() {
     );
   }
 
+  // P7-3: przełącznik siłowni NA CZAS TEGO TRENINGU — domyślnie siłownia dnia
+  // (ustawiona w startDay), ale Kamil czasem robi trening dzień wcześniej,
+  // gdzie akurat jest ("robię sobie ten trening wcześniej jeden dzień, jak mam
+  // czas"). Widoczny tylko gdy jest co przełączać (co najmniej jeden profil).
+  // `settings.activeGymProfileId` NIE steruje tym już wcale — patrz `activeGymProfile` wyżej.
+  function renderGymSwitcher() {
+    if (!draft) return null;
+    const profiles = state.settings.gymProfiles ?? [];
+    if (profiles.length === 0) return null;
+    return (
+      <select
+        value={draft.gymProfileId ?? ""}
+        onChange={(e) => {
+          const value = e.target.value || undefined;
+          setDraft((prev) => (prev ? { ...prev, gymProfileId: value } : prev));
+        }}
+        className="mt-0.5 max-w-[11rem] rounded border border-border bg-transparent px-1 py-0.5 text-[10px] text-muted-foreground"
+        aria-label="Siłownia tego treningu"
+      >
+        <option value="">Well Fitness</option>
+        {profiles.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
   if (layout === "focus") {
     // ── Tryb skupienia (P3-6): jedno ćwiczenie na ekran ─────────────────────
     // P6-4: pasek "Ćwiczenie zrobione" - widoczny gdy WSZYSTKIE serie biezacego
@@ -1551,6 +1631,7 @@ export function TrainScreen() {
               <p className="text-xs text-muted-foreground">
                 {day?.short} · ĆW. {focusIdx + 1}/{draft.entries.length}
               </p>
+              {renderGymSwitcher()}
             </div>
             <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
               <X size={15} /> Porzuć
@@ -1668,6 +1749,7 @@ export function TrainScreen() {
             <p className="text-xs text-muted-foreground">
               {day?.short} · {doneCount}/{totalCount} serii · {fmtKg(volume)}
             </p>
+            {renderGymSwitcher()}
           </div>
           <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
             <X size={15} /> Porzuć
