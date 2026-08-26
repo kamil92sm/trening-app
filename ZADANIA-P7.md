@@ -555,3 +555,427 @@ Commit osobno per zadanie, po polsku w treści opisu zmian.
 nie dostanie zmian.
 Po wszystkim: dopisz sekcję **§25** do `CLAUDE.md` (wzorzec §17–§24: co zmienione, dlaczego,
 co świadomie zostawione).
+
+---
+---
+
+# P7 — seria II (te same screeny, druga porcja)
+
+Pięć nowych zadań: **P7-5 … P7-9**. Do tego uzupełnienia P7-1 i P7-3 (patrz sekcja
+„Zmiany w zadaniach z serii I" na końcu — **przeczytaj je ZANIM zaczniesz P7-3**).
+
+Kolejność całości: **P7-4 → P7-1 → P7-2 → P7-6 → P7-5 → P7-7 → P7-3 → P7-8**.
+(P7-6 przed P7-5, bo oba dotykają `personalBests`/`isSetRecord`; P7-8 na koniec, bo
+przestraja semantykę tygodnia w kilku miejscach naraz.)
+
+---
+
+## P7-5 — podsumowanie ogłasza „nowy ciężar", który jest ≤ temu, co dziś podniósł
+
+### Objaw
+Screen 7 (podsumowanie, zakreślone):
+`Uginanie bicepsa (sztanga) — Wszystkie serie po 12 powt. — nowy ciężar 17.5 kg, wracasz do 10 powt.`
+Kamil: *„Jak to 17,5??? przecież dzisiaj było 17,5"*.
+
+### Root cause (potwierdzony — NIE jest to profil obcej siłowni)
+Kamil sprawdził: aktywna siłownia to „Domowa", więc adaptacja celu z §24.1 była
+**włączona**. Zostaje jedno wyjaśnienie i jest ono spójne z całą resztą liczb:
+
+1. `curl_bb` ma `increment: 1.25` (`seed.ts:102`). `17.5 = 16.25 + 1.25`, więc bazą
+   progresji było **16,25** — czyli `entry.targetWeight` z planu, a nie to, co poszło.
+2. `loggedWorkingWeight(entry, targetSets)` (`logic.ts:1195-1201`) zwraca `null`, gdy
+   serie robocze **nie mają jednakowego ciężaru**:
+   ```ts
+   return working.every((s) => Math.abs(s.weight - w) < 1e-9) ? w : null;
+   ```
+3. `setWeightWithSync` (`TrainScreen.tsx:540-553`) propaguje zmianę ciężaru **tylko
+   w przód i tylko na serie jeszcze niezaliczone**:
+   ```ts
+   if (!sets[setIdx].done) sets[setIdx].weight = w;
+   for (let i = setIdx + 1; i < sets.length; i++) { if (!sets[i].done && ...) ... }
+   ```
+   Czyli klasyczny ruch „zrobiłem pierwszą serię, było za lekko, podbijam resztę"
+   zostawia serie robocze o **różnych** ciężarach (16,25 / 17,5 / 17,5).
+4. `store.finishSession:222` — `const progressionBase = loggedWeight ?? entry.targetWeight;`
+   → `null` cofa bazę do **starego celu z planu** (16,25), a nie do czegokolwiek, co
+   Kamil dziś realnie podniósł. Stąd „nowy ciężar 17,5" po treningu na 17,5.
+
+To jest dziura w §24: fallback na `entry.targetWeight` może być **niższy niż każda
+seria wykonana tego dnia**, a mimo to komunikat mówi „nowy ciężar".
+
+### Co zrobić
+
+**Zasada nadrzędna: `status: "up"` nie ma prawa zaproponować ciężaru, którego trenujący
+już dziś nie podniósł.** Komunikat „nowy ciężar X" musi znaczyć postęp.
+
+1. **Nowa gałąź „serie robocze na różnych ciężarach"** — nie udawaj progresji, której
+   nie było, ale przyjmij ciężar, który realnie poszedł (o to prosił w §24).
+   W `store.finishSession` policz obok `loggedWeight`:
+   ```ts
+   const workingDone = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
+   const heaviestDone = workingDone.length ? Math.max(...workingDone.map((s) => s.weight)) : 0;
+   ```
+   Gdy `loggedWeight === null` **i** `heaviestDone > entry.targetWeight`:
+   - baza progresji = `heaviestDone`
+   - **wymuś `status: "hold"`** (komplet powtórzeń NIE był zrobiony na jednym ciężarze,
+     więc podwójna progresja się nie domknęła)
+   - komunikat: `Serie szły na różnych ciężarach — cel podniesiony do {heaviestDone} kg.
+     Domknij na nim komplet {repMax} powt., wtedy ciężar pójdzie dalej.`
+
+   Zrób to **w `computeProgression`**, nie w store — inaczej `message` rozjedzie się
+   z `nextWeight`. Dodaj **opcjonalny** parametr (np. `mixedWorkingWeights?: number`
+   niosący `heaviestDone`); brak = dzisiejsze zachowanie ⇒ istniejące testy bez zmian.
+
+2. **Twardy bezpiecznik na gałęzi `allAtTop`** (`logic.ts:461-480`) — niezależnie od
+   wszystkiego innego:
+   ```ts
+   // "Nowy ciężar" musi być ciężarem, którego dziś jeszcze nie podniósł. Inaczej
+   // podsumowanie ogłasza jako awans liczbę z dzisiejszego loggera (zgłoszenie P7-5).
+   if (next <= heaviestDone) next = round25(heaviestDone + ex.increment);
+   ```
+   (po tym snapowanie do drabinki z P7-3, jeśli już wdrożone).
+
+3. **Zapobiegawczo w UI:** `setWeightWithSync` niech proponuje wyrównanie. Gdy zmiana
+   ciężaru zostawia serie robocze rozjechane, pokaż jednorazowy toast:
+   `Serie mają różne ciężary — progresja policzy się od najcięższej zaliczonej.`
+   Nie wymuszaj niczego (zejście w dół to często ratowanie serii, §24).
+
+### Testy (≥6 nowych)
+- serie 16,25×12 / 17,5×12 / 17,5×12, cel 16,25 → status `hold`, `nextWeight` **17,5**,
+  komunikat o różnych ciężarach ← scenariusz ze screena
+- serie 17,5×12 ×3 (jednolite), cel 16,25 → `up`, **18,75** (adaptacja z §24 działa)
+- serie 17,5×12 ×3, cel 17,5 → `up`, **18,75** (bez zmian względem dziś)
+- zejście w dół: 20×12 / 17,5×12 / 17,5×12 przy celu 20 → `heaviestDone` = 20 = cel,
+  więc **stara ścieżka** (nie podnoś celu za ratowanie serii)
+- bezpiecznik: sztuczne `increment` 0 + komplet → `next > heaviestDone`, nigdy równe
+- brak zaliczonych serii → bez zmian (`hold`, cel bez ruchu)
+
+### Kryterium akceptacji
+Trening ze screena (16,25 → podbicie na 17,5 w trakcie) daje: **„Serie szły na różnych
+ciężarach — cel podniesiony do 17,5 kg"**. Nigdzie w podsumowaniu nie da się dostać
+„nowy ciężar X", gdzie X ≤ najcięższa dziś zaliczona seria.
+
+---
+
+## P7-6 — plank: brak rekordu mimo WIĘKSZEGO obciążenia przy tym samym czasie
+
+### Objaw
+Screen 10: `Plank (deska) · 4×40 s · cel 15 kg · RIR 0`, `Ostatnie: 40/40/40/40 · …`.
+Seria `15 × 40 s` zaliczona — **bez odznaki PR**.
+Kamil: *„Też przy planku powinien chyba być rekord, jak jest nowa waga i czas"*.
+
+Ma rację: wcześniej robił 40 s z **10 kg** (`SEED_TARGETS.plank: 10`), teraz 40 s
+z **15 kg**. To jest ściśle lepszy wynik.
+
+### Root cause
+`PersonalBests` (`logic.ts:563-567`) dla ćwiczeń na czas przechowuje **wyłącznie
+sekundy** — obciążenie nie jest w ogóle zapamiętywane:
+```ts
+export interface PersonalBests { weight: number; e1rm: number; holdSeconds: number; }
+```
+`personalBests` (`logic.ts:586-588`):
+```ts
+if (ex.isHold) { best.holdSeconds = Math.max(best.holdSeconds, set.reps); }
+else { best.weight = ...; best.e1rm = ...; }
+```
+i `isSetRecord` (`logic.ts:605-608`):
+```ts
+if (ex.isHold) { ...; return set.reps > best.holdSeconds ? "hold" : null; }
+```
+`40 > 40` → `false` → brak PR, niezależnie od obciążenia.
+
+### Co zrobić
+1. **`PersonalBests` dostaje `holdWeight: number`** — największe obciążenie, przy którym
+   padł `holdSeconds`… **nie**: prościej i uczciwiej — największe obciążenie w serii,
+   która osiągnęła maksymalny czas. Zapamiętuj **parę**: przechodząc po seriach, aktualizuj
+   `(holdSeconds, holdWeight)` leksykograficznie — najpierw dłuższy czas, przy remisie
+   cięższe obciążenie.
+2. **`isSetRecord` dla `isHold`** — rekord, gdy seria **nie jest zdominowana**:
+   ```ts
+   if (set.reps > best.holdSeconds) return "hold";
+   if (set.reps >= best.holdSeconds && set.weight > best.holdWeight) return "hold";
+   return null;
+   ```
+   Zachowaj istniejący warunek „brak historii (rekord zerowy) → `null`", żeby pierwszy
+   trening planku nie świecił PR-em przy każdej serii.
+3. **Podsumowanie sesji** (`TrainScreen.tsx:650-665`, blok liczący `recordHits`) — dla
+   `kind === "hold"` wartością rekordu są dziś same sekundy. Dopisz obciążenie, gdy
+   niezerowe: `40 s @ 15 kg` zamiast `40 s`.
+4. **Spójność z P7-2**: w `compareSetToReference` gałąź `isHold` **NIE może** ignorować
+   obciążenia (tak było w pierwotnej specyfikacji P7-2 — **popraw ją**). Reguła ta sama
+   co wyżej: dłuższy czas wygrywa; przy równym czasie wygrywa cięższe obciążenie;
+   przy równym czasie i lżejszym obciążeniu → `worse`.
+
+### Świadomie POZA zakresem (odnotuj, nie naprawiaj)
+`exerciseHistory`/`progressSince` dla `isHold` biorą same sekundy (`logic.ts:~660`,
+`e1rm: ex.isHold ? top.reps : …`). Skoro plank progresuje obciążeniem przy stałych 40 s,
+**jego wykres postępu jest i pozostanie płaski**. `detectPlateau` celowo pomija `isHold`,
+więc fałszywego „zastoju" to nie wywoła. Do rozważenia osobno, jeśli Kamil zgłosi.
+
+### Testy (≥5 nowych)
+- 40 s @ 15 kg przy rekordzie 40 s @ 10 kg → **`"hold"`** ← scenariusz ze screena
+- 45 s @ 10 kg przy rekordzie 40 s @ 15 kg → `"hold"` (dłuższy czas wygrywa zawsze)
+- 40 s @ 10 kg przy rekordzie 40 s @ 15 kg → `null` (zdominowana)
+- 35 s @ 20 kg przy rekordzie 40 s @ 10 kg → `null` (krótszy czas)
+- brak historii → `null` (pierwszy trening nie jest rekordem)
+- `personalBests`: historia 40 s @ 10 kg + 35 s @ 20 kg → `holdSeconds` 40, `holdWeight` 10
+
+### Kryterium akceptacji
+Seria `15 kg × 40 s` przy historii `10 kg × 40 s` dostaje odznakę **PR** i wchodzi do
+„Rekordy tej sesji" jako `40 s @ 15 kg`.
+
+---
+
+## P7-7 — „Dlaczego nie pisze, że rekord?" przy przysiadzie 65×8
+
+### Werdykt: to NIE jest błąd
+Screen 8: `Przysiad ze sztangą`, `Ostatnie: 62,5×12/12/12 · 62,5×12/11/10 · 65×8/8/7`,
+dziś `65 × 8`.
+- **Ciężar:** 65 kg nie jest rekordem — trzecia pozycja w „Ostatnie:" to `65×8/8/7`,
+  czyli 65 kg już było. `set.weight > best.weight` → `65 > 65` → `false`.
+- **e1RM:** `65 × (1 + 8/30) = 82,3` wobec rekordu `62,5 × (1 + 12/30) = 87,5`. Mniej.
+
+Apka liczy poprawnie. Problem jest inny: **z ekranu nie da się dowiedzieć, czego
+brakowało do rekordu**, więc brak odznaki wygląda na awarię.
+
+### Co zrobić (małe, informacyjne)
+W karcie ćwiczenia w Treningu, w rozwijanym „Pomoc i szczegóły" (`TrainScreen.tsx:1186+`
+— tam, gdzie już są partie wspomagające, cue i rampa rozgrzewkowa), dołóż linijkę
+z rekordem życia liczonym przez `personalBests`:
+
+- ćwiczenia zwykłe: `Rekord: 62,5 kg × 12 (e1RM 87,5 kg)`
+- `isHold`: `Rekord: 40 s @ 15 kg` (po P7-6)
+- brak historii: pomiń linijkę całkowicie (nie pisz „brak rekordu")
+
+Potrzebny jest ciężar i powtórzenia serii rekordowej, a nie samo `e1rm` — rozszerz
+`PersonalBests` o `e1rmWeight` / `e1rmReps` (analogicznie do `holdWeight` z P7-6) albo
+dołóż osobny, mały helper. **Nie zmieniaj sygnatury `isSetRecord`** — stoi na niej
+sporo testów.
+
+### Testy (≥2)
+- `personalBests` zwraca ciężar i powtórzenia serii o najwyższym e1RM (nie tej najcięższej)
+- ćwiczenie bez historii → wartości zerowe, UI pomija linijkę
+
+### Kryterium akceptacji
+W „Pomoc i szczegóły" przysiadu widać `Rekord: 62,5 kg × 12 (e1RM 87,5 kg)` — pytanie
+„dlaczego 65×8 to nie rekord?" odpowiada samo.
+
+---
+
+## P7-8 — tydzień treningowy = cykl rotacji, nie kratka kalendarza
+
+### Objaw / prośba Kamila
+*„Fajnie, jakby była możliwość zmiany, że jak np. kliknę pierwszy trening, a jest
+niedziela, to on powinien mi nowy tydzień rozpocząć, bo np. robię sobie ten trening
+wcześniej jeden dzień, jak mam czas. Nie wiem, jak to obejść."*
+
+### Root cause
+Wszystkie metryki tygodniowe stoją na **kalendarzowym poniedziałku** (`mondayOf`,
+`logic.ts:1458-1462`):
+- `weeklyAdherence` (`:1483-1510`) — kratki „Konsekwencji": `mondayOf(s.date) === week`
+- `weeklyReport` (`:1544, 1556, 1583`) — „Ten tydzień"
+- `weeksSinceDeload` (`:893-894`) i licznik mezocyklu (`:905-906`)
+
+Trening 1 zrobiony w niedzielę wpada więc do tygodnia, który **już się rozliczył**,
+a nowy tydzień startuje z zerem. Przy `done` liczącym unikalne `dayId` (Zadanie 4, §16)
+efekt bywa jeszcze gorszy: stary tydzień wygląda na domknięty, nowy na pusty.
+
+### Decyzja Kamila: **tydzień = cykl rotacji**
+
+### Co zrobić
+
+1. **Nowa funkcja `trainingCycles(state, count?, nowIso?)`** w `logic.ts` — dzieli
+   ukończone sesje (rosnąco po `date`) na cykle. Sesja **otwiera nowy cykl**, gdy:
+   - jest pierwszą sesją w historii, **albo**
+   - pozycja jej `dayId` w kolejności planu (`state.days.filter(d => !d.optional)`) jest
+     **≤** pozycji dnia poprzedniej sesji (rotacja się cofnęła lub powtórzyła), **albo**
+   - od poprzedniej sesji minęło **więcej niż 10 dni** (przerwa = nowy cykl, nie jeden
+     rozciągnięty na miesiąc).
+
+   Dzień bonusowy **nigdy nie otwiera cyklu** — dolicza się do trwającego (spójne z §16
+   Zadanie 4: bonus nie jest wymagany do pełnego tygodnia).
+
+   Zwracaj: `{ startIso, endIso, dayIds: Set<string>, done, planned, bonusDone, sessions }`.
+
+2. **`weeklyAdherence` przechodzi na cykle.** Zachowaj kształt zwracanych danych
+   (`WeekAdherence[]`), żeby `ProgressScreen` nie wymagał przebudowy — `week` niech
+   niesie `startIso` cyklu. Podpis kratek w UI zmień z daty tygodnia na numer/zakres
+   cyklu (`Cykl 12 · 3–9 sie`), żeby nikt nie czytał tego jako kalendarza.
+
+3. **`weeklyReport`** liczy „ten tydzień" jako **bieżący (ostatni) cykl**, a porównanie
+   z poprzednim — jako poprzedni cykl. Nazewnictwo w UI: „Ten cykl" zamiast „Ten tydzień".
+
+4. **`weeksSinceDeload`** liczy **cykle** od ostatniej sesji w trybie deload
+   (nazwa funkcji może zostać, popraw doc-comment i etykiety w UI).
+
+5. **`actualWeeklyMuscleVolume` ZOSTAJE na oknie 7 dni** (§12 INFO-1). To metryka
+   fizjologiczna („ile serii na partię tygodniowo"), a nie rozliczenie planu — okno
+   kroczące jest tam poprawne. **Nie ruszaj jej** i dopisz o tym komentarz, żeby ktoś
+   „nie dokończył" migracji przez pomyłkę.
+
+6. **Migracja danych: żadna.** Cykle liczą się z istniejących `sessions` w locie.
+
+### Pułapki
+- Historia startowa (`history-seed.ts`) ma sesje wstrzyknięte jako gotowe `Session[]` —
+  muszą podzielić się na sensowne cykle. **Sprawdź to na realnym stanie**, zanim uznasz
+  zadanie za skończone.
+- Sesja tego samego `dayId` dwa razy z rzędu → pozycja `≤` poprzedniej → poprawnie
+  otwiera nowy cykl (powtórka Treningu 1 to nowy cykl, nie druga sesja w tym samym).
+- Pusta historia → `[]`, a nie wyjątek. UI musi to przeżyć.
+
+### Testy (≥8 nowych)
+- Trening 1 (niedziela) → 2 (wtorek) → 3 (czwartek): **jeden** cykl ← sedno zgłoszenia
+- Trening 1 → 2 → 3 → **1**: dwa cykle, drugi otwarty na czwartej sesji
+- Trening 2 → 3 → 1 → 2: cykl łamie się na Treningu 1
+- pominięty Trening 1 (2 → 3 → 2): drugi „2" otwiera nowy cykl (pozycja ≤ poprzedniej)
+- 14 dni przerwy w środku rotacji → nowy cykl mimo rosnącej pozycji dnia
+- bonus w środku cyklu → nie łamie cyklu, podbija `bonusDone`
+- dwie sesje tego samego dnia planu w jednym cyklu → `done` liczy 1 (zachowanie z §16)
+- pusta historia → `[]`
+
+### Kryterium akceptacji
+Trening 1 w niedzielę + Trening 2 we wtorek + Trening 3 w czwartek pokazują się jako
+**jeden pełny cykl (3/3)**, a nie jako „stary tydzień 1/3" i „nowy tydzień 2/3".
+
+---
+
+## P7-9 — migracje celów pomijają `hyperTargets` (a Kamil trenuje w hipertrofii)
+
+### Dlaczego to jest ważne
+Każdy screen z obu serii ma w nagłówku plakietkę **Hipertrofia**. W tym trybie
+`targetForMode` (`logic.ts:875-879`) czyta `hyperTargetFor`, a ten **najpierw** sięga po
+`state.hyperTargets[ex.id]` (`logic.ts:824`). Czyli **`hyperTargets` to są jego realne
+cele robocze**, a `targets` (siła) leżą odłogiem.
+
+Tymczasem w `seed.ts` słowo `hyperTargets` **nie występuje ani razu**:
+```
+$ grep -c "hyperTargets" src/lib/seed.ts
+0
+```
+
+### Dwa konkretne skutki
+
+**(a) `fixRdlTargetOnce` (§24.2) nigdy nie zadziałało na tym, co widzi Kamil.**
+`seed.ts:864-870` rusza wyłącznie `state.targets.rdl`:
+```ts
+if (state.targets.rdl !== 22) return state;
+return { ...state, targets: { ...state.targets, rdl: 22.5 } };
+```
+`hyperTargets.rdl` zostało na starej wartości — **to jest najprawdopodobniejsze
+wyjaśnienie „nowy ciężar 24 kg" ze screena 3/4** (22 + 2), którego nie tłumaczyła
+sama nieaktualność buildu. To samo dotyczy `catchUpTargetsFromHistory` (BUG-1)
+i wszystkich przyszłych migracji celów.
+
+**(b) Utrata danych przy następnym bumpie `SCHEMA_VERSION`.**
+`migrateState`, gałąź „stara wersja" (`seed.ts:742-751`), zwraca:
+```ts
+return applyOneTimeSeeds({ ...fresh, exercises, targets, sessions, body, squash, settings });
+```
+`old.hyperTargets` **nie jest przenoszone**. Przy najbliższej podbitce wersji schematu
+**cała progresja hipertrofii Kamila wyparuje** i cele wrócą do siłowych. Gałąź
+„aktualny schemat" przenosi je przypadkiem, przez `...old` — ale to działa
+wyłącznie dopóki wersja się nie zmienia. **Bomba z opóźnionym zapłonem.**
+
+### Co zrobić
+1. **Przenieś `hyperTargets` w gałęzi „stara wersja"** (`seed.ts:742-751`) — dokładnie
+   tak samo ostrożnie jak `targets`: zachowaj wartości dla ID ćwiczeń, które nadal
+   istnieją w nowym seedzie.
+2. **Wprowadź jedną wspólną ścieżkę korekty celu** zamiast dublowania kodu w każdej
+   migracji:
+   ```ts
+   /** Poprawka celu stosowana do OBU zestawów: siłowego i hipertroficznego.
+    *  Cele hipertrofii to w praktyce cele robocze (patrz targetForMode) — migracja,
+    *  która ich nie rusza, jest dla trenującego w hipertrofii niewidoczna. */
+   function mapTargets(state: AppState, fn: (id: string, weight: number) => number): AppState
+   ```
+   Przepnij na nią `fixRdlTarget` i **wszystkie** migracje celów z P7-3
+   (`snapDumbbellTargetsOnce`).
+3. **Jednorazowa migracja naprawcza `fixHyperRdlTargetOnce`** (flaga `rdlHyperTargetFixed`):
+   `hyperTargets.rdl === 22` → `22,5`. Bez tego §24.2 u Kamila nadal nie zadziała.
+   Jak zawsze: rusza **wyłącznie** dokładnie starą wartość, wypracowanej progresji nie tyka.
+4. **`resetAll()` ustawia nową flagę na `true`** (pułapka nr 2).
+
+### Testy (≥5 nowych)
+- migracja ze starego schematu **zachowuje `hyperTargets`** dla istniejących ćwiczeń
+- migracja ze starego schematu **odrzuca `hyperTargets`** dla ID, których nie ma w seedzie
+- `hyperTargets.rdl` 22 → 22,5; wypracowane 26 zostaje 26
+- brak `hyperTargets` w stanie wejściowym → brak wyjątku, brak pustego obiektu-śmiecia
+- idempotencja (drugi przebieg nic nie zmienia)
+
+### Kryterium akceptacji
+Stan sprzed zmiany, z `targets.rdl = 22,5` i `hyperTargets.rdl = 22`, po wczytaniu ma
+**oba** na 22,5. Podbicie `SCHEMA_VERSION` na stanie testowym nie kasuje `hyperTargets`.
+
+---
+
+## Zmiany w zadaniach z serii I — PRZECZYTAJ przed P7-1, P7-2 i P7-3
+
+### P7-1 — potwierdzone jeszcze trzema przypadkami
+Ten sam błędny komunikat („ostatnio komplet, dziś powinien wskoczyć" mimo że ciężar
+już wskoczył) widać na screenach serii II przy:
+- **Hip Thrust** — `Ostatnie: 60×12/12/12`, cel **62,5** (screen 6)
+- **Przysiad ze sztangą** — `Ostatnie: 62,5×12/12/12`, cel **65** (screen 8)
+- **Plank** — `Ostatnie: 40/40/40/40`, cel **15 kg** (było 10) (screen 10)
+
+Kamil pyta wprost drugi raz: *„Co to znaczy ostatni komplet, że dziś powinno wskoczyć?"*
+**Dodaj przypadek `isHold` do testów P7-1**: przy planku komunikat ma mówić o obciążeniu
+(`ciężar właśnie wskoczył z 10 na 15 kg, dziś celujesz w 40 s`), a nie o powtórzeniach.
+
+### P7-2 — POPRAWKA specyfikacji dla `isHold`
+Pierwotnie zapisałem: *„`isHold` → porównanie po `reps` (sekundy), ciężar bez znaczenia"*.
+**To jest błędne** — patrz P7-6. Obowiązuje wersja z P7-6: dłuższy czas wygrywa;
+przy równym czasie wygrywa cięższe obciążenie; równy czas przy lżejszym → `worse`.
+
+Potwierdzenie poprawności reszty P7-2 na nowych danych: przysiad `65×8` przy referencji
+`62,5×12` ma e1RM 82,3 < 87,5, więc kratka `ost. 12` **słusznie** zostaje bursztynowa
+(screen 8) — po zmianie na e1RM ten wiersz się nie zmienia. Za to Hip Thrust `62,5×11`
+przy referencji `60×12` (e1RM 85,4 vs 84,0) przestanie być bursztynowy i zgodzi się
+wreszcie z odznaką PR w tym samym wierszu (screen 6).
+
+### P7-3 — trzy uzupełnienia
+
+**(a) Nazwa siłowni domowej: „Well Fitness"** (nie „Domowa"). Zmień etykietę domyślnego
+profilu — Kamil ma dwie realne siłownie i „Domowa" niczego nie nazywa.
+
+**(b) Przełącznik siłowni NA CZAS TRENINGU** — prośba wprost: *„fajnie, jakby była
+możliwość zmiany w danym dniu właśnie pomiędzy tymi siłowniami, ale defaultowo tak,
+jak ustaliliśmy"*. Zamiast globalnego `settings.activeGymProfileId`:
+- `Draft` dostaje `gymProfileId?: string`, **domyślnie z `day.gymProfileId`**
+- w nagłówku treningu (obok plakietki trybu) mały przełącznik siłowni
+- `Session` dostaje `gymProfileId?: string`, zapisywane przy zakończeniu
+- `store.finishSession` bierze drabinkę z `session.gymProfileId ?? day.gymProfileId`
+- adaptacja celu z §24.1 (krok 4 w P7-3) włączona, gdy siłownia sesji **jest zgodna**
+  z siłownią dnia; wyłączona, gdy Kamil ręcznie przełączył się na inną
+- `settings.activeGymProfileId` zostaje wyłącznie jako domyślna wartość Kalkulatora
+  talerzy w zakładce Więcej — **nie steruje już progresją**
+
+**(c) Migracje celów muszą ruszać `hyperTargets`** — patrz **P7-9**. `snapDumbbellTargetsOnce`
+liczone tylko na `targets` **nie zmieni nic** z perspektywy Kamila, bo on trenuje
+w hipertrofii. Zrób P7-9 **przed** P7-3 albo od razu użyj w P7-3 wspólnego `mapTargets`.
+
+**(d) Drabinki — nie blokuj się na nich.** Kamil nie podał jeszcze dokładnych list.
+Wejdź z domysłami z sekcji P7-3, ale **UI edycji drabinki (krok 6) jest w tym zadaniu
+obowiązkowe** — dzięki niemu Kamil poprawi wartości sam, bez kolejnego deployu.
+Siłownia domowa = **Well Fitness** (pon/pt, hantle co 2,5 w górnym zakresie),
+druga = **My Fitness Place** (śr, hantle co 2 kg).
+
+---
+
+## Podsumowanie serii I + II
+
+| # | Zadanie | Typ |
+|---|---|---|
+| P7-1 | „dziś powinien wskoczyć" mimo że ciężar już wskoczył | błąd logiki |
+| P7-2 | kolor „ost. N" liczony z powtórzeń zamiast z siły | błąd logiki |
+| P7-3 | drabinka hantli + siłownia per dzień + przełącznik na trening | funkcja |
+| P7-4 | brak czasu treningu (liczony od wejścia w dzień) | błąd logiki |
+| P7-5 | „nowy ciężar" ≤ temu, co dziś podniósł | błąd logiki |
+| P7-6 | plank: brak PR mimo większego obciążenia | błąd logiki |
+| P7-7 | rekord życia niewidoczny w karcie ćwiczenia | informacja |
+| P7-8 | tydzień = cykl rotacji zamiast kratki kalendarza | funkcja |
+| P7-9 | migracje celów pomijają `hyperTargets` (+ utrata danych przy bumpie wersji) | błąd danych |
+
+**Nie jest błędem** (nie „naprawiaj"): brak PR przy przysiadzie 65×8 — 65 kg już było,
+a e1RM niższy od rekordu (P7-7 wyjaśnia to w UI). Suwnica 80 kg przy celu 120 też nie
+jest błędem: cel dosiany przez migrację z §19 był zgadywany, a po tej sesji §24.1 sam
+ściągnie go do 80 kg.
