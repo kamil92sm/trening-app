@@ -555,6 +555,11 @@ export function TrainScreen() {
   // (baza progresji) zostaje bez zmian - to tylko korekta wag serii w drafcie.
   function setWeightWithSync(entryIdx: number, setIdx: number, weight: number) {
     const w = Math.max(0, Math.round(weight * 100) / 100);
+    // P7-5: gdy ta zmiana zostawia ZALICZONE serie robocze na INNYM ciężarze
+    // niż ten właśnie ustawiony, progresja po zakończeniu treningu policzy się
+    // od najcięższej zaliczonej (store.finishSession), nie od tego, co zostało
+    // w polu — dyskretny toast, żeby to nie zaskoczyło w podsumowaniu.
+    let showMixedToast = false;
     setDraft((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -564,8 +569,15 @@ export function TrainScreen() {
       for (let i = setIdx + 1; i < sets.length; i++) {
         if (!sets[i].done && sets[i].weight === oldWeight) sets[i].weight = w;
       }
+      const ex = state.exercises.find((e) => e.id === next.entries[entryIdx].exerciseId);
+      const targetSets = ex ? setsForMode(ex, next.mode, day) : sets.length;
+      const doneWorking = sets.slice(0, targetSets).filter((s) => s.done);
+      if (doneWorking.some((s) => Math.abs(s.weight - w) > 1e-9)) showMixedToast = true;
       return next;
     });
+    if (showMixedToast) {
+      toast("Różne ciężary w seriach", "Progresja policzy się od najcięższej zaliczonej serii.");
+    }
   }
 
   function addSet(entryIdx: number) {

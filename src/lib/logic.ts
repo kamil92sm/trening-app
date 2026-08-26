@@ -442,6 +442,25 @@ export function easyAtRirHigh(ex: Exercise, sets: SetLog[]): boolean {
  * ciężaru fałszywie raportował "Spadek formy" — dotyczyło to szczególnie
  * `isHold` (plank), które przez sztywny zakres `repMin === repMax` nie miało
  * WCALE przestrzeni na odbudowanie wyniku (patrz zmiana zakresu w seed.ts).
+ *
+ * P7-5: `mixedWorkingWeights` — serie robocze poszły na RÓŻNYCH ciężarach
+ * (`loggedWorkingWeight` w wywołującym zwróciło `null`, bo np. podbiłeś ciężar
+ * w trakcie ćwiczenia), a najcięższa zaliczona seria jest WYŻSZA niż
+ * `targetWeight` przekazany do tej funkcji (który w tej sytuacji jest
+ * NIEAKTUALNYM celem z planu — wywołujący nie miał na czym innym oprzeć
+ * bazy). Zasada nadrzędna: "nowy ciężar" nie ma prawa być ≤ temu, co dziś
+ * REALNIE podniesiono. Sprawdzane jako PIERWSZA rzecz w funkcji — celowo
+ * PRZED `allAtTop`/`belowMin`, bo bez tego komplet powtórzeń na rozjechanych
+ * ciężarach (np. 16,25×12/17,5×12/17,5×12) liczyłby `allAtTop` od
+ * `targetWeight`=16,25 i ogłosił "nowy ciężar 17,5", czyli dokładnie to, co
+ * już zrobiono (zgłoszenie Kamila, screen 6-7). Status zawsze `"hold"` —
+ * komplet powtórzeń NIE był zrobiony na jednym ciężarze, więc podwójna
+ * progresja formalnie się nie domknęła; `nextWeight` to sam `mixedWorkingWeights`
+ * (cel dogania to, co już podniesiono, ale NIE dokłada kolejnego kroku —
+ * o to trzeba jeszcze raz powalczyć kompletem). Przekazywane WYŁĄCZNIE, gdy
+ * wywołujący już potwierdził oba warunki (rozjazd + przewyższenie) — samo
+ * to sprawia, że gałąź `allAtTop` NIGDY nie jest osiągana z niższym
+ * `targetWeight`, więc nie potrzeba osobnego "bezpiecznika" tam niżej.
  */
 export function computeProgression(
   ex: Exercise,
@@ -450,7 +469,8 @@ export function computeProgression(
   lastRir?: number,
   priorSessionFailedWithRir0?: boolean,
   priorSessionEasyAtRir3?: boolean,
-  weightJustIncreased?: boolean
+  weightJustIncreased?: boolean,
+  mixedWorkingWeights?: number
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -460,6 +480,14 @@ export function computeProgression(
       status: "hold",
       nextWeight: targetWeight,
       message: "Brak zaliczonych serii — cel bez zmian.",
+    };
+  }
+
+  if (mixedWorkingWeights !== undefined && mixedWorkingWeights > targetWeight + 1e-9) {
+    return {
+      status: "hold",
+      nextWeight: mixedWorkingWeights,
+      message: `Serie szły na różnych ciężarach — cel podniesiony do ${mixedWorkingWeights} kg. Domknij na nim komplet ${ex.repMax} ${unitWord}, wtedy ciężar pójdzie dalej.`,
     };
   }
 

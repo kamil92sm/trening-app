@@ -218,8 +218,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const modeEx = exerciseForDay(exerciseForMode(ex, mode), sessionDay);
           const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
           const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
-          const loggedWeight = adaptTargetToLoggedWeight ? loggedWorkingWeight(entry, modeEx.targetSets) : null;
+          // `null` = serie robocze NIE poszły na jednym ciężarze (niezależnie
+          // od obcej siłowni — liczone RAZ, dalej gate'owane osobno per użycie).
+          const loggedWeightRaw = loggedWorkingWeight(entry, modeEx.targetSets);
+          const loggedWeight = adaptTargetToLoggedWeight ? loggedWeightRaw : null;
           const progressionBase = loggedWeight ?? entry.targetWeight;
+          // P7-5: serie poszły na różnych ciężarach I najcięższa zaliczona
+          // przewyższa stary cel z planu (`progressionBase` wtedy jest tym
+          // NIEAKTUALNYM celem, nie tym co realnie poszło). Wyłączone na obcej
+          // siłowni — jak cała adaptacja z §24.1, korekta mówiłaby o TAMTYM
+          // sprzęcie. `computeProgression` samo pilnuje, żeby "nowy ciężar"
+          // nigdy nie był ≤ temu, co dziś podniesiono (zgłoszenie Kamila,
+          // screen 6-7: uginanie bicepsa 16,25→17,5 w trakcie, podsumowanie
+          // ogłosiło "nowy ciężar 17,5" — czyli to, co już zrobił).
+          const heaviestDone = working.length > 0 ? Math.max(...working.map((s) => s.weight)) : 0;
+          const mixedWorkingWeights =
+            adaptTargetToLoggedWeight && loggedWeightRaw === null && heaviestDone > entry.targetWeight + 1e-9
+              ? heaviestDone
+              : undefined;
           // P4-4: poprzednia sesja liczona w JEJ WŁASNYM trybie tygodnia (repMax/
           // targetSets różnią się między Siła/Hipertrofia) - inaczej "sukces" z
           // zeszłego tygodnia mógłby wyglądać jak fail przez sam próg zakresu.
@@ -254,7 +270,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               lastRir,
               priorSessionFailedWithRir0,
               priorSessionEasyAtRir3,
-              weightJustIncreased
+              weightJustIncreased,
+              mixedWorkingWeights
             ),
           });
         }

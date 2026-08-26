@@ -194,6 +194,59 @@ check(
   deload
 );
 
+// P7-5: "nowy ciezar" nie moze byc <= temu co dzis realnie podniesiono - serie
+// robocze na roznych ciezarach (podbicie w trakcie cwiczenia, zgloszenie
+// Kamila: uginanie bicepsa 16,25 -> 17,5 w trakcie, podsumowanie oglosilo
+// "nowy ciezar 17,5" czyli to co juz zrobil).
+const curlBbEx = SEED_EXERCISES.find((e) => e.id === "curl_bb")!;
+const curlMon = { ...curlBbEx, targetSets: 3 }; // mon.setsOverride: {curl_bb: 3}
+const mixed = computeProgression(
+  curlMon, 16.25,
+  [
+    { weight: 16.25, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ],
+  undefined, undefined, undefined, undefined, 17.5
+);
+check(
+  "computeProgression (P7-5): serie na roznych ciezarach (16,25->17,5) -> hold, nextWeight=17,5, nie awans na 18,75",
+  mixed.status === "hold" && mixed.nextWeight === 17.5 && mixed.message.indexOf("Serie szły na różnych ciężarach") === 0,
+  mixed
+);
+const uniformFull = computeProgression(curlMon, 17.5, [
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+]);
+check(
+  "computeProgression (P7-5): jednolity ciezar, komplet -> normalny awans na 18,75 (bez mixedWorkingWeights)",
+  uniformFull.status === "up" && uniformFull.nextWeight === 18.75,
+  uniformFull
+);
+const boundaryEqual = computeProgression(curlMon, 17.5, [
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+], undefined, undefined, undefined, undefined, 17.5);
+check(
+  "computeProgression (P7-5): mixedWorkingWeights == targetWeight (nie >) -> override NIE odpala, normalny awans",
+  boundaryEqual.status === "up" && boundaryEqual.nextWeight === 18.75,
+  boundaryEqual
+);
+check(
+  "computeProgression (P7-5): mixedWorkingWeights ponizej targetWeight (poza kontraktem store'a) -> override NIE odpala",
+  computeProgression(
+    curlMon, 20,
+    [
+      { weight: 20, reps: 12, done: true },
+      { weight: 20, reps: 12, done: true },
+      { weight: 20, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, 17.5 // < targetWeight - store tego nigdy nie zrobi, ale funkcja ma byc odporna
+  ).message.indexOf("Serie szły na różnych ciężarach") === -1
+);
+
 // Tonaż i e1RM
 check("hantle tonaz x2", setVolume(lateral, { weight: 9, reps: 12, done: true }) === 216);
 check("sztanga tonaz x1", setVolume(bench, { weight: 45, reps: 8, done: true }) === 360);
