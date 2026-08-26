@@ -433,6 +433,15 @@ export function easyAtRirHigh(ex: Exercise, sets: SetLog[]): boolean {
  * na POPRZEDNIEJ sesji, liczone przez wywołującego) + RIR 0 w bieżącej,
  * niekompletnej sesji -> sygnał deloadu (dwa treningi z rzędu na krawędzi
  * bez postępu).
+ *
+ * P7-10: `weightJustIncreased` — `targetWeight` jest WYŻSZY niż na sesji
+ * referencyjnej (liczone przez wywołującego, `weightVsReference`). Wtedy
+ * "2+ serie poniżej repMin" NIE jest spadkiem formy — to oczekiwany, normalny
+ * skutek udanej progresji (świeżo podniesiony ciężar z definicji daje mniej
+ * powtórzeń/sekund niż poprzedni). Bez tego pierwszy trening po każdym skoku
+ * ciężaru fałszywie raportował "Spadek formy" — dotyczyło to szczególnie
+ * `isHold` (plank), które przez sztywny zakres `repMin === repMax` nie miało
+ * WCALE przestrzeni na odbudowanie wyniku (patrz zmiana zakresu w seed.ts).
  */
 export function computeProgression(
   ex: Exercise,
@@ -440,7 +449,8 @@ export function computeProgression(
   sets: SetLog[],
   lastRir?: number,
   priorSessionFailedWithRir0?: boolean,
-  priorSessionEasyAtRir3?: boolean
+  priorSessionEasyAtRir3?: boolean,
+  weightJustIncreased?: boolean
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -480,10 +490,17 @@ export function computeProgression(
   }
 
   if (belowMin >= 2) {
+    if (weightJustIncreased) {
+      return {
+        status: "hold",
+        nextWeight: targetWeight,
+        message: `Pierwszy trening na nowym ciężarze — ${belowMin} z ${ex.targetSets} serii poniżej ${ex.repMin} ${unitWord}. Zostań na tym ciężarze, aż wrócisz do zakresu.`,
+      };
+    }
     return {
       status: "deload",
       nextWeight: targetWeight,
-      message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj powtórzenia na tym ciężarze.`,
+      message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj ${ex.isHold ? "czas" : "powtórzenia"} na tym ciężarze.`,
     };
   }
 

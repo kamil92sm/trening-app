@@ -128,6 +128,72 @@ const plankUp = computeProgression(plank, 10, [
 ]);
 check("plank 4x40s -> +5 kg", plankUp.status === "up" && plankUp.nextWeight === 15, plankUp);
 
+// P7-10: fałszywy "Spadek formy" po skoku ciężaru + zakres planku 30-40 s
+// (bylo: sztywne 40==40, KAZDY skok obciazenia gwarantowal falszywy deload).
+const plankScreen10 = computeProgression(plank, 15, [
+  { weight: 15, reps: 40, done: true },
+  { weight: 15, reps: 35, done: true },
+  { weight: 15, reps: 35, done: true },
+  { weight: 15, reps: 35, done: true },
+]);
+check(
+  "plank: 40/35/35/35 @ 15kg (screen 10) - z zakresem 30-40 NIE jest juz spadkiem formy (35>=30)",
+  plankScreen10.status === "hold" && plankScreen10.message.indexOf("Spadek formy") === -1,
+  plankScreen10
+);
+const plankJustIncreased = computeProgression(plank, 15, [
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+], undefined, undefined, undefined, true);
+check(
+  "plank: wyraznie ponizej minimum (20s) + weightJustIncreased -> hold 'pierwszy trening', NIE deload",
+  plankJustIncreased.status === "hold" &&
+    plankJustIncreased.message.indexOf("Pierwszy trening na nowym ciężarze") === 0 &&
+    plankJustIncreased.message.indexOf("30 s") > -1,
+  plankJustIncreased
+);
+const plankSameWeight = computeProgression(plank, 15, [
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+], undefined, undefined, undefined, false);
+check(
+  "plank: to samo (20s), ale weightJustIncreased=false -> deload, prawdziwy regres",
+  plankSameWeight.status === "deload" && plankSameWeight.message.indexOf("odbuduj czas") > -1,
+  plankSameWeight
+);
+
+const benchJustIncreased = computeProgression(bench, 47.5, [
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 8, done: true },
+], undefined, undefined, undefined, true);
+check(
+  "cwiczenie zwykle: 2 serie ponizej min + weightJustIncreased -> hold 'pierwszy trening', nie 'Spadek formy'",
+  benchJustIncreased.status === "hold" &&
+    benchJustIncreased.message.indexOf("Pierwszy trening na nowym ciężarze") === 0 &&
+    benchJustIncreased.message.indexOf("odbuduj") === -1,
+  benchJustIncreased
+);
+const benchSameWeight = computeProgression(bench, 47.5, [
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 8, done: true },
+], undefined, undefined, undefined, false);
+check(
+  "cwiczenie zwykle: te same serie, weightJustIncreased=false -> deload jak dawniej, 'odbuduj powtorzenia'",
+  benchSameWeight.status === "deload" && benchSameWeight.message.indexOf("odbuduj powtórzenia") > -1,
+  benchSameWeight
+);
+check(
+  "computeProgression: pominiecie weightJustIncreased (undefined) -> zachowanie jak dawniej (deload)",
+  deload.status === "deload" && deload.message.indexOf("odbuduj powtórzenia") > -1,
+  deload
+);
+
 // Tonaż i e1RM
 check("hantle tonaz x2", setVolume(lateral, { weight: 9, reps: 12, done: true }) === 216);
 check("sztanga tonaz x1", setVolume(bench, { weight: 45, reps: 8, done: true }) === 360);
@@ -3052,6 +3118,36 @@ check(
   check(
     "migracja: idempotentna (drugi przebieg nic nie zmienia)",
     migrateState({ ...fixed, version: SCHEMA_VERSION }).targets.rdl === 22.5
+  );
+}
+
+// ── P7-10: zakres planku poprawiony na osiagalne 30-40 s ───────────────────
+{
+  const seedPlank = SEED_EXERCISES.find((x) => x.id === "plank")!;
+  check("SEED_EXERCISES: plank repMin = 30 (bylo sztywne 40==40)", seedPlank.repMin === 30 && seedPlank.repMax === 40);
+
+  const stale: any = defaultState();
+  stale.exercises = stale.exercises.map((e: any) => (e.id === "plank" ? { ...e, repMin: 40, repMax: 40 } : e));
+  delete stale.plankRangeSeeded;
+  const fixed = migrateState({ ...stale, version: SCHEMA_VERSION });
+  const fixedPlank = fixed.exercises.find((e) => e.id === "plank")!;
+  check("migracja: plank repMin 40 -> 30", fixedPlank.repMin === 30 && fixedPlank.repMax === 40, fixedPlank);
+  check("migracja: flaga plankRangeSeeded ustawiona", fixed.plankRangeSeeded === true);
+
+  // Reczna zmiana zakresu przez uzytkownika (w Planie) NIE moze zostac nadpisana.
+  const manual: any = defaultState();
+  manual.exercises = manual.exercises.map((e: any) => (e.id === "plank" ? { ...e, repMin: 25, repMax: 40 } : e));
+  delete manual.plankRangeSeeded;
+  const manualFixed = migrateState({ ...manual, version: SCHEMA_VERSION });
+  check(
+    "migracja: reczny zakres (25) zostaje nietkniety",
+    manualFixed.exercises.find((e) => e.id === "plank")!.repMin === 25,
+    manualFixed.exercises.find((e) => e.id === "plank")
+  );
+
+  check(
+    "migracja: idempotentna (drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixed, version: SCHEMA_VERSION }).exercises.find((e) => e.id === "plank")!.repMin === 30
   );
 }
 

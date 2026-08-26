@@ -175,6 +175,8 @@ export interface AppState {
   planVolumeBumpSeeded?: boolean;
   /** Czy cel RDL poprawiono z nieosiągalnych 22 kg na 22,5 (hantle na siłowni) — jednorazowo. */
   rdlTargetFixed?: boolean;
+  /** P7-10: czy zakres planku poprawiono z 40==40 na 30-40 s — jednorazowo. */
+  plankRangeSeeded?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */

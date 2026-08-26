@@ -128,7 +128,16 @@ export const SEED_EXERCISES: Exercise[] = [
     note: "Pełny zakres, pauza w górze. Możesz wydłużyć przerwę do 1–1,5 min.",
     restSeconds: 90,
   }),
-  ex("plank", "Plank (deska)", "Brzuch", "bodyweight", 40, 40, 4, 5, "Brzuch", [], {
+  // P7-10: zakres 30-40 s (było: sztywne 40==40) - repMin===repMax nie
+  // zostawiał ŻADNEJ przestrzeni na odbudowanie wyniku po skoku obciążenia,
+  // więc KAŻDE podniesienie ciężaru gwarantowało fałszywy "Spadek formy"
+  // (2+ serie poniżej minimum, bo minimum == maksimum). Teraz działa jak
+  // każde inne ćwiczenie: po skoku celujesz w dół zakresu i przez kolejne
+  // treningi dokładasz sekundy do góry. side_plank/hollow_hold/farmer_walk
+  // mają ten sam kształt (repMin===repMax) i ŚWIADOMIE zostają nietknięte -
+  // nie były zgłoszone, a wyjątek `weightJustIncreased` w computeProgression
+  // już je chroni przed fałszywym spadkiem formy niezależnie od zakresu.
+  ex("plank", "Plank (deska)", "Brzuch", "bodyweight", 30, 40, 4, 5, "Brzuch", [], {
     isHold: true,
     rir: 0,
     note: "Spinaj pośladki, to betonuje całą sylwetkę. Krótsze serie zamiast wydłużania.",
@@ -871,6 +880,30 @@ function fixRdlTargetOnce(state: AppState): AppState {
 }
 
 /**
+ * P7-10: zakres planku 40==40 → 30-40 s. Sztywne repMin===repMax nie
+ * zostawiało ŻADNEJ przestrzeni na odbudowanie wyniku po skoku obciążenia —
+ * "2+ serie poniżej minimum" (minimum == maksimum) odpalało się przy KAŻDYM
+ * podniesieniu ciężaru, mimo że to normalny skutek udanej progresji.
+ *
+ * `mergeExerciseLibrary` świadomie NIE dolewa pól do ćwiczeń, które
+ * użytkownik już ma (§13/§18.2 pułapka) — sama zmiana w `SEED_EXERCISES`
+ * nie dotarłaby do zapisanego stanu Kamila. Rusza WYŁĄCZNIE ćwiczenie
+ * z dokładnie starą wartością (`repMin === 40 && repMax === 40`) — ręczna
+ * zmiana zakresu przez użytkownika w Planie zostaje nietknięta.
+ */
+function setPlankRange(state: AppState): AppState {
+  const exercises = state.exercises.map((e) =>
+    e.id === "plank" && e.repMin === 40 && e.repMax === 40 ? { ...e, repMin: 30 } : e
+  );
+  return { ...state, exercises };
+}
+
+function setPlankRangeOnce(state: AppState): AppState {
+  if (state.plankRangeSeeded) return state;
+  return { ...setPlankRange(state), plankRangeSeeded: true };
+}
+
+/**
  * Wariant B (§19): dołożenie objętości partiom, które w planie 3-dniowym miały
  * jej realnie za mało — Nogi 6 serii/tydz. przy 1×/tydz. (zero udziału
  * pomocniczego: martwy/RDL/hip thrust nie trenują czworogłowych), Biceps
@@ -967,6 +1000,7 @@ function applyOneTimeSeeds(state: AppState): AppState {
   s = calibrateRirOnce(s);
   s = applyPlanVolumeBumpOnce(s);
   s = fixRdlTargetOnce(s);
+  s = setPlankRangeOnce(s);
   return s;
 }
 

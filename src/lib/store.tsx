@@ -32,6 +32,7 @@ import {
   exerciseForMode,
   failedAtRirZero,
   loggedWorkingWeight,
+  weightVsReference,
   type ProgressionResult,
 } from "./logic";
 import { serializeBackup } from "./backup";
@@ -237,6 +238,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // i bez kompletu powtórzeń = ciężar za lekki (patrz easyAtRirHigh).
           const priorSessionEasyAtRir3 =
             prevPlanEx && prevEntry ? easyAtRirHigh(prevPlanEx, prevEntry.sets) : false;
+          // P7-10: ciężar właśnie wskoczył (progressionBase wyższy niż na sesji
+          // referencyjnej, POZA deloadem) -> "2+ serie poniżej minimum" to
+          // oczekiwany skutek udanej progresji, nie spadek formy. Ten sam
+          // helper co P7-1 (weightVsReference), więc "dziś powinien wskoczyć"
+          // w karcie i "Spadek formy" w podsumowaniu nigdy sobie nie zaprzeczą.
+          const weightJustIncreased =
+            weightVsReference(state, ex.id, progressionBase)?.relation === "up";
           summaries.push({
             exercise: ex,
             result: computeProgression(
@@ -245,7 +253,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               entry.sets,
               lastRir,
               priorSessionFailedWithRir0,
-              priorSessionEasyAtRir3
+              priorSessionEasyAtRir3,
+              weightJustIncreased
             ),
           });
         }
@@ -476,6 +485,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rirCalibrated: true,
           planVolumeBumpSeeded: true,
           rdlTargetFixed: true,
+          plankRangeSeeded: true,
         });
       },
 
