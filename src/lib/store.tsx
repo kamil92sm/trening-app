@@ -502,6 +502,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rirCalibrated: true,
           planVolumeBumpSeeded: true,
           rdlTargetFixed: true,
+          rdlHyperTargetFixed: true,
           plankRangeSeeded: true,
         });
       },

@@ -3174,6 +3174,81 @@ check(
   );
 }
 
+// ── P7-9: migracje celow nie moga pomijac hyperTargets ──────────────────────
+{
+  // Stara wersja schematu (nie SCHEMA_VERSION) - gałąź ktora WCALE nie
+  // przenosila hyperTargets przed tym fixem.
+  const oldWithHyper = {
+    version: 2,
+    targets: {},
+    hyperTargets: { curl_bb: 17.5, fake_removed_exercise: 99 },
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  const migHyper = migrateState(oldWithHyper);
+  check(
+    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (curl_bb)",
+    migHyper.hyperTargets?.curl_bb === 17.5,
+    migHyper.hyperTargets
+  );
+  check(
+    "migracja stara wersja: hyperTargets odrzuca ID ktorych nie ma w seedzie",
+    migHyper.hyperTargets?.fake_removed_exercise === undefined,
+    migHyper.hyperTargets
+  );
+
+  const noHyperOld = {
+    version: 2,
+    targets: {},
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  check(
+    "migracja stara wersja: brak hyperTargets w wejsciu -> undefined, NIE pusty obiekt-smiec",
+    migrateState(noHyperOld).hyperTargets === undefined,
+    migrateState(noHyperOld).hyperTargets
+  );
+
+  // Aktualny schemat: dogonienie hyperTargets.rdl (bylo pomijane, wiec §24.2
+  // nigdy nie zadzialalo dla Kamila - trenuje w hipertrofii).
+  const staleHyper: any = defaultState();
+  staleHyper.hyperTargets = { rdl: 22 };
+  delete staleHyper.rdlHyperTargetFixed;
+  const fixedHyper = migrateState({ ...staleHyper, version: SCHEMA_VERSION });
+  check("migracja: hyperTargets.rdl 22 -> 22,5", fixedHyper.hyperTargets?.rdl === 22.5, fixedHyper.hyperTargets);
+  check("migracja: flaga rdlHyperTargetFixed ustawiona", fixedHyper.rdlHyperTargetFixed === true);
+
+  const progressedHyper: any = defaultState();
+  progressedHyper.hyperTargets = { rdl: 26 };
+  delete progressedHyper.rdlHyperTargetFixed;
+  check(
+    "migracja: wypracowany hyperTargets.rdl (26) zostaje nietkniety",
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 26
+  );
+  check(
+    "migracja: idempotentna (hyperTargets.rdl, drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 22.5
+  );
+
+  // Osobna flaga od rdlTargetFixed - na juz zmigrowanym urzadzeniu (stara
+  // migracja juz przeszla) hyperTargets nadal musi dostac wlasna szanse.
+  const alreadyMigrated: any = defaultState();
+  alreadyMigrated.targets = { ...alreadyMigrated.targets, rdl: 22.5 };
+  alreadyMigrated.rdlTargetFixed = true; // stara migracja JUZ przeszla
+  alreadyMigrated.hyperTargets = { rdl: 22 }; // ale to pole nigdy nie bylo tkniete
+  delete alreadyMigrated.rdlHyperTargetFixed;
+  const catchUp = migrateState({ ...alreadyMigrated, version: SCHEMA_VERSION });
+  check(
+    "migracja: hyperTargets.rdl dogania sie NAWET gdy rdlTargetFixed juz byl true",
+    catchUp.hyperTargets?.rdl === 22.5,
+    catchUp.hyperTargets
+  );
+}
+
 // ── P7-10: zakres planku poprawiony na osiagalne 30-40 s ───────────────────
 {
   const seedPlank = SEED_EXERCISES.find((x) => x.id === "plank")!;

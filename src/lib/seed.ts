@@ -749,10 +749,28 @@ export function migrateState(raw: unknown): AppState {
     if (typeof v === "number") targets[id] = v;
   }
 
+  const exercises = Array.isArray(old.exercises) ? mergeExerciseLibrary(old.exercises as Exercise[]) : fresh.exercises;
+  // P7-9: `hyperTargets` NIE była tu w ogóle przenoszona — na kolejnym bumpie
+  // `SCHEMA_VERSION` cała progresja hipertrofii Kamila wyparowałaby i cele
+  // wróciłyby do siłowych. Ten sam wzorzec co `targets` wyżej: zachowaj
+  // WYŁĄCZNIE dla ID ćwiczeń, które nadal istnieją w bazie (usunięte z
+  // biblioteki nie zostają jako martwe wpisy).
+  const oldHyperTargets =
+    old.hyperTargets && typeof old.hyperTargets === "object" ? (old.hyperTargets as Record<string, unknown>) : {};
+  const validIds = new Set(exercises.map((e) => e.id));
+  const hyperTargets: Record<string, number> = {};
+  for (const [id, v] of Object.entries(oldHyperTargets)) {
+    if (typeof v === "number" && validIds.has(id)) hyperTargets[id] = v;
+  }
+
   return applyOneTimeSeeds({
     ...fresh,
-    exercises: Array.isArray(old.exercises) ? mergeExerciseLibrary(old.exercises as Exercise[]) : fresh.exercises,
+    exercises,
     targets,
+    // Puste {} tylko gdy jest co przenieść — inaczej stan bez hyperTargets
+    // (świeży użytkownik, sama siła) dostawałby pusty obiekt-śmieć zamiast
+    // dokładnie tego samego kształtu co `fresh` (hyperTargets: undefined).
+    ...(Object.keys(hyperTargets).length > 0 ? { hyperTargets } : {}),
     sessions: Array.isArray(old.sessions) ? old.sessions : [],
     body: Array.isArray(old.body) ? old.body : [],
     squash: Array.isArray(old.squash) ? old.squash : [],
@@ -880,6 +898,26 @@ function fixRdlTargetOnce(state: AppState): AppState {
 }
 
 /**
+ * P7-9: §24.2 (`fixRdlTargetOnce` wyżej) naprawiało wyłącznie `targets.rdl`.
+ * Ale w hipertrofii `hyperTargetFor()` NAJPIERW sięga po `state.hyperTargets`
+ * (§5.7) — a Kamil trenuje w hipertrofii (plakietka na każdym zrzucie ekranu),
+ * więc to WŁAŚNIE `hyperTargets.rdl` jest jego realnym celem roboczym i
+ * zostawał na nieosiągalnych 22 kg (stąd "nowy ciężar 24 kg" mimo poprawki
+ * z §24.2). OSOBNA flaga — na urządzeniu, które już przeszło starą migrację
+ * (`rdlTargetFixed` już `true`), ta poprawka i tak musi dostać własną szansę,
+ * bo dotyczy zupełnie innego pola.
+ */
+function fixHyperRdlTarget(state: AppState): AppState {
+  if (state.hyperTargets?.rdl !== 22) return state;
+  return { ...state, hyperTargets: { ...state.hyperTargets, rdl: 22.5 } };
+}
+
+function fixHyperRdlTargetOnce(state: AppState): AppState {
+  if (state.rdlHyperTargetFixed) return state;
+  return { ...fixHyperRdlTarget(state), rdlHyperTargetFixed: true };
+}
+
+/**
  * P7-10: zakres planku 40==40 → 30-40 s. Sztywne repMin===repMax nie
  * zostawiało ŻADNEJ przestrzeni na odbudowanie wyniku po skoku obciążenia —
  * "2+ serie poniżej minimum" (minimum == maksimum) odpalało się przy KAŻDYM
@@ -1000,6 +1038,7 @@ function applyOneTimeSeeds(state: AppState): AppState {
   s = calibrateRirOnce(s);
   s = applyPlanVolumeBumpOnce(s);
   s = fixRdlTargetOnce(s);
+  s = fixHyperRdlTargetOnce(s);
   s = setPlankRangeOnce(s);
   return s;
 }

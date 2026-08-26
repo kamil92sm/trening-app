@@ -175,6 +175,10 @@ export interface AppState {
   planVolumeBumpSeeded?: boolean;
   /** Czy cel RDL poprawiono z nieosiągalnych 22 kg na 22,5 (hantle na siłowni) — jednorazowo. */
   rdlTargetFixed?: boolean;
+  /** P7-9: czy cel RDL w hyperTargets (nie tylko targets) poprawiono z 22 na
+   * 22,5 — osobna flaga od rdlTargetFixed, bo dotyczy innego pola i musi
+   * dostać własną szansę nawet na już zmigrowanym urządzeniu — jednorazowo. */
+  rdlHyperTargetFixed?: boolean;
   /** P7-10: czy zakres planku poprawiono z 40==40 na 30-40 s — jednorazowo. */
   plankRangeSeeded?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
