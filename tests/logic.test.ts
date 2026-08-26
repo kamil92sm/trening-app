@@ -14,6 +14,7 @@ import {
   fmtLastEntries,
   personalBests,
   isSetRecord,
+  compareSetToReference,
   detectPlateau,
   achievableWeights,
   nearestAchievable,
@@ -496,6 +497,11 @@ const pb = personalBests(stPB, "bench_bb");
 check("personalBests: pomija niezaliczone serie (max 45, nie 50)", pb.weight === 45, pb);
 check("personalBests: pomija sesje nieukonczone (nie 100)", pb.weight === 45, pb);
 check("personalBests: e1rm liczony z zaliczonych serii (45x6 -> 54)", Math.abs(pb.e1rm - 54) < 0.01, pb);
+check(
+  "personalBests (P7-7): e1rmWeight/e1rmReps to seria KTORA wypracowala e1rm (45x6), nie najciezsza (40x8)",
+  pb.e1rmWeight === 45 && pb.e1rmReps === 6,
+  pb
+);
 const pbExcl = personalBests(stPB, "bench_bb", "pb2");
 check(
   "personalBests: excludeSessionId pomija wskazana sesje (zostaje tylko 40x8)",
@@ -504,10 +510,30 @@ check(
 );
 check("personalBests: brak historii -> same zera", (() => {
   const z = personalBests(defaultState(), "bench_bb");
-  return z.weight === 0 && z.e1rm === 0 && z.holdSeconds === 0;
+  return z.weight === 0 && z.e1rm === 0 && z.holdSeconds === 0 && z.holdWeight === 0;
 })());
 
-const pbBest = { weight: 45, e1rm: 54, holdSeconds: 0 };
+// P7-6: personalBests dla isHold sledzi PARE (holdSeconds, holdWeight) -
+// dluzszy czas wygrywa, przy remisie ciezsze obciazenie.
+const stPlankPB = defaultState();
+stPlankPB.sessions = [
+  { id: "pl1", dayId: "wed", date: "2026-07-01", completed: true,
+    entries: [{ exerciseId: "plank", targetWeight: 10, sets: [
+      { weight: 10, reps: 40, done: true },
+      { weight: 10, reps: 35, done: true },
+    ] }] },
+  { id: "pl2", dayId: "wed", date: "2026-07-08", completed: true,
+    entries: [{ exerciseId: "plank", targetWeight: 20, sets: [{ weight: 20, reps: 35, done: true }] }] },
+];
+const pbPlank = personalBests(stPlankPB, "plank");
+check(
+  "personalBests (isHold): 40 s @ 10 kg wygrywa z 35 s @ 20 kg (dluzszy czas ZAWSZE wygrywa)",
+  pbPlank.holdSeconds === 40 && pbPlank.holdWeight === 10,
+  pbPlank
+);
+
+const zeroBest = { weight: 0, e1rm: 0, holdSeconds: 0, holdWeight: 0, e1rmWeight: 0, e1rmReps: 0 };
+const pbBest = { weight: 45, e1rm: 54, holdSeconds: 0, holdWeight: 0, e1rmWeight: 45, e1rmReps: 8 };
 check(
   "isSetRecord: ciezszy ciezar -> weight (priorytet nad e1rm mimo ze oba pobite)",
   isSetRecord(bench, { weight: 47.5, reps: 5, done: true }, pbBest) === "weight"
@@ -526,20 +552,75 @@ check(
 );
 check(
   "isSetRecord: brak historii (best zerowy) -> null",
-  isSetRecord(bench, { weight: 20, reps: 5, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+  isSetRecord(bench, { weight: 20, reps: 5, done: true }, zeroBest) === null
 );
-const holdBest = { weight: 0, e1rm: 0, holdSeconds: 30 };
+// P7-6: rekord planku = seria NIE jest zdominowana (dluzszy czas ZAWSZE wygrywa,
+// przy remisie wygrywa ciezsze obciazenie) - nie sama liczba sekund.
+const holdBest = { weight: 0, e1rm: 0, holdSeconds: 40, holdWeight: 10 };
 check(
-  "isSetRecord: hold - wiecej sekund niz rekord -> hold",
-  isSetRecord(plank, { weight: 10, reps: 35, done: true }, holdBest) === "hold"
+  "isSetRecord: hold - wiecej sekund niz rekord (na dowolnym obciazeniu) -> hold",
+  isSetRecord(plank, { weight: 5, reps: 45, done: true }, holdBest) === "hold"
 );
 check(
-  "isSetRecord: hold - tyle samo sekund co rekord -> null",
-  isSetRecord(plank, { weight: 10, reps: 30, done: true }, holdBest) === null
+  "isSetRecord: hold - 40 s @ 15 kg przy rekordzie 40 s @ 10 kg -> hold (P7-6, screen 10)",
+  isSetRecord(plank, { weight: 15, reps: 40, done: true }, holdBest) === "hold"
+);
+check(
+  "isSetRecord: hold - tyle samo sekund, LZEJSZE obciazenie -> null (zdominowana)",
+  isSetRecord(plank, { weight: 8, reps: 40, done: true }, holdBest) === null
+);
+check(
+  "isSetRecord: hold - identyczny wynik (te same s i kg) -> null",
+  isSetRecord(plank, { weight: 10, reps: 40, done: true }, holdBest) === null
+);
+check(
+  "isSetRecord: hold - KROTSZY czas, ciezsze obciazenie -> null (krotszy czas nigdy nie wygrywa)",
+  isSetRecord(plank, { weight: 20, reps: 35, done: true }, holdBest) === null
 );
 check(
   "isSetRecord: hold bez historii -> null",
-  isSetRecord(plank, { weight: 10, reps: 40, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+  isSetRecord(plank, { weight: 10, reps: 40, done: true }, zeroBest) === null
+);
+
+// P7-2: kolor kratki "ost. N" liczony z SILY (e1RM), nie z samych powtorzen -
+// ciezszy hantel przy mniejszej liczbie powtorzen bywa mocniejsza seria.
+check(
+  "compareSetToReference: 22,5x10 (e1RM 30,0) vs 20x12 (e1RM 28,0) -> better (screen 2, wioslowanie)",
+  compareSetToReference(bench, { weight: 22.5, reps: 10, done: true }, { weight: 20, reps: 12, done: true }) === "better"
+);
+check(
+  "compareSetToReference: 25x10 (e1RM 33,3) vs 22,5x12 (e1RM 31,5) -> better (screen 2, francuz)",
+  compareSetToReference(bench, { weight: 25, reps: 10, done: true }, { weight: 22.5, reps: 12, done: true }) === "better"
+);
+check(
+  "compareSetToReference: 20x10 vs 20x12 -> worse (ten sam ciezar, mniej powtorzen)",
+  compareSetToReference(bench, { weight: 20, reps: 10, done: true }, { weight: 20, reps: 12, done: true }) === "worse"
+);
+check(
+  "compareSetToReference: 20x12 vs 20x12 -> same",
+  compareSetToReference(bench, { weight: 20, reps: 12, done: true }, { weight: 20, reps: 12, done: true }) === "same"
+);
+check(
+  "compareSetToReference: 0 powtorzen (nic nie wpisano) -> same",
+  compareSetToReference(bench, { weight: 0, reps: 0, done: false }, { weight: 20, reps: 12, done: true }) === "same"
+);
+check(
+  "compareSetToReference: przysiad 65x8 (e1RM 82,3) vs 62,5x12 (e1RM 87,5) -> worse (screen 8, uczciwie zostaje bursztynowa)",
+  compareSetToReference(bench, { weight: 65, reps: 8, done: true }, { weight: 62.5, reps: 12, done: true }) === "worse"
+);
+// isHold (plank): TA SAMA reguła co isSetRecord byłaby myląca - "35 s @ 15 kg
+// vs 40 s @ 10 kg" nie ma uczciwej wspólnej miary (P7-2 korekta, screen 11).
+check(
+  "compareSetToReference (isHold): rozne obciazenie -> incomparable (Kamil: 'przeciez waga mniejsza byla')",
+  compareSetToReference(plank, { weight: 15, reps: 35, done: true }, { weight: 10, reps: 40, done: true }) === "incomparable"
+);
+check(
+  "compareSetToReference (isHold): to samo obciazenie, krotszy czas -> worse",
+  compareSetToReference(plank, { weight: 15, reps: 35, done: true }, { weight: 15, reps: 40, done: true }) === "worse"
+);
+check(
+  "compareSetToReference (isHold): to samo obciazenie, dluzszy czas -> better",
+  compareSetToReference(plank, { weight: 15, reps: 45, done: true }, { weight: 15, reps: 40, done: true }) === "better"
 );
 
 // P1-1: Plateau breaker

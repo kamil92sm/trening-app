@@ -27,6 +27,7 @@ import {
   targetForMode,
   personalBests,
   isSetRecord,
+  compareSetToReference,
   e1rm,
   warmupPlan,
   platePlan,
@@ -1379,28 +1380,40 @@ export function TrainScreen() {
                         (inaczej samo "10" sugerowałoby porównanie jak z jak, choć
                         tamta seria szła na innym obciążeniu). Kolor pojawia się
                         DOPIERO po zaliczeniu serii — przed nim pole trzyma cel
-                        (górny limit), więc zieleń świeciłaby się od startu. */}
-                    {refSets[si] !== undefined && (
-                      <span
-                        className={cn(
-                          "hidden shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums xs:inline-block",
-                          // Kropkowane podkreślenie = tamta seria szła na INNYM
-                          // ciężarze, więc same powtórzenia to nie porównanie
-                          // jak z jak. Pełny zapis jest w linii "Ostatnie:" wyżej
-                          // i w tooltipie — do wiersza nie wchodzi, bo przy
-                          // trzycyfrowym ciężarze wypychał haczyk poza ekran 320 px.
-                          Math.abs(refSets[si].weight - set.weight) > 1e-9 &&
-                            "border-b border-dotted border-muted-foreground/50",
-                          !set.done && "text-muted-foreground/70",
-                          set.done && set.reps > refSets[si].reps && "text-green-400",
-                          set.done && set.reps < refSets[si].reps && "text-amber-400",
-                          set.done && set.reps === refSets[si].reps && "text-muted-foreground/70"
-                        )}
-                        title={`Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} ${unitLabel}`}
-                      >
-                        ost. {refSets[si].reps}
-                      </span>
-                    )}
+                        (górny limit), więc zieleń świeciłaby się od startu.
+                        P7-2: kolor liczony z SIŁY (e1RM), nie z samych powtórzeń —
+                        22,5×10 jest MOCNIEJSZE niż 20×12, mimo mniejszej liczby
+                        powtórzeń (compareSetToReference). Dla isHold przy INNYM
+                        obciążeniu nie ma uczciwej wspólnej miary — "incomparable"
+                        zostaje neutralne, tak jak dotąd tylko kropkowane. */}
+                    {refSets[si] !== undefined && (() => {
+                      const cmp = set.done ? compareSetToReference(hEx, set, refSets[si]) : null;
+                      const cmpTitle = hEx.isHold
+                        ? `Ostatnio: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} s · dziś: ${fmtKg(set.weight)} × ${set.reps} s`
+                        : `Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} powt. (e1RM ${fmtKg(Math.round(e1rm(refSets[si].weight, refSets[si].reps) * 10) / 10)}) · dziś ${fmtKg(set.weight)} × ${set.reps} (e1RM ${fmtKg(Math.round(e1rm(set.weight, set.reps) * 10) / 10)})`;
+                      return (
+                        <span
+                          className={cn(
+                            "hidden shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums xs:inline-block",
+                            // Kropkowane podkreślenie = tamta seria szła na INNYM
+                            // ciężarze, więc surowe powtórzenia/sekundy to nie
+                            // porównanie jak z jak. Pełny zapis jest w linii
+                            // "Ostatnie:" wyżej i w tooltipie — do wiersza nie
+                            // wchodzi, bo przy trzycyfrowym ciężarze wypychał
+                            // haczyk poza ekran 320 px.
+                            Math.abs(refSets[si].weight - set.weight) > 1e-9 &&
+                              "border-b border-dotted border-muted-foreground/50",
+                            (cmp === null || cmp === "same" || cmp === "incomparable") &&
+                              "text-muted-foreground/70",
+                            cmp === "better" && "text-green-400",
+                            cmp === "worse" && "text-amber-400"
+                          )}
+                          title={cmpTitle}
+                        >
+                          ost. {refSets[si].reps}
+                        </span>
+                      );
+                    })()}
                     {recordKind && (
                       <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
                         PR

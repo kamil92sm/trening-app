@@ -571,6 +571,14 @@ export interface PersonalBests {
   weight: number;
   e1rm: number;
   holdSeconds: number;
+  /** P7-6: obciążenie serii, która osiągnęła `holdSeconds` (leksykograficznie:
+   *  najpierw dłuższy czas, przy remisie cięższe obciążenie) — bez tego rekord
+   *  planku porównywałby WYŁĄCZNIE sekundy i ignorowałby dołożone kilogramy. */
+  holdWeight: number;
+  /** P7-7: ciężar i powtórzenia serii, która wypracowała `e1rm` — do pokazania
+   *  rekordu życia w karcie ćwiczenia jako "62,5 kg × 12", nie samą liczbę e1RM. */
+  e1rmWeight: number;
+  e1rmReps: number;
 }
 
 /**
@@ -582,7 +590,7 @@ export interface PersonalBests {
  */
 export function personalBests(state: AppState, exId: string, excludeSessionId?: string): PersonalBests {
   const ex = state.exercises.find((e) => e.id === exId);
-  const best: PersonalBests = { weight: 0, e1rm: 0, holdSeconds: 0 };
+  const best: PersonalBests = { weight: 0, e1rm: 0, holdSeconds: 0, holdWeight: 0, e1rmWeight: 0, e1rmReps: 0 };
   if (!ex) return best;
   for (const session of state.sessions) {
     if (!session.completed || session.id === excludeSessionId) continue;
@@ -591,10 +599,23 @@ export function personalBests(state: AppState, exId: string, excludeSessionId?: 
     for (const set of entry.sets) {
       if (!set.done) continue;
       if (ex.isHold) {
-        best.holdSeconds = Math.max(best.holdSeconds, set.reps);
+        // Leksykograficznie: dłuższy czas wygrywa zawsze; przy remisie
+        // wygrywa cięższe obciążenie (P7-6).
+        if (
+          set.reps > best.holdSeconds ||
+          (set.reps === best.holdSeconds && set.weight > best.holdWeight)
+        ) {
+          best.holdSeconds = set.reps;
+          best.holdWeight = set.weight;
+        }
       } else {
         best.weight = Math.max(best.weight, set.weight);
-        best.e1rm = Math.max(best.e1rm, e1rm(set.weight, set.reps));
+        const e1 = e1rm(set.weight, set.reps);
+        if (e1 > best.e1rm) {
+          best.e1rm = e1;
+          best.e1rmWeight = set.weight;
+          best.e1rmReps = set.reps;
+        }
       }
     }
   }
@@ -611,12 +632,54 @@ export function isSetRecord(ex: Exercise, set: SetLog, best: PersonalBests): "we
   if (!set.done) return null;
   if (ex.isHold) {
     if (best.holdSeconds === 0) return null;
-    return set.reps > best.holdSeconds ? "hold" : null;
+    // P7-6: rekord = seria NIE jest zdominowana. Dłuższy czas wygrywa ZAWSZE
+    // (nawet na lżejszym obciążeniu); przy równym czasie wygrywa cięższe
+    // obciążenie. Bez tego "40 s @ 15 kg" po rekordzie "40 s @ 10 kg" nigdy
+    // nie dostawałoby PR, mimo że jest ściśle lepszym wynikiem.
+    if (set.reps > best.holdSeconds) return "hold";
+    if (set.reps >= best.holdSeconds && set.weight > best.holdWeight) return "hold";
+    return null;
   }
   if (best.weight === 0 && best.e1rm === 0) return null;
   if (set.weight > best.weight) return "weight";
   if (e1rm(set.weight, set.reps) > best.e1rm) return "e1rm";
   return null;
+}
+
+export type SetComparison = "better" | "same" | "worse" | "incomparable";
+
+/**
+ * Ta seria vs ta sama seria z sesji referencyjnej — źródło koloru kratki
+ * "ost. N" w loggerze (P7-2). Zgłoszenie Kamila: 22,5×10 świeciło na
+ * bursztynowo wobec referencji 20×12, mimo że dzisiejsza seria była
+ * MOCNIEJSZA (e1RM 30,0 > 28,0) — kolor liczył się z samych powtórzeń.
+ *
+ * Porównanie idzie po SILE (e1RM), nie po powtórzeniach — cięższy ciężar przy
+ * mniejszej liczbie powtórzeń bywa mocniejszą serią.
+ *
+ * `isHold` (plank): DWIE różne pytania, dwie różne reguły — to NIE jest ten
+ * sam kod co `isSetRecord`. Rekord (P7-6) pyta "czy to najlepszy wynik w
+ * życiu" i dłuższy czas tam wygrywa zawsze, nawet na lżejszym obciążeniu.
+ * Tu pytanie brzmi "czy TA SERIA jest lepsza od TAMTEJ" — a przy różnym
+ * obciążeniu nie ma uczciwej wspólnej miary (dodatkowe kg vs sekundy nie mają
+ * ustalonego przelicznika), więc wynik jest `"incomparable"` (bez koloru,
+ * kratka zostaje szara z kropkowanym podkreśleniem — to już sygnalizuje "inne
+ * obciążenie"). Dopiero przy TYM SAMYM obciążeniu liczą się same sekundy.
+ */
+export function compareSetToReference(ex: Exercise, set: SetLog, ref: SetLog): SetComparison {
+  if (set.reps === 0) return "same"; // nic nie wpisano — nie ma czego porównywać
+  if (ex.isHold) {
+    if (Math.abs(set.weight - ref.weight) > 1e-9) return "incomparable";
+    if (set.reps > ref.reps) return "better";
+    if (set.reps < ref.reps) return "worse";
+    return "same";
+  }
+  if (set.weight === 0) return "same"; // nic nie wpisano
+  const a = Math.round(e1rm(set.weight, set.reps) * 10) / 10;
+  const b = Math.round(e1rm(ref.weight, ref.reps) * 10) / 10;
+  if (a > b) return "better";
+  if (a < b) return "worse";
+  return "same";
 }
 
 export interface HistoryPoint {
