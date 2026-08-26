@@ -374,6 +374,70 @@ export function exerciseForDay(ex: Exercise, day: WorkoutDay | undefined): Exerc
   return sets === ex.targetSets ? ex : { ...ex, targetSets: sets };
 }
 
+// ── P7-3: drabinka hantli per siłownia ──────────────────────────────────────
+
+/**
+ * `kb_swing` ma `unit: "dumbbell"` (apka nie modeluje kettlebelli osobno), ale
+ * kettlebelle idą po WŁASNEJ drabince (4/8/12/16/20/24…) — snapowanie do
+ * hantli dałoby bzdurne wartości. Jedyny wyjątek dziś; lista, nie pojedynczy
+ * `if`, żeby dołożenie kolejnego było jednowierszową zmianą.
+ */
+const LADDER_EXEMPT_IDS = new Set(["kb_swing"]);
+
+/** Czy progresja/cel tego ćwiczenia w ogóle mogą snapować do drabinki hantli. */
+export function isDumbbellSnappable(ex: Exercise): boolean {
+  return ex.unit === "dumbbell" && !ex.isHold && !LADDER_EXEMPT_IDS.has(ex.id);
+}
+
+/** Sprzęt siłowni danego dnia planu: profil z `day.gymProfileId`, albo `null` (domowa). */
+export function gymForDay(state: AppState, day: WorkoutDay | undefined): GymProfile | null {
+  if (!day?.gymProfileId) return null;
+  return (state.settings.gymProfiles ?? []).find((p) => p.id === day.gymProfileId) ?? null;
+}
+
+/** Drabinka hantli (ciężar NA RĘKĘ) danej siłowni; `profile` `null` = domowa (`settings.dumbbells`). `[]` = brak modelu. */
+export function dumbbellLadder(state: AppState, profile: GymProfile | null): number[] {
+  return (profile ? profile.dumbbells : state.settings.dumbbells) ?? [];
+}
+
+/**
+ * Pierwszy ciężar z drabinki OSTRO większy od `from` i ≥ `candidate`. Gwarantuje
+ * POSTĘP — nigdy nie zwraca `from` z powrotem, inaczej progresja utknęłaby
+ * w miejscu na zawsze przy zgrubnej drabince. Brak drabinki albo brak takiego
+ * ciężaru (poza górnym końcem stojaka) → `candidate` bez zmian.
+ */
+export function snapLoadUp(candidate: number, from: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w > from + 1e-9 && w >= candidate - 1e-9);
+  return options.length > 0 ? Math.min(...options) : candidate;
+}
+
+/** Największy ciężar z drabinki ≤ `candidate`; brak takiego (poniżej najlżejszego hantla) → `candidate`. */
+export function snapLoadDown(candidate: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w <= candidate + 1e-9);
+  return options.length > 0 ? Math.max(...options) : candidate;
+}
+
+/**
+ * Lustro `snapLoadUp` w dół — używane przez stepper „−" w loggerze: pierwszy
+ * ciężar z drabinki OSTRO mniejszy od `from` i ≤ `candidate`. Gwarantuje
+ * postęp w dół (nigdy nie zwraca `from`); brak drabinki/takiego ciężaru
+ * (poniżej najlżejszego hantla) → `candidate` bez zmian.
+ */
+export function snapLoadDownFrom(candidate: number, from: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const options = ladder.filter((w) => w < from - 1e-9 && w <= candidate + 1e-9);
+  return options.length > 0 ? Math.max(...options) : candidate;
+}
+
+/** Najbliższy ciężar z drabinki; remis rozstrzyga na korzyść MNIEJSZEGO (jak `nearestAchievable`). */
+export function snapLoadNearest(candidate: number, ladder: number[]): number {
+  if (ladder.length === 0) return candidate;
+  const sorted = [...ladder].sort((a, b) => a - b);
+  return sorted.reduce((best, w) => (Math.abs(w - candidate) < Math.abs(best - candidate) ? w : best));
+}
+
 // ── Podwójna progresja ─────────────────────────────────────────────────────
 
 export type ProgressionStatus = "up" | "hold" | "deload";
@@ -433,6 +497,42 @@ export function easyAtRirHigh(ex: Exercise, sets: SetLog[]): boolean {
  * na POPRZEDNIEJ sesji, liczone przez wywołującego) + RIR 0 w bieżącej,
  * niekompletnej sesji -> sygnał deloadu (dwa treningi z rzędu na krawędzi
  * bez postępu).
+ *
+ * P7-10: `weightJustIncreased` — `targetWeight` jest WYŻSZY niż na sesji
+ * referencyjnej (liczone przez wywołującego, `weightVsReference`). Wtedy
+ * "2+ serie poniżej repMin" NIE jest spadkiem formy — to oczekiwany, normalny
+ * skutek udanej progresji (świeżo podniesiony ciężar z definicji daje mniej
+ * powtórzeń/sekund niż poprzedni). Bez tego pierwszy trening po każdym skoku
+ * ciężaru fałszywie raportował "Spadek formy" — dotyczyło to szczególnie
+ * `isHold` (plank), które przez sztywny zakres `repMin === repMax` nie miało
+ * WCALE przestrzeni na odbudowanie wyniku (patrz zmiana zakresu w seed.ts).
+ *
+ * P7-5: `mixedWorkingWeights` — serie robocze poszły na RÓŻNYCH ciężarach
+ * (`loggedWorkingWeight` w wywołującym zwróciło `null`, bo np. podbiłeś ciężar
+ * w trakcie ćwiczenia), a najcięższa zaliczona seria jest WYŻSZA niż
+ * `targetWeight` przekazany do tej funkcji (który w tej sytuacji jest
+ * NIEAKTUALNYM celem z planu — wywołujący nie miał na czym innym oprzeć
+ * bazy). Zasada nadrzędna: "nowy ciężar" nie ma prawa być ≤ temu, co dziś
+ * REALNIE podniesiono. Sprawdzane jako PIERWSZA rzecz w funkcji — celowo
+ * PRZED `allAtTop`/`belowMin`, bo bez tego komplet powtórzeń na rozjechanych
+ * ciężarach (np. 16,25×12/17,5×12/17,5×12) liczyłby `allAtTop` od
+ * `targetWeight`=16,25 i ogłosił "nowy ciężar 17,5", czyli dokładnie to, co
+ * już zrobiono (zgłoszenie Kamila, screen 6-7). Status zawsze `"hold"` —
+ * komplet powtórzeń NIE był zrobiony na jednym ciężarze, więc podwójna
+ * progresja formalnie się nie domknęła; `nextWeight` to sam `mixedWorkingWeights`
+ * (cel dogania to, co już podniesiono, ale NIE dokłada kolejnego kroku —
+ * o to trzeba jeszcze raz powalczyć kompletem). Przekazywane WYŁĄCZNIE, gdy
+ * wywołujący już potwierdził oba warunki (rozjazd + przewyższenie) — samo
+ * to sprawia, że gałąź `allAtTop` NIGDY nie jest osiągana z niższym
+ * `targetWeight`, więc nie potrzeba osobnego "bezpiecznika" tam niżej.
+ *
+ * P7-3: `ladder` — drabinka hantli siłowni, na której stoi to ćwiczenie w
+ * planie (`gymForDay`/`dumbbellLadder`, liczone przez wywołującego). Gdy
+ * podana i niepusta, oba skoki obciążenia (`allAtTop`, zwykły i podwójny przy
+ * RIR ≥3) idą przez `snapLoadUp` zamiast surowego `targetWeight + increment` —
+ * bez tego progresja proponowała ciężary, których na stojaku nie ma (22,5 kg
+ * + krok 2 = 24,5, a stojak ma 20/22,5/25). Ćwiczenia sztangowe, `isHold`
+ * i `kb_swing` (`isDumbbellSnappable`) mają ten parametr zignorowany.
  */
 export function computeProgression(
   ex: Exercise,
@@ -440,7 +540,10 @@ export function computeProgression(
   sets: SetLog[],
   lastRir?: number,
   priorSessionFailedWithRir0?: boolean,
-  priorSessionEasyAtRir3?: boolean
+  priorSessionEasyAtRir3?: boolean,
+  weightJustIncreased?: boolean,
+  mixedWorkingWeights?: number,
+  ladder?: number[]
 ): ProgressionResult {
   const done = sets.filter((s) => s.done);
   const unitWord = ex.isHold ? "s" : "powt.";
@@ -453,13 +556,24 @@ export function computeProgression(
     };
   }
 
+  if (mixedWorkingWeights !== undefined && mixedWorkingWeights > targetWeight + 1e-9) {
+    return {
+      status: "hold",
+      nextWeight: mixedWorkingWeights,
+      message: `Serie szły na różnych ciężarach — cel podniesiony do ${mixedWorkingWeights} kg. Domknij na nim komplet ${ex.repMax} ${unitWord}, wtedy ciężar pójdzie dalej.`,
+    };
+  }
+
   const working = done.slice(0, ex.targetSets);
   const allAtTop =
     working.length >= ex.targetSets && working.every((s) => s.reps >= ex.repMax);
   const belowMin = working.filter((s) => s.reps < ex.repMin).length;
 
   if (allAtTop) {
-    let next = round25(targetWeight + ex.increment);
+    const dumbbellSnap = !!ladder && ladder.length > 0 && isDumbbellSnappable(ex);
+    let next = dumbbellSnap
+      ? snapLoadUp(targetWeight + ex.increment, targetWeight, ladder!)
+      : round25(targetWeight + ex.increment);
     let message = ex.isHold
       ? `Wszystkie serie po ${ex.repMax} ${unitWord} — dokładasz obciążenie: ${next} kg.`
       : `Wszystkie serie po ${ex.repMax} ${unitWord} — nowy ciężar ${next} kg, wracasz do ${ex.repMin} ${unitWord}`;
@@ -467,7 +581,9 @@ export function computeProgression(
     if (lastRir !== undefined) {
       const doubleJumpSafe = ex.id !== "deadlift" && 2 * ex.increment <= 0.15 * targetWeight;
       if (lastRir >= 3 && doubleJumpSafe) {
-        next = round25(targetWeight + 2 * ex.increment);
+        next = dumbbellSnap
+          ? snapLoadUp(targetWeight + 2 * ex.increment, targetWeight, ladder!)
+          : round25(targetWeight + 2 * ex.increment);
         message = ex.isHold
           ? `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok obciążenia: ${next} kg.`
           : `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok: nowy ciężar ${next} kg.`;
@@ -480,10 +596,17 @@ export function computeProgression(
   }
 
   if (belowMin >= 2) {
+    if (weightJustIncreased) {
+      return {
+        status: "hold",
+        nextWeight: targetWeight,
+        message: `Pierwszy trening na nowym ciężarze — ${belowMin} z ${ex.targetSets} serii poniżej ${ex.repMin} ${unitWord}. Zostań na tym ciężarze, aż wrócisz do zakresu.`,
+      };
+    }
     return {
       status: "deload",
       nextWeight: targetWeight,
-      message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj powtórzenia na tym ciężarze.`,
+      message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj ${ex.isHold ? "czas" : "powtórzenia"} na tym ciężarze.`,
     };
   }
 
@@ -532,13 +655,20 @@ export function sessionVolume(state: AppState, session: Session): number {
 }
 
 /**
- * Czas trwania treningu w minutach (`finishedAt` - `date`). `null`, gdy
+ * Czas trwania treningu w minutach (`finishedAt` - realny start). `null`, gdy
  * `finishedAt` nieznane (stare sesje, historia startowa) ALBO wynik > 240 min
  * (apka zostawiona otwarta na noc — lepiej "czas nieznany" niż bzdura).
+ *
+ * P7-4: realny start to `startedAt` (moment PIERWSZEJ zaliczonej serii), a nie
+ * `date` (moment WEJŚCIA w dzień) — Kamil bywa w planie na długo przed
+ * faktycznym treningiem, więc `date` dawało zawyżony, często >240-minutowy
+ * wynik i czas znikał całkowicie. Stare sesje bez `startedAt` liczą się
+ * dokładnie jak dawniej (fallback na `date`).
  */
 export function sessionDuration(session: Session): number | null {
   if (!session.finishedAt) return null;
-  const minutes = (new Date(session.finishedAt).getTime() - new Date(session.date).getTime()) / 60000;
+  const start = new Date(session.startedAt ?? session.date).getTime();
+  const minutes = (new Date(session.finishedAt).getTime() - start) / 60000;
   if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) return null;
   return Math.round(minutes);
 }
@@ -564,6 +694,14 @@ export interface PersonalBests {
   weight: number;
   e1rm: number;
   holdSeconds: number;
+  /** P7-6: obciążenie serii, która osiągnęła `holdSeconds` (leksykograficznie:
+   *  najpierw dłuższy czas, przy remisie cięższe obciążenie) — bez tego rekord
+   *  planku porównywałby WYŁĄCZNIE sekundy i ignorowałby dołożone kilogramy. */
+  holdWeight: number;
+  /** P7-7: ciężar i powtórzenia serii, która wypracowała `e1rm` — do pokazania
+   *  rekordu życia w karcie ćwiczenia jako "62,5 kg × 12", nie samą liczbę e1RM. */
+  e1rmWeight: number;
+  e1rmReps: number;
 }
 
 /**
@@ -575,7 +713,7 @@ export interface PersonalBests {
  */
 export function personalBests(state: AppState, exId: string, excludeSessionId?: string): PersonalBests {
   const ex = state.exercises.find((e) => e.id === exId);
-  const best: PersonalBests = { weight: 0, e1rm: 0, holdSeconds: 0 };
+  const best: PersonalBests = { weight: 0, e1rm: 0, holdSeconds: 0, holdWeight: 0, e1rmWeight: 0, e1rmReps: 0 };
   if (!ex) return best;
   for (const session of state.sessions) {
     if (!session.completed || session.id === excludeSessionId) continue;
@@ -584,10 +722,23 @@ export function personalBests(state: AppState, exId: string, excludeSessionId?: 
     for (const set of entry.sets) {
       if (!set.done) continue;
       if (ex.isHold) {
-        best.holdSeconds = Math.max(best.holdSeconds, set.reps);
+        // Leksykograficznie: dłuższy czas wygrywa zawsze; przy remisie
+        // wygrywa cięższe obciążenie (P7-6).
+        if (
+          set.reps > best.holdSeconds ||
+          (set.reps === best.holdSeconds && set.weight > best.holdWeight)
+        ) {
+          best.holdSeconds = set.reps;
+          best.holdWeight = set.weight;
+        }
       } else {
         best.weight = Math.max(best.weight, set.weight);
-        best.e1rm = Math.max(best.e1rm, e1rm(set.weight, set.reps));
+        const e1 = e1rm(set.weight, set.reps);
+        if (e1 > best.e1rm) {
+          best.e1rm = e1;
+          best.e1rmWeight = set.weight;
+          best.e1rmReps = set.reps;
+        }
       }
     }
   }
@@ -604,12 +755,54 @@ export function isSetRecord(ex: Exercise, set: SetLog, best: PersonalBests): "we
   if (!set.done) return null;
   if (ex.isHold) {
     if (best.holdSeconds === 0) return null;
-    return set.reps > best.holdSeconds ? "hold" : null;
+    // P7-6: rekord = seria NIE jest zdominowana. Dłuższy czas wygrywa ZAWSZE
+    // (nawet na lżejszym obciążeniu); przy równym czasie wygrywa cięższe
+    // obciążenie. Bez tego "40 s @ 15 kg" po rekordzie "40 s @ 10 kg" nigdy
+    // nie dostawałoby PR, mimo że jest ściśle lepszym wynikiem.
+    if (set.reps > best.holdSeconds) return "hold";
+    if (set.reps >= best.holdSeconds && set.weight > best.holdWeight) return "hold";
+    return null;
   }
   if (best.weight === 0 && best.e1rm === 0) return null;
   if (set.weight > best.weight) return "weight";
   if (e1rm(set.weight, set.reps) > best.e1rm) return "e1rm";
   return null;
+}
+
+export type SetComparison = "better" | "same" | "worse" | "incomparable";
+
+/**
+ * Ta seria vs ta sama seria z sesji referencyjnej — źródło koloru kratki
+ * "ost. N" w loggerze (P7-2). Zgłoszenie Kamila: 22,5×10 świeciło na
+ * bursztynowo wobec referencji 20×12, mimo że dzisiejsza seria była
+ * MOCNIEJSZA (e1RM 30,0 > 28,0) — kolor liczył się z samych powtórzeń.
+ *
+ * Porównanie idzie po SILE (e1RM), nie po powtórzeniach — cięższy ciężar przy
+ * mniejszej liczbie powtórzeń bywa mocniejszą serią.
+ *
+ * `isHold` (plank): DWIE różne pytania, dwie różne reguły — to NIE jest ten
+ * sam kod co `isSetRecord`. Rekord (P7-6) pyta "czy to najlepszy wynik w
+ * życiu" i dłuższy czas tam wygrywa zawsze, nawet na lżejszym obciążeniu.
+ * Tu pytanie brzmi "czy TA SERIA jest lepsza od TAMTEJ" — a przy różnym
+ * obciążeniu nie ma uczciwej wspólnej miary (dodatkowe kg vs sekundy nie mają
+ * ustalonego przelicznika), więc wynik jest `"incomparable"` (bez koloru,
+ * kratka zostaje szara z kropkowanym podkreśleniem — to już sygnalizuje "inne
+ * obciążenie"). Dopiero przy TYM SAMYM obciążeniu liczą się same sekundy.
+ */
+export function compareSetToReference(ex: Exercise, set: SetLog, ref: SetLog): SetComparison {
+  if (set.reps === 0) return "same"; // nic nie wpisano — nie ma czego porównywać
+  if (ex.isHold) {
+    if (Math.abs(set.weight - ref.weight) > 1e-9) return "incomparable";
+    if (set.reps > ref.reps) return "better";
+    if (set.reps < ref.reps) return "worse";
+    return "same";
+  }
+  if (set.weight === 0) return "same"; // nic nie wpisano
+  const a = Math.round(e1rm(set.weight, set.reps) * 10) / 10;
+  const b = Math.round(e1rm(ref.weight, ref.reps) * 10) / 10;
+  if (a > b) return "better";
+  if (a < b) return "worse";
+  return "same";
 }
 
 export interface HistoryPoint {
@@ -820,7 +1013,7 @@ export function weightForReps(e1: number, reps: number, rir: number): number {
  * bieżącego celu siłowego) — patrz POMYSLY.md P0-5 pkt 2, sanity-check na
  * realnych danych.
  */
-export function hyperTargetFor(state: AppState, ex: Exercise): number {
+export function hyperTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
   if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const target = state.targets[ex.id] ?? 0;
   if (ex.repMax > 8) return target;
@@ -831,7 +1024,11 @@ export function hyperTargetFor(state: AppState, ex: Exercise): number {
   const hEx = exerciseForMode(ex, "hypertrophy");
   const w = weightForReps(e1, hEx.repMin, hEx.rir);
   const inc = ex.increment > 0 ? ex.increment : 0.5;
-  return Math.round(w / inc) * inc;
+  const rounded = Math.round(w / inc) * inc;
+  // P7-3: cel hipertrofii wyliczony przez e1RM prawie nigdy nie trafi w
+  // konkretny hantel — snapuj do najbliższego z drabinki siłowni, na której
+  // ćwiczenie faktycznie stoi w planie.
+  return isDumbbellSnappable(ex) && ladder.length > 0 ? snapLoadNearest(rounded, ladder) : rounded;
 }
 
 /**
@@ -858,7 +1055,7 @@ export function deloadSets(plannedSetCount: number): number {
  * poprzedni tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów,
  * nie kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
  */
-export function deloadTargetFor(state: AppState, ex: Exercise): number {
+export function deloadTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
   const strengthTarget = state.targets[ex.id] ?? 0;
   // Ćwiczenia na czas (plank): obciążenie zostaje, deload robi połowa serii.
   // Skok obciążenia jest tu zgrubny (plank: +5 kg przy celu 10 kg), więc każde
@@ -868,31 +1065,40 @@ export function deloadTargetFor(state: AppState, ex: Exercise): number {
   // W DÓŁ, nie do najbliższego: przy zgrubnym kroku (np. cel 10 kg, krok 2,5)
   // zaokrąglenie do najbliższego wracało na 100% celu i tydzień deloadu wcale
   // nie schodził z ciężaru. Teraz wynik nigdy nie przekracza DELOAD_LOAD_FACTOR.
-  return Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
+  const floored = Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
+  // P7-3: snapLoadDown tylko SCHODZI po drabince (nigdy w górę), więc gwarancja
+  // "nigdy powyżej DELOAD_LOAD_FACTOR" (§20.2) zostaje nietknięta.
+  return isDumbbellSnappable(ex) && ladder.length > 0 ? snapLoadDown(floored, ladder) : floored;
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */
-export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode): number {
+export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode, ladder: number[] = []): number {
   if (mode === "strength") return state.targets[ex.id] ?? 0;
-  if (mode === "deload") return deloadTargetFor(state, ex);
-  return hyperTargetFor(state, ex);
+  if (mode === "deload") return deloadTargetFor(state, ex, ladder);
+  return hyperTargetFor(state, ex, ladder);
 }
 
 /**
- * Liczba PEŁNYCH tygodni (wg poniedziałków) od ostatniej ukończonej sesji
- * w trybie deload; brak takiej sesji w historii → liczy od pierwszej
- * ukończonej sesji w ogóle (żeby świeży użytkownik bez historii deloadu nie
- * dostał fałszywie wysokiej liczby). Brak jakiejkolwiek historii → 0 (za mało
+ * Liczba PEŁNYCH CYKLI ROTACJI (P7-8: nie kalendarzowych tygodni, patrz
+ * `trainingCycles`) od cyklu zawierającego ostatnią ukończoną sesję w trybie
+ * deload; brak takiej sesji w historii → liczy od cyklu pierwszej ukończonej
+ * sesji w ogóle (żeby świeży użytkownik bez historii deloadu nie dostał
+ * fałszywie wysokiej liczby). Brak jakiejkolwiek historii → 0 (za mało
  * danych na sugestię — `detectPlateau` i tak wymaga min. 3 sesji na ćwiczenie).
+ * Nazwa funkcji zostaje ("tygodnie" w potocznym sensie "cykl treningowy") —
+ * zmieniła się tylko jednostka pod spodem.
  */
 export function weeksSinceDeload(state: AppState, nowIso?: string): number {
-  const completed = [...state.sessions].filter((s) => s.completed).sort((a, b) => a.date.localeCompare(b.date));
-  if (completed.length === 0) return 0;
+  const cycles = trainingCycles(state, undefined, nowIso);
+  if (cycles.length === 0) return 0;
+  const now = nowIso ?? new Date().toISOString();
+  const completed = [...state.sessions].filter((s) => s.completed && s.date <= now).sort((a, b) => a.date.localeCompare(b.date));
   const lastDeload = [...completed].reverse().find((s) => s.mode === "deload");
-  const referenceDate = lastDeload?.date ?? completed[0].date;
-  const refMonday = new Date(mondayOf(referenceDate) + "T12:00:00").getTime();
-  const nowMonday = new Date(mondayOf(nowIso ?? new Date().toISOString()) + "T12:00:00").getTime();
-  return Math.max(0, Math.floor((nowMonday - refMonday) / (7 * 86400000)));
+  const referenceSession = lastDeload ?? completed[0];
+  if (!referenceSession) return 0;
+  const refCycleIdx = cycles.findIndex((c) => c.sessions.some((s) => s.id === referenceSession.id));
+  if (refCycleIdx < 0) return 0;
+  return Math.max(0, cycles.length - 1 - refCycleIdx);
 }
 
 /**
@@ -1171,12 +1377,9 @@ export function prefillRepsForEntry(
   setCount: number
 ): number[] {
   const fill = (r: number) => Array.from({ length: setCount }, () => r);
-  const ref = referenceEntry(state, ex.id);
-  if (!ref || ref.sets.length === 0) return fill(modeEx.repMin);
-
-  const refTop = Math.max(...ref.sets.map((s) => s.weight));
-  if (targetWeight > refTop + 1e-9) return fill(modeEx.repMin);
-  return fill(modeEx.repMax);
+  const cmp = weightVsReference(state, ex.id, targetWeight);
+  if (!cmp) return fill(modeEx.repMin);
+  return cmp.relation === "up" ? fill(modeEx.repMin) : fill(modeEx.repMax);
 }
 
 /**
@@ -1200,12 +1403,54 @@ export function loggedWorkingWeight(entry: ExerciseLog, targetSets: number): num
   return working.every((s) => Math.abs(s.weight - w) < 1e-9) ? w : null;
 }
 
+export type WeightVsReference = "up" | "same" | "down";
+
+export interface ReferenceWeightComparison {
+  /** Najcięższa seria ROBOCZA sesji referencyjnej (punkt odniesienia). */
+  refWeight: number;
+  /** Dzisiejszy cel vs `refWeight`. */
+  relation: WeightVsReference;
+}
+
+/**
+ * Dzisiejszy cel porównany z ciężarem sesji referencyjnej (`referenceEntry` —
+ * najnowsza ukończona sesja POZA deloadem). Jedno źródło prawdy dla trzech
+ * miejsc, które potrzebują dokładnie tego samego porównania: `progressGoal`
+ * (P7-1 — "dziś powinien wskoczyć" tylko gdy NIE wskoczył jeszcze),
+ * `computeProgression` przez wywołującego (P7-10 — pierwszy trening na nowym
+ * ciężarze nie jest spadkiem formy) i `prefillRepsForEntry` (P7-1 dawne, §22 —
+ * po skoku ciężaru cykl startuje od `repMin`). Wcześniej ta sama logika żyła
+ * osobno w każdym z tych miejsc i rozjeżdżała się przy zmianach — stąd P7-1
+ * mogło ogłosić "dziś powinien wskoczyć" dla ciężaru, który już wskoczył.
+ * `null`, gdy brak historii — nie ma do czego porównywać.
+ */
+export function weightVsReference(
+  state: AppState,
+  exId: string,
+  targetWeight: number
+): ReferenceWeightComparison | null {
+  const ref = referenceEntry(state, exId);
+  if (!ref || ref.sets.length === 0) return null;
+  const refWeight = Math.max(...ref.sets.map((s) => s.weight));
+  const relation: WeightVsReference =
+    targetWeight > refWeight + 1e-9 ? "up" : targetWeight < refWeight - 1e-9 ? "down" : "same";
+  return { refWeight, relation };
+}
+
 export interface ProgressGoal {
   /** Powtórzeń w KAŻDEJ serii roboczej, żeby ciężar wskoczył. */
   repsPerSet: number;
+  /** Dół zakresu — cel prefillu ZARAZ po skoku ciężaru (P7-1: UI go pokazuje
+   *  w gałęzi `weightVsRef === "up"`, żeby nie liczyć exerciseForDay ponownie). */
+  repMin: number;
   setCount: number;
-  /** Ile powtórzeń łącznie zabrakło na ostatnim treningu (0 = był komplet). */
+  /** Ile powtórzeń łącznie zabrakło na ostatnim treningu — ma sens TYLKO gdy
+   *  `weightVsRef === "same"` (0 poza tym, patrz niżej). */
   missingReps: number;
+  /** Najcięższa seria sesji referencyjnej (punkt odniesienia). */
+  refWeight: number;
+  /** Dzisiejszy cel vs ciężar sesji referencyjnej. */
+  weightVsRef: WeightVsReference;
 }
 
 /**
@@ -1214,8 +1459,20 @@ export interface ProgressGoal {
  * zrobić": `repsPerSet` w `setCount` seriach to warunek skoku, `missingReps` to
  * dystans z ostatniego treningu (seria niezalogowana liczy się jako pełny brak).
  * `null`, gdy brak historii — nie ma do czego porównywać.
+ *
+ * P7-1: `missingReps` ma sens WYŁĄCZNIE gdy dzisiejszy `targetWeight` jest TAKI
+ * SAM jak ciężar sesji referencyjnej (`weightVsRef === "same"`). Gdy ciężar już
+ * wskoczył (`"up"`) — sesja referencyjna była kompletem, który podniósł cel, więc
+ * "ile zabrakło" liczone do NIEAKTUALNEGO już ciężaru byłoby kłamstwem ("dziś
+ * powinien wskoczyć" mimo że już wskoczył). UI (TrainScreen) czyta `weightVsRef`
+ * i pokazuje inny komunikat dla każdego przypadku.
  */
-export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): ProgressGoal | null {
+export function progressGoal(
+  state: AppState,
+  ex: Exercise,
+  modeEx: Exercise,
+  targetWeight: number
+): ProgressGoal | null {
   const ref = referenceEntry(state, ex.id);
   if (!ref || ref.sets.length === 0) return null;
   const working = ref.sets.slice(0, modeEx.targetSets);
@@ -1223,7 +1480,16 @@ export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): P
   for (let i = 0; i < modeEx.targetSets; i++) {
     missing += Math.max(0, modeEx.repMax - (working[i]?.reps ?? 0));
   }
-  return { repsPerSet: modeEx.repMax, setCount: modeEx.targetSets, missingReps: missing };
+  const cmp = weightVsReference(state, ex.id, targetWeight)!; // ref istnieje (sprawdzone wyżej)
+  const missingReps = cmp.relation === "same" ? missing : 0;
+  return {
+    repsPerSet: modeEx.repMax,
+    repMin: modeEx.repMin,
+    setCount: modeEx.targetSets,
+    missingReps,
+    refWeight: cmp.refWeight,
+    weightVsRef: cmp.relation,
+  };
 }
 
 /** Punkt historii ćwiczenia wzbogacony o kontekst progresji (tryb tygodnia + serie robocze dnia). */
@@ -1462,10 +1728,112 @@ export function mondayOf(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface TrainingCycle {
+  /** ISO daty PIERWSZEJ sesji cyklu (nie poniedziałek kalendarzowy). */
+  startIso: string;
+  /** ISO daty OSTATNIEJ sesji cyklu. */
+  endIso: string;
+  /** Unikalne `dayId` (główne i bonusowe) widziane w tym cyklu. */
+  dayIds: Set<string>;
+  /** Unikalne ukończone dni GŁÓWNE w cyklu. Bonus nie podbija tej liczby. */
+  done: number;
+  /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
+  planned: number;
+  /** Unikalne ukończone dni opcjonalne. Renderowane osobno jako fioletowe kropki. */
+  bonusDone: number;
+  /** Sesje tego cyklu, rosnąco po dacie. */
+  sessions: Session[];
+}
+
+/**
+ * P7-8: dzieli ukończone sesje na CYKLE ROTACJI planu — nie kalendarzowe
+ * tygodnie (`mondayOf`). Zgłoszenie Kamila: "robię sobie ten trening
+ * wcześniej jeden dzień, jak mam czas" — Trening 1 zrobiony w niedzielę
+ * wpadał do tygodnia, który już się rozliczył, a Treningi 2/3 tego samego
+ * cyklu lądowały w PUSTYM nowym tygodniu (dwa "urwane" tygodnie zamiast
+ * jednego pełnego).
+ *
+ * Sesja GŁÓWNA (nie-bonusowa) otwiera NOWY cykl, gdy zachodzi którykolwiek
+ * warunek:
+ *  - jest pierwszą ukończoną sesją w historii,
+ *  - minęło >10 dni od poprzedniej sesji głównej (przerwa = nowy cykl, nie
+ *    jeden rozciągnięty na miesiąc),
+ *  - jej pozycja w kolejności dni głównych planu jest ≤ pozycji poprzedniej
+ *    sesji głównej (rotacja się cofnęła albo pełny obieg wrócił na początek)
+ *    — Z WYJĄTKIEM natychmiastowego powtórzenia TEGO SAMEGO dnia (identyczny
+ *    `dayId` jak poprzednia sesja główna), traktowanego jak duplikat/redo tego
+ *    samego treningu, nie jak nowy cykl (spójne z §16: "dwa zapisy tego
+ *    samego dnia liczą się raz" — inaczej gorszy dzień zalogowany dwa razy
+ *    z rzędu fałszywie otwierałby drugi cykl).
+ * Dzień BONUSOWY nigdy nie otwiera cyklu i nie przesuwa punktu odniesienia
+ * pozycji (dolicza się do trwającego cyklu — bonus nie jest wymagany do
+ * pełnego cyklu, §16 Zadanie 4).
+ *
+ * Zwraca WSZYSTKIE cykle (rosnąco), przycięte do `nowIso` i do ostatnich
+ * `count`, jeśli podane. Pusta historia → `[]`.
+ */
+export function trainingCycles(state: AppState, count?: number, nowIso?: string): TrainingCycle[] {
+  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
+  const optionalDayIds = new Set(state.days.filter((d) => d.optional).map((d) => d.id));
+  const planned = mainDayIds.size;
+  const mainOrder = state.days.filter((d) => !d.optional).map((d) => d.id);
+  const now = nowIso ?? new Date().toISOString();
+
+  const completed = [...state.sessions]
+    .filter((s) => s.completed && s.date <= now)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const buildCycle = (sessions: Session[]): TrainingCycle => {
+    const dayIds = new Set(sessions.map((s) => s.dayId));
+    const doneMain = new Set(sessions.filter((s) => mainDayIds.has(s.dayId)).map((s) => s.dayId));
+    const doneBonus = new Set(sessions.filter((s) => optionalDayIds.has(s.dayId)).map((s) => s.dayId));
+    return {
+      startIso: sessions[0].date,
+      endIso: sessions[sessions.length - 1].date,
+      dayIds,
+      done: doneMain.size,
+      planned,
+      bonusDone: doneBonus.size,
+      sessions,
+    };
+  };
+
+  const cycles: TrainingCycle[] = [];
+  let current: Session[] = [];
+  let lastMain: Session | null = null;
+
+  for (const s of completed) {
+    const isBonus = optionalDayIds.has(s.dayId);
+    let opensNew = current.length === 0;
+    if (!opensNew && !isBonus && lastMain) {
+      const gapDays = (new Date(s.date).getTime() - new Date(lastMain.date).getTime()) / 86400000;
+      const posThis = mainOrder.indexOf(s.dayId);
+      const posLast = mainOrder.indexOf(lastMain.dayId);
+      const sameDayRepeat = s.dayId === lastMain.dayId;
+      if (gapDays > 10) opensNew = true;
+      else if (posThis >= 0 && posLast >= 0 && posThis <= posLast && !sameDayRepeat) opensNew = true;
+    }
+    if (opensNew && current.length > 0) {
+      cycles.push(buildCycle(current));
+      current = [];
+    }
+    current.push(s);
+    if (!isBonus) lastMain = s;
+  }
+  if (current.length > 0) cycles.push(buildCycle(current));
+
+  return count !== undefined ? cycles.slice(-count) : cycles;
+}
+
 export interface WeekAdherence {
-  /** ISO daty poniedziałku tego tygodnia (klucz). */
+  /** ISO startu cyklu (klucz) — NIE poniedziałek kalendarzowy, patrz `trainingCycles`. */
   week: string;
-  /** Unikalne ukończone dni GŁÓWNE w tym tygodniu. Bonus nie podbija tej liczby. */
+  /** ISO końca cyklu — razem z `week` daje zakres do etykiety w UI ("3–9 sie"). */
+  endIso: string;
+  /** Numer cyklu, 1-indeksowany od PIERWSZEGO cyklu w całej historii (nie od
+   *  początku zwróconej tablicy) — do etykiety "Cykl N" w UI. */
+  cycleNumber: number;
+  /** Unikalne ukończone dni GŁÓWNE w tym cyklu. Bonus nie podbija tej liczby. */
   done: number;
   /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
   planned: number;
@@ -1474,104 +1842,91 @@ export interface WeekAdherence {
 }
 
 /**
- * Konsekwencja treningowa (P2-11) — ostatnie `weeks` tygodni (domyślnie 8),
- * chronologicznie rosnąco, kończąc na tygodniu zawierającym `nowIso` (domyślnie
- * dziś). `done` i `bonusDone` liczą UNIKALNE `dayId`, więc dwie sesje tego
- * samego dnia planu nie udają realizacji dwóch różnych treningów. Bonus jest
- * raportowany osobno i nie wpływa na zaliczenie obowiązkowego planu.
+ * Konsekwencja treningowa (P2-11) — ostatnie `weeks` CYKLI ROTACJI (domyślnie
+ * 8, P7-8: nie kalendarzowych tygodni), chronologicznie rosnąco. `done`
+ * i `bonusDone` liczą UNIKALNE `dayId`, więc dwie sesje tego samego dnia
+ * planu nie udają realizacji dwóch różnych treningów. Bonus jest raportowany
+ * osobno i nie wpływa na zaliczenie obowiązkowego planu. Mniej niż `weeks`
+ * cykli w historii → tablica krótsza niż `weeks` (nie ma czym dopełnić —
+ * w przeciwieństwie do kalendarza cykl bez sesji po prostu nie istnieje).
  */
 export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): WeekAdherence[] {
-  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
-  const optionalDayIds = new Set(state.days.filter((d) => d.optional).map((d) => d.id));
-  const planned = mainDayIds.size;
-  const thisMonday = mondayOf(nowIso ?? new Date().toISOString());
-  const base = new Date(thisMonday + "T12:00:00");
-
-  const weekKeys: string[] = [];
-  for (let i = weeks - 1; i >= 0; i--) {
-    const d = new Date(base);
-    d.setDate(d.getDate() - i * 7);
-    weekKeys.push(d.toISOString().slice(0, 10));
-  }
-
-  return weekKeys.map((week) => {
-    const completedDayIds = new Set(
-      state.sessions
-        .filter((s) => s.completed && mondayOf(s.date) === week)
-        .map((s) => s.dayId)
-    );
-    return {
-      week,
-      done: [...mainDayIds].filter((id) => completedDayIds.has(id)).length,
-      planned,
-      bonusDone: [...optionalDayIds].filter((id) => completedDayIds.has(id)).length,
-    };
-  });
+  const all = trainingCycles(state, undefined, nowIso);
+  return all.slice(-weeks).map((c, i, arr) => ({
+    week: c.startIso,
+    endIso: c.endIso,
+    cycleNumber: all.length - arr.length + i + 1,
+    done: c.done,
+    planned: c.planned,
+    bonusDone: c.bonusDone,
+  }));
 }
 
-// ── Etap 5: raport tygodniowy — "Ten tydzień", jedna karta, cztery liczby ──
+// ── Etap 5: raport "Ten cykl" (P7-8: cykl rotacji, nie kalendarzowy tydzień) ──
 
 export type WeeklyRecommendation = "deload" | "adherence" | "bonus" | "onTrack";
 
 export interface WeeklyReport {
-  weekMonday: string;
+  /** ISO startu BIEŻĄCEGO cyklu (P7-8: nie poniedziałek — patrz `trainingCycles`).
+   *  Brak historii → `nowIso`/dziś, żeby pole zawsze niosło sensowną datę. */
+  cycleStartIso: string;
   sessionsDone: number;
   sessionsPlanned: number;
   /** Ukończone unikalne dni opcjonalne — pokazywane obok planu, nie jako „4 z 3”. */
   sessionsBonus: number;
   tonnageCurrent: number;
-  /** `null` = brak sesji w poprzednim tygodniu — "brak porównania", nigdy Infinity/NaN. */
+  /** `null` = brak POPRZEDNIEGO cyklu — "brak porównania", nigdy Infinity/NaN. */
   tonnagePrevious: number | null;
-  /** Procentowa zmiana tonażu vs poprzedni tydzień, `null` gdy `tonnagePrevious` to `null`. */
+  /** Procentowa zmiana tonażu vs poprzedni CYKL, `null` gdy `tonnagePrevious` to `null`. */
   tonnageChangePct: number | null;
-  /** Ćwiczenia, których e1RM w TYM tygodniu przebił najlepsze e1RM SPRZED tego tygodnia. */
+  /** Ćwiczenia, których e1RM w TYM CYKLU przebił najlepsze e1RM SPRZED tego cyklu. */
   strengthImproved: number;
-  /** Ćwiczenia w zastoju (detectPlateau) — sygnał niezależny od tygodnia, ten sam co nudge deloadu. */
+  /** Ćwiczenia w zastoju (detectPlateau) — sygnał niezależny od cyklu, ten sam co nudge deloadu. */
   strengthPlateaued: number;
-  /** Partie poniżej zakresu w oknie "Wykonane (7 dni)" (actualWeeklyMuscleVolume). */
+  /** Partie poniżej zakresu w oknie "Wykonane (7 dni)" (actualWeeklyMuscleVolume — ŚWIADOMIE
+   *  zostaje na oknie kroczącym, nie na cyklu: to metryka fizjologiczna, nie rozliczenie planu). */
   lowVolumeMuscles: number;
   recommendation: WeeklyRecommendation;
 }
 
 /**
- * Etap 5/P4-7/P6-11: sklejenie z ISTNIEJĄCYCH funkcji (weeklyAdherence,
- * sessionVolume, bestE1rm, detectPlateau, actualWeeklyMuscleVolume) — zero
- * nowej matematyki poza samym sklejeniem i wyborem rekomendacji. `nowIso`
- * testowalne, jak reszta modułu.
+ * Etap 5/P4-7/P6-11, przepisane pod P7-8: sklejenie z ISTNIEJĄCYCH funkcji
+ * (`trainingCycles`, `sessionVolume`, `bestE1rm`, `detectPlateau`,
+ * `actualWeeklyMuscleVolume`) — zero nowej matematyki poza samym sklejeniem
+ * i wyborem rekomendacji. "Ten cykl"/"poprzedni cykl" zamiast kalendarzowego
+ * tygodnia — Trening 1 zrobiony w niedzielę nie ląduje już w rozliczonym
+ * tygodniu, tylko w tym samym cyklu co Treningi 2/3, które po nim idą.
+ * `nowIso` testowalne, jak reszta modułu.
  */
 export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
   const now = nowIso ?? new Date().toISOString();
-  const monday = mondayOf(now);
-  const prevMondayDate = new Date(monday + "T12:00:00");
-  prevMondayDate.setDate(prevMondayDate.getDate() - 7);
-  const prevMonday = prevMondayDate.toISOString().slice(0, 10);
+  const cycles = trainingCycles(state, undefined, now);
+  const currentCycle = cycles[cycles.length - 1] ?? null;
+  const prevCycle = cycles.length >= 2 ? cycles[cycles.length - 2] : null;
 
-  const [thisWeekAdherence] = weeklyAdherence(state, 1, now);
+  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
+  const planned = mainDayIds.size;
+  const sessionsDone = currentCycle?.done ?? 0;
+  const sessionsBonus = currentCycle?.bonusDone ?? 0;
 
-  let tonnageCurrent = 0;
-  let tonnagePrevious = 0;
-  let hasPrevious = false;
-  for (const s of state.sessions) {
-    if (!s.completed) continue;
-    const week = mondayOf(s.date);
-    if (week === monday) tonnageCurrent += sessionVolume(state, s);
-    else if (week === prevMonday) {
-      tonnagePrevious += sessionVolume(state, s);
-      hasPrevious = true;
-    }
-  }
-  // Brak sesji w poprzednim tygodniu ALBO tonaż zerowy -> "brak porównania",
-  // nigdy dzielenie przez zero (Infinity/NaN).
+  const tonnageCurrent = (currentCycle?.sessions ?? []).reduce((sum, s) => sum + sessionVolume(state, s), 0);
+  const hasPrevious = !!prevCycle;
+  const tonnagePrevious = prevCycle ? prevCycle.sessions.reduce((sum, s) => sum + sessionVolume(state, s), 0) : 0;
+  // Brak poprzedniego cyklu ALBO tonaż zerowy -> "brak porównania", nigdy
+  // dzielenie przez zero (Infinity/NaN).
   const tonnageChangePct =
     hasPrevious && tonnagePrevious > 0 ? ((tonnageCurrent - tonnagePrevious) / tonnagePrevious) * 100 : null;
 
-  // Poprawa e1RM: najlepszy wynik W TYM TYGODNIU vs najlepszy SPRZED tego
-  // tygodnia — liczone TYLKO dla ćwiczeń z historią sprzed tygodnia (bez tego
-  // pierwszy trening nowego ćwiczenia wyglądałby jak "poprawa").
+  // Poprawa e1RM: najlepszy wynik W TYM CYKLU vs najlepszy SPRZED tego cyklu —
+  // liczone TYLKO dla ćwiczeń z historią sprzed cyklu (bez tego pierwszy
+  // trening nowego ćwiczenia wyglądałby jak "poprawa"). Pusta historia
+  // (brak currentCycle) -> cycleStartIso = `now`, więc żadna sesja nie jest
+  // "sprzed" ani "w" cyklu -> strengthImproved = 0, poprawnie.
+  const cycleStartIso = currentCycle?.startIso ?? now;
   let strengthImproved = 0;
   for (const ex of state.exercises) {
     if (ex.archived || ex.isHold) continue;
-    let thisWeekBest = 0;
+    let thisCycleBest = 0;
     let beforeBest = 0;
     let hasBefore = false;
     for (const s of state.sessions) {
@@ -1580,13 +1935,13 @@ export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
       if (!entry) continue;
       const e = bestE1rm(ex, entry);
       if (e <= 0) continue;
-      if (mondayOf(s.date) >= monday) thisWeekBest = Math.max(thisWeekBest, e);
+      if (s.date >= cycleStartIso) thisCycleBest = Math.max(thisCycleBest, e);
       else {
         beforeBest = Math.max(beforeBest, e);
         hasBefore = true;
       }
     }
-    if (hasBefore && thisWeekBest > beforeBest) strengthImproved++;
+    if (hasBefore && thisCycleBest > beforeBest) strengthImproved++;
   }
 
   const strengthPlateaued = state.exercises.filter((ex) => !ex.archived && detectPlateau(state, ex.id)).length;
@@ -1596,15 +1951,15 @@ export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
 
   let recommendation: WeeklyRecommendation;
   if (strengthPlateaued >= 3) recommendation = "deload";
-  else if (thisWeekAdherence.done < thisWeekAdherence.planned) recommendation = "adherence";
+  else if (sessionsDone < planned) recommendation = "adherence";
   else if (lowVolumeMuscles >= 2) recommendation = "bonus";
   else recommendation = "onTrack";
 
   return {
-    weekMonday: monday,
-    sessionsDone: thisWeekAdherence.done,
-    sessionsPlanned: thisWeekAdherence.planned,
-    sessionsBonus: thisWeekAdherence.bonusDone,
+    cycleStartIso,
+    sessionsDone,
+    sessionsPlanned: planned,
+    sessionsBonus,
     tonnageCurrent,
     tonnagePrevious: hasPrevious ? tonnagePrevious : null,
     tonnageChangePct,

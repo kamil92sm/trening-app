@@ -20,6 +20,8 @@ interface ProfileFormState {
   barWeight: number;
   platesRaw: string;
   weightStep: number;
+  /** P7-3: drabinka hantli tej siłowni (kg na rękę, po przecinku). */
+  dumbbellsRaw: string;
 }
 
 const emptyProfileForm: ProfileFormState = {
@@ -28,9 +30,21 @@ const emptyProfileForm: ProfileFormState = {
   barWeight: 20,
   platesRaw: "25, 20, 15, 10, 5, 2.5, 1.25",
   weightStep: 0,
+  dumbbellsRaw: "",
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** P7-3: parsuje listę ciężarów (talerze/hantle) z pola tekstowego — obsługuje
+ * przecinek jako separator dziesiętny (polska klawiatura), sortuje rosnąco
+ * i deduplikuje (drugie "20" w polu nie robi dwóch identycznych hanteli). */
+function parseWeightList(raw: string): number[] {
+  const values = raw
+    .split(",")
+    .map((x) => parseFloat(x.trim().replace(",", ".")))
+    .filter((x) => x > 0);
+  return Array.from(new Set(values)).sort((a, b) => a - b);
+}
 
 export function MoreScreen() {
   const store = useStore();
@@ -64,12 +78,14 @@ export function MoreScreen() {
       toast("Uzupełnij nazwę i talerze");
       return;
     }
+    const dumbbells = parseWeightList(profileForm.dumbbellsRaw);
     const profile: GymProfile = {
       id: profileForm.editingId ?? uid(),
       name: profileForm.name.trim(),
       barWeight: profileForm.barWeight,
       plates,
       weightStep: profileForm.weightStep > 0 ? profileForm.weightStep : undefined,
+      dumbbells: dumbbells.length > 0 ? dumbbells : undefined,
     };
     if (profileForm.editingId) store.updateGymProfile(profile);
     else store.addGymProfile(profile);
@@ -362,7 +378,7 @@ export function MoreScreen() {
               value={activeProfile?.id ?? ""}
               onChange={(e) => store.setActiveGymProfile(e.target.value || null)}
             >
-              <option value="">Domowa (gryf {fmtKg(state.settings.barWeight)})</option>
+              <option value="">Well Fitness (gryf {fmtKg(state.settings.barWeight)})</option>
               {gymProfiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -377,6 +393,7 @@ export function MoreScreen() {
                 <p className="truncate text-muted-foreground">
                   Gryf {fmtKg(p.barWeight)} · talerze {p.plates.join("/")}
                   {p.weightStep ? ` · krok ${fmtKg(p.weightStep)}` : ""}
+                  {p.dumbbells && p.dumbbells.length > 0 ? ` · hantle ${p.dumbbells.join("/")}` : ""}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
@@ -391,6 +408,7 @@ export function MoreScreen() {
                       barWeight: p.barWeight,
                       platesRaw: p.plates.join(", "),
                       weightStep: p.weightStep ?? 0,
+                      dumbbellsRaw: (p.dumbbells ?? []).join(", "),
                     })
                   }
                 >
@@ -445,6 +463,18 @@ export function MoreScreen() {
                   value={profileForm.platesRaw}
                   onChange={(e) => setProfileForm({ ...profileForm, platesRaw: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label>Drabinka hantli (kg na rękę, po przecinku, opc.)</Label>
+                <Input
+                  placeholder="np. 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24"
+                  value={profileForm.dumbbellsRaw}
+                  onChange={(e) => setProfileForm({ ...profileForm, dumbbellsRaw: e.target.value })}
+                />
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Puste = progresja liczy "cel + krok" jak dawniej (może trafić w hantel,
+                  którego nie ma na stojaku).
+                </p>
               </div>
               <div className="flex gap-2 pt-1">
                 <Button className="flex-1" size="sm" onClick={saveProfile}>
@@ -537,6 +567,17 @@ export function MoreScreen() {
                 if (plates.length > 0) store.updateSettings({ plates });
               }}
             />
+          </div>
+          <div>
+            <Label>Drabinka hantli — Well Fitness (kg na rękę, po przecinku)</Label>
+            <Input
+              defaultValue={(state.settings.dumbbells ?? []).join(", ")}
+              onBlur={(e) => store.updateSettings({ dumbbells: parseWeightList(e.target.value) })}
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Konkretne hantle, jakie leżą na stojaku — progresja (i +/− w loggerze) proponuje
+              tylko istniejące ciężary zamiast "cel + krok". Puste = jak dawniej.
+            </p>
           </div>
           <div className="flex items-center justify-between rounded-md border border-border p-2.5">
             <p className="text-xs font-medium">Dźwięk timera</p>

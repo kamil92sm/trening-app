@@ -27,11 +27,14 @@ import {
 } from "./seed";
 import {
   computeProgression,
+  dumbbellLadder,
   easyAtRirHigh,
   exerciseForDay,
   exerciseForMode,
   failedAtRirZero,
+  gymForDay,
   loggedWorkingWeight,
+  weightVsReference,
   type ProgressionResult,
 } from "./logic";
 import { serializeBackup } from "./backup";
@@ -201,12 +204,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const priorSessions = [...state.sessions].filter((s) => s.completed).sort((a, b) => b.date.localeCompare(a.date));
         const summaries: FinishSummary[] = [];
         const sessionDay = state.days.find((d) => d.id === sessionData.dayId);
+        // P7-3: drabinka hantli siłowni PRZYPISANEJ DO DNIA (nie ad hoc wybranej
+        // na ten trening) — progresja i `targets` mają reprezentować "normalny"
+        // sprzęt tego dnia, niezależnie od tego, gdzie akurat ćwiczono raz.
+        const dayGymProfile = gymForDay(state, sessionDay);
+        const ladder = dumbbellLadder(state, dayGymProfile);
         // Cel ma się DOSTOSOWAĆ do ciężaru, który realnie poszedł (zgłoszenie
         // Kamila: na siłowni są hantle 22,5 a nie 22 — korekta w loggerze znaczy
-        // "innego po prostu nie ma"). WYJĄTEK: obca siłownia. Wtedy korekta mówi
-        // o TAMTYM sprzęcie, a nie o docelowym ciężarze — przeniesienie jej do
-        // `targets` zepsułoby progresję po powrocie (FEAT-1, §12).
-        const adaptTargetToLoggedWeight = !state.settings.activeGymProfileId;
+        // "innego po prostu nie ma"). WYJĄTEK: siłownia SESJI różni się od
+        // siłowni DNIA — czyli Kamil ręcznie przełączył się na inną niż zwykle
+        // (ad hoc, np. wyjazd). Wtedy korekta mówi o TAMTYM sprzęcie, a nie
+        // o docelowym ciężarze — przeniesienie jej do `targets` zepsułoby
+        // progresję po powrocie (FEAT-1, §12; P7-3 doprecyzowanie: siłownia
+        // przypisana do dnia to normalny sprzęt tego dnia, więc adaptacja MA
+        // działać tam, gdzie kiedyś działała `!activeGymProfileId`).
+        const sessionGymId = sessionData.gymProfileId ?? sessionDay?.gymProfileId;
+        const adaptTargetToLoggedWeight = sessionGymId === sessionDay?.gymProfileId;
         for (const entry of sessionData.entries) {
           const ex = state.exercises.find((e) => e.id === entry.exerciseId);
           if (!ex) continue;
@@ -217,8 +230,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const modeEx = exerciseForDay(exerciseForMode(ex, mode), sessionDay);
           const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
           const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
-          const loggedWeight = adaptTargetToLoggedWeight ? loggedWorkingWeight(entry, modeEx.targetSets) : null;
+          // `null` = serie robocze NIE poszły na jednym ciężarze (niezależnie
+          // od obcej siłowni — liczone RAZ, dalej gate'owane osobno per użycie).
+          const loggedWeightRaw = loggedWorkingWeight(entry, modeEx.targetSets);
+          const loggedWeight = adaptTargetToLoggedWeight ? loggedWeightRaw : null;
           const progressionBase = loggedWeight ?? entry.targetWeight;
+          // P7-5: serie poszły na różnych ciężarach I najcięższa zaliczona
+          // przewyższa stary cel z planu (`progressionBase` wtedy jest tym
+          // NIEAKTUALNYM celem, nie tym co realnie poszło). Wyłączone na obcej
+          // siłowni — jak cała adaptacja z §24.1, korekta mówiłaby o TAMTYM
+          // sprzęcie. `computeProgression` samo pilnuje, żeby "nowy ciężar"
+          // nigdy nie był ≤ temu, co dziś podniesiono (zgłoszenie Kamila,
+          // screen 6-7: uginanie bicepsa 16,25→17,5 w trakcie, podsumowanie
+          // ogłosiło "nowy ciężar 17,5" — czyli to, co już zrobił).
+          const heaviestDone = working.length > 0 ? Math.max(...working.map((s) => s.weight)) : 0;
+          const mixedWorkingWeights =
+            adaptTargetToLoggedWeight && loggedWeightRaw === null && heaviestDone > entry.targetWeight + 1e-9
+              ? heaviestDone
+              : undefined;
           // P4-4: poprzednia sesja liczona w JEJ WŁASNYM trybie tygodnia (repMax/
           // targetSets różnią się między Siła/Hipertrofia) - inaczej "sukces" z
           // zeszłego tygodnia mógłby wyglądać jak fail przez sam próg zakresu.
@@ -237,6 +266,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // i bez kompletu powtórzeń = ciężar za lekki (patrz easyAtRirHigh).
           const priorSessionEasyAtRir3 =
             prevPlanEx && prevEntry ? easyAtRirHigh(prevPlanEx, prevEntry.sets) : false;
+          // P7-10: ciężar właśnie wskoczył (progressionBase wyższy niż na sesji
+          // referencyjnej, POZA deloadem) -> "2+ serie poniżej minimum" to
+          // oczekiwany skutek udanej progresji, nie spadek formy. Ten sam
+          // helper co P7-1 (weightVsReference), więc "dziś powinien wskoczyć"
+          // w karcie i "Spadek formy" w podsumowaniu nigdy sobie nie zaprzeczą.
+          const weightJustIncreased =
+            weightVsReference(state, ex.id, progressionBase)?.relation === "up";
           summaries.push({
             exercise: ex,
             result: computeProgression(
@@ -245,7 +281,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               entry.sets,
               lastRir,
               priorSessionFailedWithRir0,
-              priorSessionEasyAtRir3
+              priorSessionEasyAtRir3,
+              weightJustIncreased,
+              mixedWorkingWeights,
+              ladder
             ),
           });
         }
@@ -476,6 +515,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rirCalibrated: true,
           planVolumeBumpSeeded: true,
           rdlTargetFixed: true,
+          rdlHyperTargetFixed: true,
+          plankRangeSeeded: true,
+          gymLaddersSeeded: true,
+          dumbbellTargetsSnapped: true,
         });
       },
 

@@ -65,6 +65,9 @@ export interface WorkoutDay {
    * (bonus dzieli z planem głównym wszystkie 6 pozycji).
    */
   setsOverride?: Record<string, number>;
+  /** P7-3: siłownia, na której odbywa się ten dzień (klucz do `Settings.gymProfiles`).
+   * Brak = domowa (`settings.barWeight`/`plates`/`dumbbells`). */
+  gymProfileId?: string;
 }
 
 export interface SetLog {
@@ -94,8 +97,19 @@ export interface Session {
   mode?: TrainingMode;
   /** Moment zakończenia (ISO) — `date` to moment STARTU. Brak = czas nieznany (stare sesje/historia startowa). */
   finishedAt?: string;
+  /** P7-4: moment PIERWSZEJ zaliczonej serii — realny start treningu. `date` to
+   * moment WEJŚCIA w dzień i bywa o godziny wcześniejszy (Kamil przegląda plan
+   * z wyprzedzeniem). Brak = stara sesja / czas nieznany, `sessionDuration`
+   * spada wtedy na `date` jak dawniej. NIGDY nie zastępuj `date` tym polem —
+   * `date` jest kluczem sortowania Historii i oknem tygodnia/cyklu. */
+  startedAt?: string;
   /** Check-in gotowości (opcjonalny, P2-4) — obie skale 1 (słabo) – 5 (świetnie/brak zakwasów). Każde pole niezależnie opcjonalne (P3-1). */
   readiness?: { sleep?: number; doms?: number };
+  /** P7-3: siłownia, na której RZECZYWIŚCIE trenowano tę sesję — domyślnie
+   * `day.gymProfileId`, ale Kamil może ją zmienić na czas treningu (przełącznik
+   * w nagłówku). Brak = domowa. Adaptacja celu z §24.1 działa tylko, gdy to
+   * pole zgadza się z siłownią dnia — inaczej korekta mówiłaby o obcym sprzęcie. */
+  gymProfileId?: string;
 }
 
 export interface BodyEntry {
@@ -119,6 +133,9 @@ export interface GymProfile {
   plates: number[];
   /** Krok dostępnych obciążeń dla sprzętu bez talerzy (hantle/maszyny/wyciągi), w kg. */
   weightStep?: number;
+  /** P7-3: dostępne hantle (ciężar NA RĘKĘ) tej siłowni, rosnąco. Pusto/brak =
+   * brak modelu — progresja liczy się jak dawniej (targetWeight + increment). */
+  dumbbells?: number[];
 }
 
 export interface Settings {
@@ -153,6 +170,8 @@ export interface Settings {
   volumeProgression?: boolean;
   /** P4-5: ISO data startu bieżącego mezocyklu (zerowana przy zakończeniu sesji w trybie deload). */
   mesoStartIso?: string;
+  /** P7-3: drabinka hantli siłowni DOMOWEJ (odpowiednik `plates` dla sztangi). */
+  dumbbells?: number[];
 }
 
 export interface AppState {
@@ -169,6 +188,19 @@ export interface AppState {
   planVolumeBumpSeeded?: boolean;
   /** Czy cel RDL poprawiono z nieosiągalnych 22 kg na 22,5 (hantle na siłowni) — jednorazowo. */
   rdlTargetFixed?: boolean;
+  /** P7-9: czy cel RDL w hyperTargets (nie tylko targets) poprawiono z 22 na
+   * 22,5 — osobna flaga od rdlTargetFixed, bo dotyczy innego pola i musi
+   * dostać własną szansę nawet na już zmigrowanym urządzeniu — jednorazowo. */
+  rdlHyperTargetFixed?: boolean;
+  /** P7-10: czy zakres planku poprawiono z 40==40 na 30-40 s — jednorazowo. */
+  plankRangeSeeded?: boolean;
+  /** P7-3: czy dosiano profil "My Fitness Place" + wed.gymProfileId + drabinkę
+   * domową — jednorazowo. Usunięcie profilu/wyczyszczenie drabinki przez
+   * użytkownika jest trwałe (flaga blokuje ponowny dosiew). */
+  gymLaddersSeeded?: boolean;
+  /** P7-3: czy istniejące cele hantlowe (targets I hyperTargets) dociągnięto
+   * do drabinki ich dnia — jednorazowo. */
+  dumbbellTargetsSnapped?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */

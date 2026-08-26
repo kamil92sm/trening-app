@@ -25,8 +25,14 @@ import {
   suggestBonusExercises,
   exerciseForMode,
   targetForMode,
+  gymForDay,
+  dumbbellLadder,
+  snapLoadUp,
+  snapLoadDownFrom,
+  isDumbbellSnappable,
   personalBests,
   isSetRecord,
+  compareSetToReference,
   e1rm,
   warmupPlan,
   platePlan,
@@ -64,6 +70,15 @@ interface Draft {
   mode: TrainingMode;
   /** Check-in gotowości (P2-4) — opcjonalny, wpisany PRZED startem dnia na ekranie wyboru. */
   readiness?: { sleep?: number; doms?: number };
+  /** P7-4: moment PIERWSZEJ zaliczonej serii — ustawiane RAZ w updateSet. `date`
+   * to moment wejścia w dzień i bywa o godziny wcześniejszy, więc czas treningu
+   * (sessionDuration) liczy się od tego pola, nie od `date`. */
+  firstSetAt?: string;
+  /** P7-3: siłownia TEGO treningu — domyślnie `day.gymProfileId`, zmienialna
+   * przełącznikiem w nagłówku na czas sesji (Kamil trenuje na dwóch stałych
+   * siłowniach naprzemiennie, ale czasem robi trening dzień wcześniej gdzie
+   * indziej). Brak = domowa. */
+  gymProfileId?: string;
 }
 
 function loadDraft(): Draft | null {
@@ -100,6 +115,10 @@ interface RecordHit {
   exercise: Exercise;
   kind: "weight" | "e1rm" | "hold";
   value: number;
+  /** P7-6: obciążenie serii rekordowej — TYLKO dla kind==="hold" (plank).
+   *  Rekord planku to teraz para (czas, obciążenie), sama liczba sekund
+   *  gubiła połowę informacji. */
+  weight?: number;
 }
 
 // P2-8: wspolna etykieta/kolor trybu tygodnia - plakietka w loggerze, przelacznik, "Ostatnio".
@@ -118,8 +137,10 @@ function setsForMode(ex: Exercise, mode: TrainingMode, day?: WorkoutDay): number
   return mode === "deload" ? deloadSets(planned) : planned;
 }
 
-function fmtRecordHit(kind: RecordHit["kind"], value: number): string {
-  if (kind === "hold") return `${value} s`;
+function fmtRecordHit(kind: RecordHit["kind"], value: number, weight?: number): string {
+  // P7-6: obciążenie dopisane, gdy niezerowe — rekord planku jest teraz parą
+  // (czas, obciążenie), sama liczba sekund gubiła połowę informacji.
+  if (kind === "hold") return weight ? `${value} s @ ${fmtKg(weight)}` : `${value} s`;
   return kind === "e1rm" ? `e1RM ${fmtKg(value)}` : fmtKg(value);
 }
 
@@ -350,8 +371,12 @@ export function TrainScreen() {
   const activeDays = state.days.filter((d) => !d.optional || d.active);
   // P2-10: podpowiedz, nie blokada - wszystkie kafelki zostaja klikalne.
   const nextDayId = nextDaySuggestion(state);
+  // P7-3: siłownia TEGO treningu — domyślnie z `day.gymProfileId` (startDay
+  // ustawia `draft.gymProfileId`), zmienialna przełącznikiem w nagłówku na czas
+  // sesji. `settings.activeGymProfileId` już NIE steruje progresją/sugestiami
+  // tutaj — zostaje wyłącznie domyślną wartością Kalkulatora talerzy w Więcej.
   const activeGymProfile = (state.settings.gymProfiles ?? []).find(
-    (p) => p.id === state.settings.activeGymProfileId
+    (p) => p.id === draft?.gymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
   // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
@@ -414,13 +439,16 @@ export function TrainScreen() {
   function startDay(dayId: string, overrideExerciseIds?: string[]) {
     const day = state.days.find((d) => d.id === dayId);
     if (!day) return;
+    // P7-3: drabinka hantli siłowni PRZYPISANEJ DO TEGO DNIA — cel hipertrofii/
+    // deloadu ma od razu snapować do realnego hantla, nie do wyniku dzielenia.
+    const dayLadder = dumbbellLadder(state, gymForDay(state, day));
     const exerciseIds = overrideExerciseIds ?? day.exerciseIds;
     const entries: ExerciseLog[] = exerciseIds
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
         const hEx = exerciseForMode(ex, mode);
-        const target = targetForMode(state, ex, mode);
+        const target = targetForMode(state, ex, mode, dayLadder);
         const count = setsForMode(ex, mode, day);
         // Podwójna progresja: po skoku ciężaru prefill wraca na DÓŁ zakresu,
         // przy tym samym ciężarze podpowiada wynik z ostatniego treningu
@@ -433,7 +461,16 @@ export function TrainScreen() {
         };
       })
       .filter((e): e is ExerciseLog => e !== null);
-    setDraft({ dayId, date: new Date().toISOString(), entries, mode, readiness: cleanReadiness(readiness) });
+    // P7-3: domyślnie siłownia DNIA — Kamil może ją zmienić na czas tego
+    // treningu przełącznikiem w nagłówku (mały switcher, poniżej).
+    setDraft({
+      dayId,
+      date: new Date().toISOString(),
+      entries,
+      mode,
+      readiness: cleanReadiness(readiness),
+      gymProfileId: day.gymProfileId,
+    });
     setReadiness(null);
     setFocusIdx(0);
     // P6-2: timer przerwy zyje w stalym store'ze (poza Reactem), wiec nowy
@@ -462,6 +499,10 @@ export function TrainScreen() {
       const next = structuredClone(prev);
       const set = next.entries[entryIdx].sets[setIdx];
       Object.assign(set, patch);
+      // P7-4: realny start treningu — od niego liczy się czas (nie od momentu
+      // wejścia w dzień, które bywa o godziny wcześniejsze). Ustawiane RAZ:
+      // odznaczenie pierwszej serii nie może cofać startu treningu.
+      if (patch.done === true && !next.firstSetAt) next.firstSetAt = new Date().toISOString();
       return next;
     });
     if (patch.done === true) {
@@ -492,7 +533,8 @@ export function TrainScreen() {
         if (kind) {
           const value = kind === "hold" ? finalSet.reps : kind === "weight" ? finalSet.weight : e1rm(finalSet.weight, finalSet.reps);
           const suffix = kind === "weight" ? ` × ${finalSet.reps}` : "";
-          toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10)}${suffix}`);
+          const weight = kind === "hold" ? finalSet.weight : undefined;
+          toast("Rekord!", `${ex.name} — ${fmtRecordHit(kind, Math.round(value * 10) / 10, weight)}${suffix}`);
         }
       }
 
@@ -539,6 +581,11 @@ export function TrainScreen() {
   // (baza progresji) zostaje bez zmian - to tylko korekta wag serii w drafcie.
   function setWeightWithSync(entryIdx: number, setIdx: number, weight: number) {
     const w = Math.max(0, Math.round(weight * 100) / 100);
+    // P7-5: gdy ta zmiana zostawia ZALICZONE serie robocze na INNYM ciężarze
+    // niż ten właśnie ustawiony, progresja po zakończeniu treningu policzy się
+    // od najcięższej zaliczonej (store.finishSession), nie od tego, co zostało
+    // w polu — dyskretny toast, żeby to nie zaskoczyło w podsumowaniu.
+    let showMixedToast = false;
     setDraft((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -548,8 +595,15 @@ export function TrainScreen() {
       for (let i = setIdx + 1; i < sets.length; i++) {
         if (!sets[i].done && sets[i].weight === oldWeight) sets[i].weight = w;
       }
+      const ex = state.exercises.find((e) => e.id === next.entries[entryIdx].exerciseId);
+      const targetSets = ex ? setsForMode(ex, next.mode, day) : sets.length;
+      const doneWorking = sets.slice(0, targetSets).filter((s) => s.done);
+      if (doneWorking.some((s) => Math.abs(s.weight - w) > 1e-9)) showMixedToast = true;
       return next;
     });
+    if (showMixedToast) {
+      toast("Różne ciężary w seriach", "Progresja policzy się od najcięższej zaliczonej serii.");
+    }
   }
 
   function addSet(entryIdx: number) {
@@ -612,8 +666,13 @@ export function TrainScreen() {
     const newEx = state.exercises.find((e) => e.id === newExId);
     if (!newEx) return;
     const hEx = exerciseForMode(newEx, mode);
-    const target = targetForMode(state, newEx, mode);
     const swapDay = state.days.find((d) => d.id === draft?.dayId);
+    // P7-3: siłownia AKTUALNA sesji (mogła zostać przełączona w nagłówku),
+    // nie tylko domyślna dnia — zamiana ćwiczenia w trakcie treningu ma
+    // celować w hantel, który naprawdę jest na stojaku TERAZ.
+    const swapGymProfile = (state.settings.gymProfiles ?? []).find((p) => p.id === draft?.gymProfileId) ?? null;
+    const swapLadder = dumbbellLadder(state, swapGymProfile);
+    const target = targetForMode(state, newEx, mode, swapLadder);
     const count = setsForMode(newEx, mode, swapDay);
     const reps = prefillRepsForEntry(state, newEx, hEx, target, count); // ta sama reguła co przy starcie dnia
     setDraft((prev) => {
@@ -654,7 +713,16 @@ export function TrainScreen() {
         const kind = isSetRecord(ex, set, best);
         if (!kind) continue;
         const value = kind === "hold" ? set.reps : kind === "weight" ? set.weight : e1rm(set.weight, set.reps);
-        if (!top || value > top.value) top = { exercise: ex, kind, value };
+        const weight = kind === "hold" ? set.weight : undefined;
+        // P7-6: dla "hold" najlepsza seria SESJI to ta sama dominacja co
+        // personalBests — dłuższy czas wygrywa, przy remisie cięższe
+        // obciążenie (samo `value > top.value` gubiłoby wagę przy remisie sekund).
+        const better =
+          !top ||
+          (kind === "hold" && top.kind === "hold"
+            ? value > top.value || (value === top.value && (weight ?? 0) > (top.weight ?? 0))
+            : value > top.value);
+        if (better) top = { exercise: ex, kind, value, weight };
       }
       if (top) recordHits.push(top);
     }
@@ -666,6 +734,7 @@ export function TrainScreen() {
       entries: draft.entries,
       mode: draft.mode,
       readiness: draft.readiness,
+      startedAt: draft.firstSetAt,
     });
     setSummary(results.summaries);
     setUndoSnapshot(results.undo);
@@ -681,6 +750,7 @@ export function TrainScreen() {
       completed: true,
       mode: draft.mode,
       finishedAt: new Date().toISOString(),
+      startedAt: draft.firstSetAt,
     });
     setDraft(null);
 
@@ -731,11 +801,21 @@ export function TrainScreen() {
           const volume = sessionVolume(state, summarySession);
           const density = duration ? Math.round(volume / duration) : null;
           return (
-            <p className="text-sm text-muted-foreground">
-              {duration !== null && `${duration} min · `}
-              {fmtTonnage(volume)}
-              {density !== null && ` · ${density} kg/min`}
-            </p>
+            <>
+              <p className="text-sm text-muted-foreground">
+                {duration !== null && `${duration} min · `}
+                {fmtTonnage(volume)}
+                {density !== null && ` · ${density} kg/min`}
+              </p>
+              {/* P7-4: duration===null nie zawsze znaczy "brak danych" — czasem
+                  znaczy "ponad 4h od pierwszej serii". Bez tej linii cichy brak
+                  czasu wygląda jak awaria, nie jak świadomy limit. */}
+              {duration === null && summarySession.startedAt && (
+                <p className="text-xs text-muted-foreground/70">
+                  Czas nieznany — trening zaczęty ponad 4 h przed zakończeniem.
+                </p>
+              )}
+            </>
           );
         })()}
         {sessionRecords.length > 0 && (
@@ -747,7 +827,7 @@ export function TrainScreen() {
               {sessionRecords.map((r) => (
                 <div key={r.exercise.id} className="flex items-center justify-between text-xs">
                   <span>{r.exercise.name}</span>
-                  <span className="font-semibold text-amber-300">{fmtRecordHit(r.kind, Math.round(r.value * 10) / 10)}</span>
+                  <span className="font-semibold text-amber-300">{fmtRecordHit(r.kind, Math.round(r.value * 10) / 10, r.weight)}</span>
                 </div>
               ))}
             </CardContent>
@@ -867,10 +947,12 @@ export function TrainScreen() {
         </div>
         {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+            {/* P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe
+                tygodnie — etykieta mówi "cykli", nie "tygodni". */}
             {weeksSinceDeloadCount >= 6 && plateauCount >= 3
-              ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
+              ? `${weeksSinceDeloadCount} cykli bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
               : weeksSinceDeloadCount >= 6
-                ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia — rozważ tydzień deloadu.`
+                ? `${weeksSinceDeloadCount} cykli bez lżejszego tygodnia — rozważ tydzień deloadu.`
                 : `Zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`}
           </div>
         )}
@@ -1035,6 +1117,10 @@ export function TrainScreen() {
     const ex = state.exercises.find((e) => e.id === entry.exerciseId);
     if (!ex) return null;
     const hEx = exerciseForMode(ex, draft.mode);
+          // P7-3: drabinka AKTUALNEJ siłowni sesji — steppery −/+ mają skakać
+          // po realnych hantlach, nie po "cel ± krok" (22,5 -> 24,5, którego
+          // nie ma na stojaku).
+          const ladderForEx = isDumbbellSnappable(ex) ? dumbbellLadder(state, activeGymProfile) : [];
           const guide = guideFor(ex);
           const unitLabel = hEx.isHold ? "s" : "powt.";
           const lastFew = lastByExercise.get(ex.id) ?? [];
@@ -1042,7 +1128,9 @@ export function TrainScreen() {
           // liczbie serii z planu TEGO dnia - w deloadzie progresja jest wylaczona,
           // wiec nie ma czego pokazywac.
           const goal =
-            draft.mode === "deload" ? null : progressGoal(state, ex, exerciseForDay(hEx, day));
+            draft.mode === "deload"
+              ? null
+              : progressGoal(state, ex, exerciseForDay(hEx, day), entry.targetWeight);
           // Serie z ostatniego treningu (poza deloadem) - do podpowiedzi "ost." przy wierszu.
           const refSets = referenceEntry(state, ex.id)?.sets ?? [];
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1055,6 +1143,11 @@ export function TrainScreen() {
               ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
               : null;
           const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
+          // P7-7: rekord życia tego ćwiczenia — odpowiada wprost na "dlaczego
+          // to nie jest PR" (np. przysiad 65×8 nie bije rekordu 62,5×12, bo
+          // e1RM 82,3 < 87,5, ale bez tej linii wygląda na awarię aplikacji).
+          const exBest = personalBestsByExercise.get(ex.id);
+          const hasRecord = ex.isHold ? (exBest?.holdSeconds ?? 0) > 0 : (exBest?.e1rm ?? 0) > 0;
           // Etap 4: czy jest COKOLWIEK do pokazania pod "Pomoc i szczegóły" - bez
           // tego pusty, klikalny nagłówek wisiałby na każdej karcie bez powodu.
           const hasHelp =
@@ -1062,7 +1155,8 @@ export function TrainScreen() {
             !!hEx.note ||
             warmupSteps.length > 0 ||
             !!platePlanForEntry ||
-            !!guide;
+            !!guide ||
+            hasRecord;
           // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
           // (decyduje o widocznosci przycisku Zamien), swapCandidates to ta sama
           // lista po filtrze tekstowym (swapSearch) i posortowana: historia
@@ -1160,20 +1254,37 @@ export function TrainScreen() {
                 )}
                 {/* Wprost: ile trzeba dzis zrobic, zeby ciezar wskoczyl, i jak
                     blisko bylo ostatnio. Pola serii pokazuja juz ten cel, ale
-                    sam dystans ("brakuje 1 powt.") jest tu najmocniejszy. */}
+                    sam dystans ("brakuje 1 powt.") jest tu najmocniejszy.
+                    P7-1: trzy warianty wg `weightVsRef` — dawne "ostatnio komplet,
+                    dziś powinien wskoczyć" bylo NIEPRAWDĄ, gdy cel już wskoczył
+                    (ostatnia sesja BYŁA tym kompletem, który go podniósł). */}
                 {goal && (
                   <p className="text-xs">
                     <span className="text-muted-foreground">Do skoku ciężaru: </span>
                     <span className="font-medium text-sky-300">
                       {goal.setCount}×{goal.repsPerSet} {hEx.isHold ? "s" : "powt."}
                     </span>
-                    {goal.missingReps > 0 ? (
+                    {goal.weightVsRef === "up" ? (
+                      <span className="text-green-400">
+                        {" "}
+                        — ciężar właśnie wskoczył z {fmtKg(goal.refWeight)} na {fmtKg(entry.targetWeight)},
+                        dziś celujesz w {goal.setCount}×{goal.repMin} {hEx.isHold ? "s" : "powt."}
+                      </span>
+                    ) : goal.weightVsRef === "down" ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio szło {fmtKg(goal.refWeight)}, dziś lżej
+                      </span>
+                    ) : goal.missingReps > 0 ? (
                       <span className="text-muted-foreground">
                         {" "}
                         — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
                       </span>
                     ) : (
-                      <span className="text-green-400"> — ostatnio komplet, dziś powinien wskoczyć</span>
+                      <span className="text-amber-400">
+                        {" "}
+                        — ostatnio komplet, ale cel się nie zmienił — sprawdź ciężar w Planie
+                      </span>
                     )}
                   </p>
                 )}
@@ -1192,6 +1303,13 @@ export function TrainScreen() {
                     {openHelp.has(ei) && (
                       <div className="mt-1 space-y-2 rounded-md border border-border p-2">
                         <MuscleTags exercise={ex} only="secondary" />
+                        {hasRecord && exBest && (
+                          <p className="text-[11px] text-amber-300/90">
+                            {ex.isHold
+                              ? `Rekord: ${exBest.holdSeconds} s${exBest.holdWeight ? ` @ ${fmtKg(exBest.holdWeight)}` : ""}`
+                              : `Rekord: ${fmtKg(exBest.e1rmWeight)} × ${exBest.e1rmReps} (e1RM ${fmtKg(Math.round(exBest.e1rm * 10) / 10)})`}
+                          </p>
+                        )}
                         {hEx.note && (
                           <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>
                         )}
@@ -1302,7 +1420,15 @@ export function TrainScreen() {
                     <button
                       type="button"
                       disabled={set.done}
-                      onClick={() => setWeightWithSync(ei, si, set.weight - hEx.increment)}
+                      onClick={() =>
+                        setWeightWithSync(
+                          ei,
+                          si,
+                          ladderForEx.length > 0
+                            ? snapLoadDownFrom(set.weight - hEx.increment, set.weight, ladderForEx)
+                            : set.weight - hEx.increment
+                        )
+                      }
                       className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
                       aria-label="Zmniejsz ciężar"
                     >
@@ -1320,7 +1446,15 @@ export function TrainScreen() {
                     <button
                       type="button"
                       disabled={set.done}
-                      onClick={() => setWeightWithSync(ei, si, set.weight + hEx.increment)}
+                      onClick={() =>
+                        setWeightWithSync(
+                          ei,
+                          si,
+                          ladderForEx.length > 0
+                            ? snapLoadUp(set.weight + hEx.increment, set.weight, ladderForEx)
+                            : set.weight + hEx.increment
+                        )
+                      }
                       className="flex h-9 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground active:bg-accent disabled:opacity-30"
                       aria-label="Zwiększ ciężar"
                     >
@@ -1340,28 +1474,40 @@ export function TrainScreen() {
                         (inaczej samo "10" sugerowałoby porównanie jak z jak, choć
                         tamta seria szła na innym obciążeniu). Kolor pojawia się
                         DOPIERO po zaliczeniu serii — przed nim pole trzyma cel
-                        (górny limit), więc zieleń świeciłaby się od startu. */}
-                    {refSets[si] !== undefined && (
-                      <span
-                        className={cn(
-                          "hidden shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums xs:inline-block",
-                          // Kropkowane podkreślenie = tamta seria szła na INNYM
-                          // ciężarze, więc same powtórzenia to nie porównanie
-                          // jak z jak. Pełny zapis jest w linii "Ostatnie:" wyżej
-                          // i w tooltipie — do wiersza nie wchodzi, bo przy
-                          // trzycyfrowym ciężarze wypychał haczyk poza ekran 320 px.
-                          Math.abs(refSets[si].weight - set.weight) > 1e-9 &&
-                            "border-b border-dotted border-muted-foreground/50",
-                          !set.done && "text-muted-foreground/70",
-                          set.done && set.reps > refSets[si].reps && "text-green-400",
-                          set.done && set.reps < refSets[si].reps && "text-amber-400",
-                          set.done && set.reps === refSets[si].reps && "text-muted-foreground/70"
-                        )}
-                        title={`Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} ${unitLabel}`}
-                      >
-                        ost. {refSets[si].reps}
-                      </span>
-                    )}
+                        (górny limit), więc zieleń świeciłaby się od startu.
+                        P7-2: kolor liczony z SIŁY (e1RM), nie z samych powtórzeń —
+                        22,5×10 jest MOCNIEJSZE niż 20×12, mimo mniejszej liczby
+                        powtórzeń (compareSetToReference). Dla isHold przy INNYM
+                        obciążeniu nie ma uczciwej wspólnej miary — "incomparable"
+                        zostaje neutralne, tak jak dotąd tylko kropkowane. */}
+                    {refSets[si] !== undefined && (() => {
+                      const cmp = set.done ? compareSetToReference(hEx, set, refSets[si]) : null;
+                      const cmpTitle = hEx.isHold
+                        ? `Ostatnio: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} s · dziś: ${fmtKg(set.weight)} × ${set.reps} s`
+                        : `Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} powt. (e1RM ${fmtKg(Math.round(e1rm(refSets[si].weight, refSets[si].reps) * 10) / 10)}) · dziś ${fmtKg(set.weight)} × ${set.reps} (e1RM ${fmtKg(Math.round(e1rm(set.weight, set.reps) * 10) / 10)})`;
+                      return (
+                        <span
+                          className={cn(
+                            "hidden shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums xs:inline-block",
+                            // Kropkowane podkreślenie = tamta seria szła na INNYM
+                            // ciężarze, więc surowe powtórzenia/sekundy to nie
+                            // porównanie jak z jak. Pełny zapis jest w linii
+                            // "Ostatnie:" wyżej i w tooltipie — do wiersza nie
+                            // wchodzi, bo przy trzycyfrowym ciężarze wypychał
+                            // haczyk poza ekran 320 px.
+                            Math.abs(refSets[si].weight - set.weight) > 1e-9 &&
+                              "border-b border-dotted border-muted-foreground/50",
+                            (cmp === null || cmp === "same" || cmp === "incomparable") &&
+                              "text-muted-foreground/70",
+                            cmp === "better" && "text-green-400",
+                            cmp === "worse" && "text-amber-400"
+                          )}
+                          title={cmpTitle}
+                        >
+                          ost. {refSets[si].reps}
+                        </span>
+                      );
+                    })()}
                     {recordKind && (
                       <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
                         PR
@@ -1425,6 +1571,35 @@ export function TrainScreen() {
     );
   }
 
+  // P7-3: przełącznik siłowni NA CZAS TEGO TRENINGU — domyślnie siłownia dnia
+  // (ustawiona w startDay), ale Kamil czasem robi trening dzień wcześniej,
+  // gdzie akurat jest ("robię sobie ten trening wcześniej jeden dzień, jak mam
+  // czas"). Widoczny tylko gdy jest co przełączać (co najmniej jeden profil).
+  // `settings.activeGymProfileId` NIE steruje tym już wcale — patrz `activeGymProfile` wyżej.
+  function renderGymSwitcher() {
+    if (!draft) return null;
+    const profiles = state.settings.gymProfiles ?? [];
+    if (profiles.length === 0) return null;
+    return (
+      <select
+        value={draft.gymProfileId ?? ""}
+        onChange={(e) => {
+          const value = e.target.value || undefined;
+          setDraft((prev) => (prev ? { ...prev, gymProfileId: value } : prev));
+        }}
+        className="mt-0.5 max-w-[11rem] rounded border border-border bg-transparent px-1 py-0.5 text-[10px] text-muted-foreground"
+        aria-label="Siłownia tego treningu"
+      >
+        <option value="">Well Fitness</option>
+        {profiles.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
   if (layout === "focus") {
     // ── Tryb skupienia (P3-6): jedno ćwiczenie na ekran ─────────────────────
     // P6-4: pasek "Ćwiczenie zrobione" - widoczny gdy WSZYSTKIE serie biezacego
@@ -1458,6 +1633,7 @@ export function TrainScreen() {
               <p className="text-xs text-muted-foreground">
                 {day?.short} · ĆW. {focusIdx + 1}/{draft.entries.length}
               </p>
+              {renderGymSwitcher()}
             </div>
             <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
               <X size={15} /> Porzuć
@@ -1575,6 +1751,7 @@ export function TrainScreen() {
             <p className="text-xs text-muted-foreground">
               {day?.short} · {doneCount}/{totalCount} serii · {fmtKg(volume)}
             </p>
+            {renderGymSwitcher()}
           </div>
           <Button variant="ghost" size="sm" onClick={cancel} className="text-muted-foreground">
             <X size={15} /> Porzuć

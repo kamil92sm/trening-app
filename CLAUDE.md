@@ -1073,3 +1073,186 @@ plan, progresja 22,5 → 24,5 vs 22 → 24, 4× migracja celu RDL z ochroną
 wypracowanego celu). Zweryfikowane w Chromium: na domowej siłowni cel 22 → 22,5
 po wczytaniu, a po treningu na 22,5×12/12/12 → **24,5**; przy aktywnym profilu
 obcej siłowni ten sam trening zostawia cel na planowej ścieżce (20 → 22).
+
+---
+
+## 25. Sesja 26.08.2026 — dziesięć zgłoszeń Kamila (trzy serie screenów, skrypt `ZADANIA-P7.md`)
+
+Kamil przysłał trzy serie zrzutów ekranu w toku jednej sesji; każda seria dopisywała
+kolejne zadania do `ZADANIA-P7.md` (root cause, plik/linia, testy, kryteria akceptacji)
+zanim Sonnet zaczął wdrażać. Dziesięć zadań, **każde osobnym commitem**, w kolejności
+P7-4 → P7-1 → P7-2 → P7-6 → P7-10 → P7-5 → P7-7 → P7-9 → P7-3 → P7-8. **Testy: 388 → 481**
+(93 nowych), wszystkie zielone; `npm run build` bez błędów.
+
+### 25.1 P7-4 — czas treningu liczony od pierwszej serii, nie od wejścia w dzień
+`Session.date` to moment KLIKNIĘCIA w dzień, a nie start treningu — Kamil przegląda
+plan z wyprzedzeniem, więc różnica bywała większa niż limit 240 min (§9: „apka
+zostawiona otwarta na noc") i czas znikał całkowicie z podsumowania i Historii.
+`Session.startedAt` / `Draft.firstSetAt` (moment PIERWSZEJ zaliczonej serii,
+ustawiane raz w `updateSet`) — `sessionDuration()` liczy od niego z fallbackiem na
+`date` dla starych sesji. `date` samo w sobie NIE zmienia znaczenia (klucz sortowania
+Historii, okno tygodnia/cyklu) — tego świadomie nie ruszono. Podsumowanie tłumaczy
+wprost, kiedy czas jest nieznany, zamiast po cichu go ukrywać.
+
+### 25.2 P7-1 — „dziś powinien wskoczyć" mimo że ciężar już wskoczył
+`progressGoal()` liczyło wyłącznie brakujące powtórzenia i nie sprawdzało, czy
+dzisiejszy cel jest już WYŻSZY niż ciężar sesji referencyjnej — więc po komplecie,
+który już podniósł cel, karta dalej pisała „ostatnio komplet, dziś powinien
+wskoczyć", mimo że wskoczył wczoraj. Nowy współdzielony helper `weightVsReference()`
+(używany też przez `prefillRepsForEntry`, a od P7-5/P7-10 także przez
+`computeProgression`) rozstrzyga trzy przypadki: ciężar wskoczył (zielony, wprost
+mówi o ile i na co dziś celujesz), ciężar niższy niż ostatnio (neutralny), ten sam
+ciężar (jak dawniej — dystans w powtórzeniach). Działa też dla `isHold` (plank) —
+porównanie idzie po obciążeniu, nie sekundach.
+
+### 25.3 P7-2 — kolor kratki „ost. N" liczony z siły (e1RM), nie z powtórzeń
+22,5×10 świeciło na bursztynowo wobec referencji 20×12, mimo że jest MOCNIEJSZE
+(e1RM 30,0 > 28,0) — kolor liczył się z samych powtórzeń. Nowa
+`compareSetToReference()` porównuje e1RM. Dla `isHold` (plank) przy RÓŻNYM
+obciążeniu nie ma uczciwej wspólnej miary (40 s@10 kg vs 35 s@15 kg — dodatkowe kg
+i sekundy nie mają ustalonego przelicznika) → wynik `"incomparable"`, kratka zostaje
+bez koloru, tylko kropkowane podkreślenie jak dotąd. Przy tej samej okazji (dzielona
+struktura `PersonalBests`) `isSetRecord` dla `isHold` dostał regułę DOMINACJI zamiast
+porównania samych sekund: dłuższy czas wygrywa zawsze, przy remisie cięższe
+obciążenie — bez tego plank na 15 kg nigdy nie dostawał PR wobec rekordu na 10 kg.
+Podsumowanie sesji i toast po zaliczeniu serii pokazują teraz obciążenie przy
+rekordzie planku („40 s @ 15 kg").
+
+### 25.4 P7-10 — fałszywy „Spadek formy" po skoku ciężaru + zakres planku 30–40 s
+„2+ serie poniżej minimum" odpalało deload NAWET gdy ciężar właśnie wskoczył — a to
+jest oczekiwany, normalny skutek udanej progresji, nie regres. `computeProgression`
+dostał opcjonalny 7. parametr `weightJustIncreased` (liczony przez
+`store.finishSession` tym samym `weightVsReference` co P7-1): gdy prawda, „poniżej
+minimum" zwraca `hold` z komunikatem „Pierwszy trening na nowym ciężarze", nie
+`deload`. Plank miał dodatkowo WBUDOWANY wariant tego samego buga:
+`repMin === repMax` (40==40) nie zostawiał ŻADNEJ przestrzeni na odbudowanie
+wyniku, więc KAŻDY skok obciążenia gwarantował fałszywy spadek formy niezależnie od
+powyższej poprawki. Zakres 30–40 s (migracja `setPlankRangeOnce`, zachowuje ręczną
+zmianę użytkownika, bez bumpa `SCHEMA_VERSION`) naprawia to systemowo. Świadomie
+NIE tknięte: `side_plank`/`hollow_hold`/`farmer_walk` mają ten sam kształt
+(`repMin === repMax`), ale nie były zgłoszone — chroni je już sam wyjątek
+`weightJustIncreased`. Przy okazji: komunikat deloadu mówił „odbuduj powtórzenia"
+nawet dla ćwiczeń na czas — teraz „odbuduj czas" dla `isHold`.
+
+### 25.5 P7-5 — „nowy ciężar" nigdy nie ≤ temu, co dziś realnie podniesiono
+Podbicie ciężaru W TRAKCIE ćwiczenia (16,25×12 → 17,5×12/17,5×12) zostawia serie
+robocze na różnych ciężarach. `loggedWorkingWeight` wtedy słusznie zwraca `null`,
+ale `finishSession` cofał się do STAREGO celu z planu jako bazy progresji — komplet
+liczył „awans" od 16,25, więc podsumowanie ogłaszało „nowy ciężar 17,5", czyli
+dokładnie to, co Kamil już zrobił. `computeProgression` dostał opcjonalny 8.
+parametr `mixedWorkingWeights`: gdy store wykryje rozjazd I najcięższa zaliczona
+seria przewyższa stary cel, funkcja OD RAZU (przed `allAtTop`/`belowMin`) zwraca
+`hold` z `nextWeight` = ta najcięższa seria i komunikatem „Serie szły na różnych
+ciężarach — cel podniesiony do X kg. Domknij na nim komplet…". Cel dogania
+rzeczywistość, ale NIE dokłada kolejnego kroku — trzeba jeszcze raz powalczyć
+kompletem na jednym ciężarze. Wyłączone na obcej siłowni (jak cała adaptacja
+z §24.1). Dodatkowo: dyskretny toast w loggerze od razu przy zmianie ciężaru
+w `setWeightWithSync`, zanim dojdzie do podsumowania.
+
+### 25.6 P7-7 — rekord życia widoczny w karcie ćwiczenia
+„Dlaczego 65×8 to nie rekord?" — apka liczyła poprawnie (65 kg już było, e1RM 82,3
+< rekord 87,5 z 62,5×12), ale bez tej informacji na ekranie brak PR wyglądał na
+awarię. `PersonalBests` dostał `e1rmWeight`/`e1rmReps` (seria, która wypracowała
+najwyższe e1RM — NIE ta najcięższa) i `holdWeight` (z P7-2/P7-6). „Pomoc i
+szczegóły" pokazuje teraz `Rekord: 62,5 kg × 12 (e1RM 87,5 kg)`, dla `isHold`
+`40 s @ 15 kg`. Pomijane całkowicie przy braku historii.
+
+### 25.7 P7-9 — migracje celów pomijały `hyperTargets`
+Wszystkie zrzuty ekranu Kamila mają plakietkę **Hipertrofia** — a `hyperTargetFor()`
+NAJPIERW sięga po `state.hyperTargets` (§5.7), więc to ono jest jego realnym celem
+roboczym, nie `targets` (siła). Dwa realne problemy: (1) `fixRdlTargetOnce` z §24.2
+ruszało wyłącznie `targets.rdl` — `hyperTargets.rdl` zostawał na nieosiągalnych
+22 kg, dlatego RDL dalej dawał „nowy ciężar 24 kg" mimo tamtej poprawki. Osobna
+migracja `fixHyperRdlTargetOnce` (własna flaga `rdlHyperTargetFixed`, bo na już
+zmigrowanym urządzeniu stara migracja się nie odpali) to dogania. (2) Gałąź
+`migrateState()` dla starej wersji schematu w ogóle NIE przenosiła `hyperTargets`
+— przy najbliższym bumpie `SCHEMA_VERSION` cała progresja hipertrofii Kamila
+wyparowałaby. Teraz przenosi się dla ID ćwiczeń, które nadal istnieją w bazie
+(ten sam wzorzec co `targets`), bez zostawiania pustego obiektu-śmiecia, gdy nie
+ma czego przenosić.
+
+### 25.8 P7-3 — drabinka hantli per siłownia + siłownia przypisana do dnia
+`increment` to stała liczba kg — nic nie sprawdzało, czy suma w ogóle istnieje jako
+hantel (22,5 + 2 = 24,5, cel wiosłowania hantlem 22 kg). Kamil ma **dwie stałe
+siłownie przypisane do dni** (nie okazjonalny wyjazd): pon/pt **„Well Fitness"**
+(hantle co 2,5 kg w górnym zakresie), śr **„My Fitness Place"** (co 2 kg) — stąd
+zakroki 14 kg i wyciskanie hantli skos 16 kg (oba w środę) były zawsze POPRAWNE.
+Istniejący `activeGymProfileId` (FEAT-1, §12) tego nie obsługiwał: wymaga ręcznego
+przełączania i celowo wyłącza adaptację celu.
+
+Nowe pola: `GymProfile.dumbbells`, `Settings.dumbbells` (drabinka domowa),
+`WorkoutDay.gymProfileId`, `Session.gymProfileId`/`Draft.gymProfileId` (siłownia
+NA CZAS TEGO TRENINGU, domyślnie z dnia, zmienialna przełącznikiem w nagłówku —
+Kamil czasem robi trening dzień wcześniej gdzie indziej). `snapLoadUp` / `snapLoadDown`
+/ `snapLoadDownFrom` / `snapLoadNearest` w `logic.ts` — progresja i cele hantlowe
+snapują do najbliższego REALNEGO ciężaru zamiast liczyć „cel + krok" w próżni.
+`computeProgression` (9. parametr `ladder`), `deloadTargetFor`, `hyperTargetFor`
+dostały opcjonalną drabinkę — brak = dawne zachowanie, żaden z 388 istniejących
+testów nie wymagał przestrojenia. `kb_swing` wyłączony z mapowania na drabinkę
+hantli (kettlebelle mają własną: 4/8/12/16/20/24), sztanga nietknięta.
+
+`store.finishSession` bierze drabinkę z dnia SESJI (`gymForDay`), nie z globalnego
+`activeGymProfileId`. Adaptacja celu z §24.1 działa, gdy siłownia sesji zgadza się
+z siłownią dnia; `settings.activeGymProfileId` zostaje wyłącznie domyślną wartością
+Kalkulatora talerzy w Więcej — **nie steruje już progresją**. Steppery −/+ przy
+ciężarze serii skaczą po drabince (`snapLoadUp`/`snapLoadDownFrom`), nie po
+„cel ± krok".
+
+Migracje (bez bumpa `SCHEMA_VERSION`): `seedGymLaddersOnce` dosiewa profil My
+Fitness Place + `wed.gymProfileId` + drabinkę domową (usunięcie przez użytkownika
+trwałe, ten sam wzorzec co §19); `snapDumbbellTargetsOnce` dociąga ISTNIEJĄCE cele
+(`targets` I `hyperTargets` — współdzielony `mapTargets`, patrz §25.7) do drabinki
+ICH DNIA, pomijając ćwiczenia stojące w dniach o różnych siłowniach (niejednoznaczne).
+Zweryfikowane: `row_db` 22 → 22,5, `lunges`/`incline_db` bez zmian (już pasują do
+drabinki co 2), wypracowany cel 26 (RDL) snapuje do najbliższego hantla (25), NIE
+wraca do wartości z seeda.
+
+⚠️ **Drabinki obu siłowni to WSTĘPNY DOMYSŁ** (Kamil nie podał jeszcze dokładnych
+list ze stojaków) — `LADDER_WELL_FITNESS`/`LADDER_MY_FITNESS_PLACE` w `seed.ts`,
+jawnie oznaczone w komentarzu. UI edycji drabinki (Więcej → Siłownie — dla domu
+i każdego profilu; Plan → wybór siłowni dnia) jest częścią tego zadania celowo:
+Kamil poprawi wartości sam, gdy poda realne liczby, bez czekania na kolejny build.
+
+### 25.9 P7-8 — tydzień treningowy = cykl rotacji, nie kratka kalendarza
+Kamil: „kliknę pierwszy trening, a jest niedziela — powinien mi rozpocząć nowy
+tydzień, bo robię sobie trening wcześniej jeden dzień, jak mam czas". `weeklyAdherence`
+/ `weeklyReport` / `weeksSinceDeload` stały na kalendarzowym poniedziałku
+(`mondayOf`) — Trening 1 zrobiony w niedzielę wpadał do tygodnia, który już się
+rozliczył, a Treningi 2/3 tego samego cyklu lądowały w PUSTYM nowym tygodniu.
+
+Nowa `trainingCycles()` dzieli ukończone sesje na cykle rotacji: nowy cykl otwiera
+pierwsza sesja w historii, przerwa >10 dni, albo pozycja dnia w kolejności planu
+≤ pozycji poprzedniej sesji GŁÓWNEJ (rotacja się cofnęła albo pełny obieg wrócił
+na początek) — Z WYJĄTKIEM natychmiastowego powtórzenia TEGO SAMEGO dnia
+(identyczny `dayId` jak poprzednia sesja główna), traktowanego jak duplikat/redo,
+nie nowy cykl (spójne z §16 Zadanie 4: „dwa zapisy tego samego dnia liczą się
+raz"). Dzień bonusowy nigdy nie otwiera cyklu ani nie przesuwa punktu odniesienia
+pozycji. `weeklyAdherence`/`weeklyReport`/`weeksSinceDeload` przepisane na cyklach
+— zachowany kształt zwracanych danych (`WeekAdherence` dostał `endIso`/`cycleNumber`
+do etykiety „Cykl N · 3–9 sie" zamiast daty poniedziałku; „Ten tydzień" → „Ten
+cykl" w UI). `actualWeeklyMuscleVolume` ŚWIADOMIE zostaje na oknie 7 dni (§12
+INFO-1) — to metryka fizjologiczna, nie rozliczenie planu. Migracja: żadna — cykle
+liczą się z istniejących sesji w locie.
+
+Zweryfikowane na realnym stanie (`migrateState(null)` z historią startową): 9 sesji
+z trzech tygodni dzieli się na dokładnie 3 czyste cykle `[mon,wed,fri]`, każdy
+3/3 — dokładnie taki kształt, jaki dałaby stara kalendarzowa logika dla regularnej
+rotacji poniedziałek/środa/piątek, więc refaktor nie psuje typowego przypadku.
+
+### 25.10 Nie jest błędem (odnotowane, nie naprawiane)
+- Brak PR przy przysiadzie 65×8 — 65 kg już było (widać w „Ostatnie:"), e1RM 82,3
+  niższy od rekordu 87,5. P7-7 wyjaśnia to wprost w karcie zamiast zostawiać zagadkę.
+- Suwnica 80 kg przy celu 120 kg — cel dosiany przez migrację z §19 był zgadywany
+  (Kamil nigdy jej nie robił); po tej sesji §24.1 sam ściągnie go do tego, co
+  realnie poszło.
+- Nagłówek podsumowania na dwóch zrzutach wyglądał na nachodzący na pasek statusu —
+  podsumowanie to zwykły ekran, nie modal, więc nie ma tu oczywistego mechanizmu
+  nakładania; najpewniej artefakt zrzutu zrobionego w trakcie przewijania. Nie
+  ruszone bez potwierdzenia, że widać to na żywo.
+
+**Testy:** 481 łącznie (93 nowych — `weightVsReference`/`progressGoal` P7-1,
+`compareSetToReference`/`isSetRecord` dominacja P7-2/P7-6, `computeProgression`
+warianty `weightJustIncreased`/`mixedWorkingWeights`/`ladder`, migracja zakresu
+planku, `sessionDuration` od `startedAt`, migracje `hyperTargets`, `snapLoadUp/
+Down/DownFrom/Nearest`, migracje drabinki hantli, `trainingCycles` — wszystkie
+8 scenariuszy ze specyfikacji P7-8 wprost). `npm run build` bez błędów.

@@ -14,6 +14,7 @@ import {
   fmtLastEntries,
   personalBests,
   isSetRecord,
+  compareSetToReference,
   detectPlateau,
   achievableWeights,
   nearestAchievable,
@@ -49,6 +50,15 @@ import {
   progressSince,
   maxGainPerSession,
   progressGoal,
+  weightVsReference,
+  trainingCycles,
+  snapLoadUp,
+  snapLoadDown,
+  snapLoadDownFrom,
+  snapLoadNearest,
+  gymForDay,
+  dumbbellLadder,
+  isDumbbellSnappable,
   exerciseHistory,
   loggedWorkingWeight,
   type HistoryPoint,
@@ -125,6 +135,125 @@ const plankUp = computeProgression(plank, 10, [
   { weight: 10, reps: 40, done: true },
 ]);
 check("plank 4x40s -> +5 kg", plankUp.status === "up" && plankUp.nextWeight === 15, plankUp);
+
+// P7-10: fałszywy "Spadek formy" po skoku ciężaru + zakres planku 30-40 s
+// (bylo: sztywne 40==40, KAZDY skok obciazenia gwarantowal falszywy deload).
+const plankScreen10 = computeProgression(plank, 15, [
+  { weight: 15, reps: 40, done: true },
+  { weight: 15, reps: 35, done: true },
+  { weight: 15, reps: 35, done: true },
+  { weight: 15, reps: 35, done: true },
+]);
+check(
+  "plank: 40/35/35/35 @ 15kg (screen 10) - z zakresem 30-40 NIE jest juz spadkiem formy (35>=30)",
+  plankScreen10.status === "hold" && plankScreen10.message.indexOf("Spadek formy") === -1,
+  plankScreen10
+);
+const plankJustIncreased = computeProgression(plank, 15, [
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+], undefined, undefined, undefined, true);
+check(
+  "plank: wyraznie ponizej minimum (20s) + weightJustIncreased -> hold 'pierwszy trening', NIE deload",
+  plankJustIncreased.status === "hold" &&
+    plankJustIncreased.message.indexOf("Pierwszy trening na nowym ciężarze") === 0 &&
+    plankJustIncreased.message.indexOf("30 s") > -1,
+  plankJustIncreased
+);
+const plankSameWeight = computeProgression(plank, 15, [
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+  { weight: 15, reps: 20, done: true },
+], undefined, undefined, undefined, false);
+check(
+  "plank: to samo (20s), ale weightJustIncreased=false -> deload, prawdziwy regres",
+  plankSameWeight.status === "deload" && plankSameWeight.message.indexOf("odbuduj czas") > -1,
+  plankSameWeight
+);
+
+const benchJustIncreased = computeProgression(bench, 47.5, [
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 8, done: true },
+], undefined, undefined, undefined, true);
+check(
+  "cwiczenie zwykle: 2 serie ponizej min + weightJustIncreased -> hold 'pierwszy trening', nie 'Spadek formy'",
+  benchJustIncreased.status === "hold" &&
+    benchJustIncreased.message.indexOf("Pierwszy trening na nowym ciężarze") === 0 &&
+    benchJustIncreased.message.indexOf("odbuduj") === -1,
+  benchJustIncreased
+);
+const benchSameWeight = computeProgression(bench, 47.5, [
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 3, done: true },
+  { weight: 47.5, reps: 8, done: true },
+], undefined, undefined, undefined, false);
+check(
+  "cwiczenie zwykle: te same serie, weightJustIncreased=false -> deload jak dawniej, 'odbuduj powtorzenia'",
+  benchSameWeight.status === "deload" && benchSameWeight.message.indexOf("odbuduj powtórzenia") > -1,
+  benchSameWeight
+);
+check(
+  "computeProgression: pominiecie weightJustIncreased (undefined) -> zachowanie jak dawniej (deload)",
+  deload.status === "deload" && deload.message.indexOf("odbuduj powtórzenia") > -1,
+  deload
+);
+
+// P7-5: "nowy ciezar" nie moze byc <= temu co dzis realnie podniesiono - serie
+// robocze na roznych ciezarach (podbicie w trakcie cwiczenia, zgloszenie
+// Kamila: uginanie bicepsa 16,25 -> 17,5 w trakcie, podsumowanie oglosilo
+// "nowy ciezar 17,5" czyli to co juz zrobil).
+const curlBbEx = SEED_EXERCISES.find((e) => e.id === "curl_bb")!;
+const curlMon = { ...curlBbEx, targetSets: 3 }; // mon.setsOverride: {curl_bb: 3}
+const mixed = computeProgression(
+  curlMon, 16.25,
+  [
+    { weight: 16.25, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ],
+  undefined, undefined, undefined, undefined, 17.5
+);
+check(
+  "computeProgression (P7-5): serie na roznych ciezarach (16,25->17,5) -> hold, nextWeight=17,5, nie awans na 18,75",
+  mixed.status === "hold" && mixed.nextWeight === 17.5 && mixed.message.indexOf("Serie szły na różnych ciężarach") === 0,
+  mixed
+);
+const uniformFull = computeProgression(curlMon, 17.5, [
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+]);
+check(
+  "computeProgression (P7-5): jednolity ciezar, komplet -> normalny awans na 18,75 (bez mixedWorkingWeights)",
+  uniformFull.status === "up" && uniformFull.nextWeight === 18.75,
+  uniformFull
+);
+const boundaryEqual = computeProgression(curlMon, 17.5, [
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+  { weight: 17.5, reps: 12, done: true },
+], undefined, undefined, undefined, undefined, 17.5);
+check(
+  "computeProgression (P7-5): mixedWorkingWeights == targetWeight (nie >) -> override NIE odpala, normalny awans",
+  boundaryEqual.status === "up" && boundaryEqual.nextWeight === 18.75,
+  boundaryEqual
+);
+check(
+  "computeProgression (P7-5): mixedWorkingWeights ponizej targetWeight (poza kontraktem store'a) -> override NIE odpala",
+  computeProgression(
+    curlMon, 20,
+    [
+      { weight: 20, reps: 12, done: true },
+      { weight: 20, reps: 12, done: true },
+      { weight: 20, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, 17.5 // < targetWeight - store tego nigdy nie zrobi, ale funkcja ma byc odporna
+  ).message.indexOf("Serie szły na różnych ciężarach") === -1
+);
 
 // Tonaż i e1RM
 check("hantle tonaz x2", setVolume(lateral, { weight: 9, reps: 12, done: true }) === 216);
@@ -495,6 +624,11 @@ const pb = personalBests(stPB, "bench_bb");
 check("personalBests: pomija niezaliczone serie (max 45, nie 50)", pb.weight === 45, pb);
 check("personalBests: pomija sesje nieukonczone (nie 100)", pb.weight === 45, pb);
 check("personalBests: e1rm liczony z zaliczonych serii (45x6 -> 54)", Math.abs(pb.e1rm - 54) < 0.01, pb);
+check(
+  "personalBests (P7-7): e1rmWeight/e1rmReps to seria KTORA wypracowala e1rm (45x6), nie najciezsza (40x8)",
+  pb.e1rmWeight === 45 && pb.e1rmReps === 6,
+  pb
+);
 const pbExcl = personalBests(stPB, "bench_bb", "pb2");
 check(
   "personalBests: excludeSessionId pomija wskazana sesje (zostaje tylko 40x8)",
@@ -503,10 +637,30 @@ check(
 );
 check("personalBests: brak historii -> same zera", (() => {
   const z = personalBests(defaultState(), "bench_bb");
-  return z.weight === 0 && z.e1rm === 0 && z.holdSeconds === 0;
+  return z.weight === 0 && z.e1rm === 0 && z.holdSeconds === 0 && z.holdWeight === 0;
 })());
 
-const pbBest = { weight: 45, e1rm: 54, holdSeconds: 0 };
+// P7-6: personalBests dla isHold sledzi PARE (holdSeconds, holdWeight) -
+// dluzszy czas wygrywa, przy remisie ciezsze obciazenie.
+const stPlankPB = defaultState();
+stPlankPB.sessions = [
+  { id: "pl1", dayId: "wed", date: "2026-07-01", completed: true,
+    entries: [{ exerciseId: "plank", targetWeight: 10, sets: [
+      { weight: 10, reps: 40, done: true },
+      { weight: 10, reps: 35, done: true },
+    ] }] },
+  { id: "pl2", dayId: "wed", date: "2026-07-08", completed: true,
+    entries: [{ exerciseId: "plank", targetWeight: 20, sets: [{ weight: 20, reps: 35, done: true }] }] },
+];
+const pbPlank = personalBests(stPlankPB, "plank");
+check(
+  "personalBests (isHold): 40 s @ 10 kg wygrywa z 35 s @ 20 kg (dluzszy czas ZAWSZE wygrywa)",
+  pbPlank.holdSeconds === 40 && pbPlank.holdWeight === 10,
+  pbPlank
+);
+
+const zeroBest = { weight: 0, e1rm: 0, holdSeconds: 0, holdWeight: 0, e1rmWeight: 0, e1rmReps: 0 };
+const pbBest = { weight: 45, e1rm: 54, holdSeconds: 0, holdWeight: 0, e1rmWeight: 45, e1rmReps: 8 };
 check(
   "isSetRecord: ciezszy ciezar -> weight (priorytet nad e1rm mimo ze oba pobite)",
   isSetRecord(bench, { weight: 47.5, reps: 5, done: true }, pbBest) === "weight"
@@ -525,20 +679,75 @@ check(
 );
 check(
   "isSetRecord: brak historii (best zerowy) -> null",
-  isSetRecord(bench, { weight: 20, reps: 5, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+  isSetRecord(bench, { weight: 20, reps: 5, done: true }, zeroBest) === null
 );
-const holdBest = { weight: 0, e1rm: 0, holdSeconds: 30 };
+// P7-6: rekord planku = seria NIE jest zdominowana (dluzszy czas ZAWSZE wygrywa,
+// przy remisie wygrywa ciezsze obciazenie) - nie sama liczba sekund.
+const holdBest = { weight: 0, e1rm: 0, holdSeconds: 40, holdWeight: 10 };
 check(
-  "isSetRecord: hold - wiecej sekund niz rekord -> hold",
-  isSetRecord(plank, { weight: 10, reps: 35, done: true }, holdBest) === "hold"
+  "isSetRecord: hold - wiecej sekund niz rekord (na dowolnym obciazeniu) -> hold",
+  isSetRecord(plank, { weight: 5, reps: 45, done: true }, holdBest) === "hold"
 );
 check(
-  "isSetRecord: hold - tyle samo sekund co rekord -> null",
-  isSetRecord(plank, { weight: 10, reps: 30, done: true }, holdBest) === null
+  "isSetRecord: hold - 40 s @ 15 kg przy rekordzie 40 s @ 10 kg -> hold (P7-6, screen 10)",
+  isSetRecord(plank, { weight: 15, reps: 40, done: true }, holdBest) === "hold"
+);
+check(
+  "isSetRecord: hold - tyle samo sekund, LZEJSZE obciazenie -> null (zdominowana)",
+  isSetRecord(plank, { weight: 8, reps: 40, done: true }, holdBest) === null
+);
+check(
+  "isSetRecord: hold - identyczny wynik (te same s i kg) -> null",
+  isSetRecord(plank, { weight: 10, reps: 40, done: true }, holdBest) === null
+);
+check(
+  "isSetRecord: hold - KROTSZY czas, ciezsze obciazenie -> null (krotszy czas nigdy nie wygrywa)",
+  isSetRecord(plank, { weight: 20, reps: 35, done: true }, holdBest) === null
 );
 check(
   "isSetRecord: hold bez historii -> null",
-  isSetRecord(plank, { weight: 10, reps: 40, done: true }, { weight: 0, e1rm: 0, holdSeconds: 0 }) === null
+  isSetRecord(plank, { weight: 10, reps: 40, done: true }, zeroBest) === null
+);
+
+// P7-2: kolor kratki "ost. N" liczony z SILY (e1RM), nie z samych powtorzen -
+// ciezszy hantel przy mniejszej liczbie powtorzen bywa mocniejsza seria.
+check(
+  "compareSetToReference: 22,5x10 (e1RM 30,0) vs 20x12 (e1RM 28,0) -> better (screen 2, wioslowanie)",
+  compareSetToReference(bench, { weight: 22.5, reps: 10, done: true }, { weight: 20, reps: 12, done: true }) === "better"
+);
+check(
+  "compareSetToReference: 25x10 (e1RM 33,3) vs 22,5x12 (e1RM 31,5) -> better (screen 2, francuz)",
+  compareSetToReference(bench, { weight: 25, reps: 10, done: true }, { weight: 22.5, reps: 12, done: true }) === "better"
+);
+check(
+  "compareSetToReference: 20x10 vs 20x12 -> worse (ten sam ciezar, mniej powtorzen)",
+  compareSetToReference(bench, { weight: 20, reps: 10, done: true }, { weight: 20, reps: 12, done: true }) === "worse"
+);
+check(
+  "compareSetToReference: 20x12 vs 20x12 -> same",
+  compareSetToReference(bench, { weight: 20, reps: 12, done: true }, { weight: 20, reps: 12, done: true }) === "same"
+);
+check(
+  "compareSetToReference: 0 powtorzen (nic nie wpisano) -> same",
+  compareSetToReference(bench, { weight: 0, reps: 0, done: false }, { weight: 20, reps: 12, done: true }) === "same"
+);
+check(
+  "compareSetToReference: przysiad 65x8 (e1RM 82,3) vs 62,5x12 (e1RM 87,5) -> worse (screen 8, uczciwie zostaje bursztynowa)",
+  compareSetToReference(bench, { weight: 65, reps: 8, done: true }, { weight: 62.5, reps: 12, done: true }) === "worse"
+);
+// isHold (plank): TA SAMA reguła co isSetRecord byłaby myląca - "35 s @ 15 kg
+// vs 40 s @ 10 kg" nie ma uczciwej wspólnej miary (P7-2 korekta, screen 11).
+check(
+  "compareSetToReference (isHold): rozne obciazenie -> incomparable (Kamil: 'przeciez waga mniejsza byla')",
+  compareSetToReference(plank, { weight: 15, reps: 35, done: true }, { weight: 10, reps: 40, done: true }) === "incomparable"
+);
+check(
+  "compareSetToReference (isHold): to samo obciazenie, krotszy czas -> worse",
+  compareSetToReference(plank, { weight: 15, reps: 35, done: true }, { weight: 15, reps: 40, done: true }) === "worse"
+);
+check(
+  "compareSetToReference (isHold): to samo obciazenie, dluzszy czas -> better",
+  compareSetToReference(plank, { weight: 15, reps: 45, done: true }, { weight: 15, reps: 40, done: true }) === "better"
 );
 
 // P1-1: Plateau breaker
@@ -776,8 +985,8 @@ check(
 );
 
 // P1-10: czas trwania treningu
-function mkSessionAt(date: string, finishedAt?: string): Session {
-  return { id: "dur", dayId: "mon", date, completed: true, entries: [], finishedAt };
+function mkSessionAt(date: string, finishedAt?: string, startedAt?: string): Session {
+  return { id: "dur", dayId: "mon", date, completed: true, entries: [], finishedAt, startedAt };
 }
 check(
   "sessionDuration: liczy minuty (58 min)",
@@ -790,6 +999,37 @@ check(
 check(
   "sessionDuration: 5h -> null (za dlugo, apka zostawiona otwarta)",
   sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T15:00:00.000Z")) === null
+);
+
+// P7-4: czas liczony od startedAt (pierwsza zaliczona seria), nie od date
+// (moment wejscia w dzien, ktory bywa o godziny wczesniejszy).
+check(
+  "sessionDuration: liczy od startedAt, nie od date (75 min)",
+  sessionDuration(
+    mkSessionAt("2026-07-26T14:00:00.000Z", "2026-07-26T19:15:00.000Z", "2026-07-26T18:00:00.000Z")
+  ) === 75
+);
+check(
+  "sessionDuration: brak startedAt -> fallback na date (stare sesje, zachowanie jak dawniej)",
+  sessionDuration(mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T10:58:00.000Z")) === 58
+);
+check(
+  "sessionDuration: startedAt pozniejsze niz finishedAt (cofniety zegar) -> null",
+  sessionDuration(
+    mkSessionAt("2026-07-26T10:00:00.000Z", "2026-07-26T10:30:00.000Z", "2026-07-26T11:00:00.000Z")
+  ) === null
+);
+check(
+  "sessionDuration: ponad 240 min liczone OD startedAt -> null",
+  sessionDuration(
+    mkSessionAt("2026-07-26T02:00:00.000Z", "2026-07-26T13:00:00.000Z", "2026-07-26T08:00:00.000Z")
+  ) === null // startedAt->finishedAt to 5h (300 min > 240) mimo ze date->finishedAt tez by dalo null
+);
+check(
+  "sessionDuration: date bardzo wczesnie, startedAt->finishedAt w limicie -> liczy poprawnie",
+  sessionDuration(
+    mkSessionAt("2026-07-26T06:00:00.000Z", "2026-07-26T19:15:00.000Z", "2026-07-26T18:00:00.000Z")
+  ) === 75 // date->finishedAt to 13h15min (byloby null), ale startedAt->finishedAt to 75 min
 );
 check(
   "sessionDuration: finishedAt przed date -> null",
@@ -888,38 +1128,38 @@ check(
   );
 }
 
-// P2-11: kalendarz konsekwencji (8 tygodni)
+// P7-8: konsekwencja = cykle rotacji planu, NIE kalendarzowe tygodnie
+// (bylo: P2-11 "kalendarz konsekwencji (8 tygodni)" - zastapione).
 const stAdh = defaultState();
 stAdh.sessions.push(
   { id: "a1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] },
   { id: "a2", dayId: "wed", date: "2026-07-22", completed: true, entries: [] },
-  { id: "a3", dayId: "fri", date: "2026-07-24", completed: true, entries: [] },
-  { id: "a4", dayId: "bonus", date: "2026-07-08", completed: true, entries: [] }
+  // Bonus MIEDZY wed a fri, w tym samym cyklu - nie powinien go przerywac.
+  { id: "a4", dayId: "bonus", date: "2026-07-23", completed: true, entries: [] },
+  { id: "a3", dayId: "fri", date: "2026-07-24", completed: true, entries: [] }
 );
 const adherence = weeklyAdherence(stAdh, 8, "2026-07-26");
-check("weeklyAdherence: okno = dokladnie 8 tygodni", adherence.length === 8, adherence.length);
 check(
-  "weeklyAdherence: ostatni element = tydzien zawierajacy nowIso",
-  adherence[adherence.length - 1].week === "2026-07-20",
-  adherence[adherence.length - 1]
+  "weeklyAdherence: jeden cykl z 3 sesji glownych -> jeden element (brak dopelniania pustymi)",
+  adherence.length === 1,
+  adherence.length
 );
-const fullWeek = adherence.find((w) => w.week === "2026-07-20")!;
+const cyc = adherence[0];
 check(
-  "weeklyAdherence: tydzien z 3/3 sesji -> done === planned",
-  fullWeek.done === 3 && fullWeek.planned === 3,
-  fullWeek
+  "weeklyAdherence: startIso/endIso to pierwsza/ostatnia sesja cyklu (nie poniedzialek/niedziela)",
+  cyc.week === "2026-07-20" && cyc.endIso === "2026-07-24",
+  cyc
 );
-const bonusWeek = adherence.find((w) => w.week === "2026-07-06")!;
+check("weeklyAdherence: cykl z 3/3 sesji glownych -> done === planned", cyc.done === 3 && cyc.planned === 3, cyc);
 check(
-  "weeklyAdherence: dzien bonusowy liczy sie osobno, NIE podbija done/planned",
-  bonusWeek.done === 0 && bonusWeek.planned === 3 && bonusWeek.bonusDone === 1,
-  bonusWeek
+  "weeklyAdherence: bonus W SRODKU cyklu liczy sie osobno, NIE podbija done ani nie przerywa cyklu",
+  cyc.bonusDone === 1 && cyc.done === 3,
+  cyc
 );
-const emptyWeek = adherence.find((w) => w.week === "2026-06-29");
+check("weeklyAdherence: cycleNumber 1-indeksowany od pierwszego cyklu w historii", cyc.cycleNumber === 1, cyc);
 check(
-  "weeklyAdherence: pusty tydzien -> done 0 i bonusDone 0",
-  emptyWeek !== undefined && emptyWeek.done === 0 && emptyWeek.bonusDone === 0,
-  emptyWeek
+  "weeklyAdherence: brak historii -> pusta tablica (cykl bez sesji nie istnieje, nie ma czym dopelnic)",
+  weeklyAdherence(defaultState(), 8, "2026-07-26").length === 0
 );
 
 // Zadanie 4: powtórzenie tego samego dnia nie może udawać realizacji kolejnego
@@ -1447,22 +1687,29 @@ check(
   deloadTargetFor(defaultState(), plank)
 );
 
+// P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe tygodnie.
 check("weeksSinceDeload: brak historii -> 0", weeksSinceDeload(defaultState()) === 0);
 const stWeeksA = defaultState();
-stWeeksA.sessions.push({ id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] });
+stWeeksA.sessions.push(
+  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] }, // cykl 1
+  { id: "w2", dayId: "wed", date: "2026-07-01", completed: true, entries: [] }, // przerwa >10 dni -> cykl 2
+  { id: "w3", dayId: "fri", date: "2026-07-03", completed: true, entries: [] }, // ten sam cykl 2
+  { id: "w4", dayId: "mon", date: "2026-07-20", completed: true, entries: [] } // przerwa >10 dni -> cykl 3
+);
 check(
-  "weeksSinceDeload: brak sesji deload -> liczy od pierwszej sesji w historii (6 tygodni)",
-  weeksSinceDeload(stWeeksA, "2026-07-27") === 6,
+  "weeksSinceDeload: brak sesji deload -> liczy cykle od PIERWSZEJ sesji w historii (2 cykle minely)",
+  weeksSinceDeload(stWeeksA, "2026-07-27") === 2,
   weeksSinceDeload(stWeeksA, "2026-07-27")
 );
 const stWeeksB = defaultState();
 stWeeksB.sessions.push(
-  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] },
-  { id: "w2", dayId: "wed", date: "2026-07-13", completed: true, entries: [], mode: "deload" }
+  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] }, // cykl 1
+  { id: "w2", dayId: "wed", date: "2026-07-01", completed: true, entries: [], mode: "deload" }, // cykl 2
+  { id: "w3", dayId: "fri", date: "2026-07-20", completed: true, entries: [] } // cykl 3
 );
 check(
-  "weeksSinceDeload: liczy od OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (2 tygodnie)",
-  weeksSinceDeload(stWeeksB, "2026-07-27") === 2,
+  "weeksSinceDeload: liczy od cyklu OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (1 cykl minal)",
+  weeksSinceDeload(stWeeksB, "2026-07-27") === 1,
   weeksSinceDeload(stWeeksB, "2026-07-27")
 );
 
@@ -2141,19 +2388,24 @@ check(
   check("weeklyReport: brak poprzedniego tygodnia - tonaz biezacy > 0", noPrev.tonnageCurrent > 0, noPrev);
   check("weeklyReport: brak poprzedniego tygodnia - brak porownania", noPrev.tonnagePrevious === null && noPrev.tonnageChangePct === null, noPrev);
 
-  // Granica poniedzialek/niedziela: sesja w niedziele (koniec POPRZEDNIEGO tygodnia)
-  // i sesja w poniedzialek (poczatek TEGO tygodnia) NIE moga wpasc do tego samego kubelka.
+  // P7-8: "poprzedni"/"ten" to teraz POPRZEDNI/BIEŻĄCY CYKL, nie kalendarzowy
+  // tydzień — sesja >10 dni wcześniej (przerwa = nowy cykl) NIE może wpaść
+  // do tego samego "kubełka" co sesja bieżąca.
   const sundayBefore = new Date(monday + "T12:00:00");
   sundayBefore.setDate(sundayBefore.getDate() - 1);
   const sundayStr = sundayBefore.toISOString().slice(0, 10);
   const stBoundary = defaultState();
   stBoundary.sessions.push(
-    { id: "b-sun", dayId: mainDays[0].id, date: sundayStr, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [{ weight: 40, reps: 10, done: true }] }] },
-    { id: "b-mon", dayId: mainDays[0].id, date: monday, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 50, sets: [{ weight: 50, reps: 10, done: true }] }] }
+    { id: "b-prev", dayId: mainDays[0].id, date: "2026-06-01", completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [{ weight: 40, reps: 10, done: true }] }] },
+    { id: "b-curr", dayId: mainDays[0].id, date: "2026-06-20", completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 50, sets: [{ weight: 50, reps: 10, done: true }] }] }
   );
-  const boundary = weeklyReport(stBoundary, NOW);
-  check("weeklyReport: granica pn/nd - niedziela liczy sie do POPRZEDNIEGO tygodnia", boundary.tonnagePrevious === 400, boundary);
-  check("weeklyReport: granica pn/nd - poniedzialek liczy sie do TEGO tygodnia", boundary.tonnageCurrent === 500, boundary);
+  const boundary = weeklyReport(stBoundary, "2026-06-25T10:00:00.000Z");
+  check(
+    "weeklyReport: sesja >10 dni wczesniej trafia do POPRZEDNIEGO cyklu (przerwa = nowy cykl)",
+    boundary.tonnagePrevious === 400,
+    boundary
+  );
+  check("weeklyReport: biezaca sesja liczy sie do TEGO cyklu", boundary.tonnageCurrent === 500, boundary);
 
   // Sesja bonusowa NIE zwiększa liczby wymaganych dni i nie udaje realizacji
   // dnia głównego — jest raportowana osobno.
@@ -2622,17 +2874,71 @@ check(
     }];
     return s;
   };
-  const g = progressGoal(stEasy, curl, curl)!;
+  const g = progressGoal(stEasy, curl, curl, 17.5)!;
   check("progressGoal: warunek skoku = 2x12", g.setCount === 2 && g.repsPerSet === 12, g);
-  check("progressGoal: 10/10 przy celu 12 -> brakuje 4", g.missingReps === 4, g);
-  const gSame = progressGoal(curlSess("near", [12, 11]), curl, curl)!;
+  check("progressGoal: 10/10 przy celu 12 -> brakuje 4 (ten sam ciezar, weightVsRef=same)", g.missingReps === 4 && g.weightVsRef === "same", g);
+  const gSame = progressGoal(curlSess("near", [12, 11]), curl, curl, 17.5)!;
   check("progressGoal: 12/11 -> brakuje 1", gSame.missingReps === 1, gSame);
-  check("progressGoal: komplet -> brakuje 0", progressGoal(curlSess("full", [12, 12]), curl, curl)!.missingReps === 0);
-  check("progressGoal: brak historii -> null", progressGoal(defaultState(), curl, curl) === null);
+  check("progressGoal: komplet, ten sam ciezar -> brakuje 0", progressGoal(curlSess("full", [12, 12]), curl, curl, 17.5)!.missingReps === 0);
+  check("progressGoal: brak historii -> null", progressGoal(defaultState(), curl, curl, 17.5) === null);
   check(
     "progressGoal: brakujaca seria liczy sie jako pelny brak (12 powt.)",
-    progressGoal(curlSess("one", [12]), curl, curl)!.missingReps === 12,
-    progressGoal(curlSess("one", [12]), curl, curl)
+    progressGoal(curlSess("one", [12]), curl, curl, 17.5)!.missingReps === 12,
+    progressGoal(curlSess("one", [12]), curl, curl, 17.5)
+  );
+
+  // P7-1: "dzis powinien wskoczyc" bylo NIEPRAWDA, gdy cel juz wskoczyl - komplet
+  // z sesji referencyjnej BYL tym kompletem, ktory go podniosl. weightVsRef
+  // rozstrzyga, ktory z trzech wariantow UI ma sie pokazac.
+  const gUp = progressGoal(curlSess("full", [12, 12]), curl, curl, 18.75)!;
+  check(
+    "progressGoal: cel wyzszy niz referencja -> weightVsRef=up, missingReps=0 (nie liczymy do nieaktualnego ciezaru)",
+    gUp.weightVsRef === "up" && gUp.missingReps === 0 && gUp.refWeight === 17.5,
+    gUp
+  );
+  const gDown = progressGoal(curlSess("full", [12, 12]), curl, curl, 15)!;
+  check(
+    "progressGoal: cel nizszy niz referencja -> weightVsRef=down, missingReps=0",
+    gDown.weightVsRef === "down" && gDown.missingReps === 0 && gDown.refWeight === 17.5,
+    gDown
+  );
+  check(
+    "progressGoal: refWeight = MAKSIMUM serii referencyjnych, nie pierwsza",
+    (() => {
+      const s = defaultState();
+      s.sessions = [{
+        id: "mixed", dayId: "mon", date: "2026-07-08", completed: true, mode: "strength",
+        entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: [
+          { weight: 20, reps: 12, done: true },
+          { weight: 22.5, reps: 12, done: true },
+        ] }],
+      }];
+      return progressGoal(s, curl, curl, 22.5)!.refWeight === 22.5;
+    })()
+  );
+
+  // P7-1: isHold (plank) - weightVsRef porownuje OBCIAZENIE (SetLog.weight),
+  // nie sekundy (te sa w .reps i maja wlasna sciezke - repsPerSet/missingReps).
+  // Po skoku obciazenia komunikat UI ma mowic o kg, nie o "powt.".
+  const plankSess = (id: string, weight: number, secs: number[]) => {
+    const s = defaultState();
+    s.sessions = [{
+      id, dayId: "wed", date: "2026-07-08", completed: true, mode: "strength" as const,
+      entries: [{ exerciseId: "plank", targetWeight: weight, sets: secs.map((r) => ({ weight, reps: r, done: true })) }],
+    }];
+    return s;
+  };
+  const gPlankUp = progressGoal(plankSess("plank-full", 10, [40, 40, 40, 40]), plank, plank, 15)!;
+  check(
+    "progressGoal (isHold): obciazenie wskoczylo 10->15 -> weightVsRef=up",
+    gPlankUp.weightVsRef === "up" && gPlankUp.refWeight === 10 && gPlankUp.repsPerSet === 40,
+    gPlankUp
+  );
+  const gPlankSame = progressGoal(plankSess("plank-same", 15, [35, 35, 35, 35]), plank, plank, 15)!;
+  check(
+    "progressGoal (isHold): to samo obciazenie -> weightVsRef=same, brakuje sekund",
+    gPlankSame.weightVsRef === "same" && gPlankSame.missingReps === 20,
+    gPlankSame
   );
 }
 
@@ -2874,17 +3180,452 @@ check(
   check("migracja: 22 -> 22,5", fixed.targets.rdl === 22.5, fixed.targets.rdl);
   check("migracja: flaga ustawiona", fixed.rdlTargetFixed === true);
 
-  // Wypracowana progresja i recznie ustawiony cel NIE moga zostac nadpisane.
+  // Wypracowana progresja NIE jest nadpisywana przez fixRdlTargetOnce (rusza
+  // wylacznie dokladnie 22) - ALE od P7-3 nadal przechodzi przez
+  // snapDumbbellTargetsOnce (RDL to hantle, fri=Well Fitness), ktore dociaga
+  // ja do najblizszego hantla z drabinki (26 -> 25, nie z powrotem do 22,5
+  // z seeda). To jest zamierzone (kryterium akceptacji P7-3).
   const progressed: any = defaultState();
   progressed.targets = { ...progressed.targets, rdl: 26 };
   delete progressed.rdlTargetFixed;
   check(
-    "migracja: wypracowany cel 26 zostaje nietkniety",
-    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl === 26
+    "migracja: wypracowany cel 26 nie wraca do seeda, snapuje do najblizszego hantla (25)",
+    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl === 25,
+    migrateState({ ...progressed, version: SCHEMA_VERSION }).targets.rdl
   );
   check(
     "migracja: idempotentna (drugi przebieg nic nie zmienia)",
     migrateState({ ...fixed, version: SCHEMA_VERSION }).targets.rdl === 22.5
+  );
+}
+
+// ── P7-9: migracje celow nie moga pomijac hyperTargets ──────────────────────
+{
+  // Stara wersja schematu (nie SCHEMA_VERSION) - gałąź ktora WCALE nie
+  // przenosila hyperTargets przed tym fixem.
+  const oldWithHyper = {
+    version: 2,
+    targets: {},
+    hyperTargets: { curl_bb: 17.5, fake_removed_exercise: 99 },
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  const migHyper = migrateState(oldWithHyper);
+  check(
+    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (curl_bb)",
+    migHyper.hyperTargets?.curl_bb === 17.5,
+    migHyper.hyperTargets
+  );
+  check(
+    "migracja stara wersja: hyperTargets odrzuca ID ktorych nie ma w seedzie",
+    migHyper.hyperTargets?.fake_removed_exercise === undefined,
+    migHyper.hyperTargets
+  );
+
+  const noHyperOld = {
+    version: 2,
+    targets: {},
+    sessions: [],
+    body: [],
+    squash: [],
+    settings: { name: "Kamil", barWeight: 20, plates: [25], restSeconds: 90, sound: false },
+  };
+  check(
+    "migracja stara wersja: brak hyperTargets w wejsciu -> undefined, NIE pusty obiekt-smiec",
+    migrateState(noHyperOld).hyperTargets === undefined,
+    migrateState(noHyperOld).hyperTargets
+  );
+
+  // Aktualny schemat: dogonienie hyperTargets.rdl (bylo pomijane, wiec §24.2
+  // nigdy nie zadzialalo dla Kamila - trenuje w hipertrofii).
+  const staleHyper: any = defaultState();
+  staleHyper.hyperTargets = { rdl: 22 };
+  delete staleHyper.rdlHyperTargetFixed;
+  const fixedHyper = migrateState({ ...staleHyper, version: SCHEMA_VERSION });
+  check("migracja: hyperTargets.rdl 22 -> 22,5", fixedHyper.hyperTargets?.rdl === 22.5, fixedHyper.hyperTargets);
+  check("migracja: flaga rdlHyperTargetFixed ustawiona", fixedHyper.rdlHyperTargetFixed === true);
+
+  // Tak samo jak targets.rdl wyzej: fixHyperRdlTargetOnce nie rusza (rusza
+  // tylko dokladnie 22), ale snapDumbbellTargetsOnce dociaga do drabinki.
+  const progressedHyper: any = defaultState();
+  progressedHyper.hyperTargets = { rdl: 26 };
+  delete progressedHyper.rdlHyperTargetFixed;
+  check(
+    "migracja: wypracowany hyperTargets.rdl (26) nie wraca do seeda, snapuje do 25",
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 25,
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets
+  );
+  check(
+    "migracja: idempotentna (hyperTargets.rdl, drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 22.5
+  );
+
+  // Osobna flaga od rdlTargetFixed - na juz zmigrowanym urzadzeniu (stara
+  // migracja juz przeszla) hyperTargets nadal musi dostac wlasna szanse.
+  const alreadyMigrated: any = defaultState();
+  alreadyMigrated.targets = { ...alreadyMigrated.targets, rdl: 22.5 };
+  alreadyMigrated.rdlTargetFixed = true; // stara migracja JUZ przeszla
+  alreadyMigrated.hyperTargets = { rdl: 22 }; // ale to pole nigdy nie bylo tkniete
+  delete alreadyMigrated.rdlHyperTargetFixed;
+  const catchUp = migrateState({ ...alreadyMigrated, version: SCHEMA_VERSION });
+  check(
+    "migracja: hyperTargets.rdl dogania sie NAWET gdy rdlTargetFixed juz byl true",
+    catchUp.hyperTargets?.rdl === 22.5,
+    catchUp.hyperTargets
+  );
+}
+
+// ── P7-10: zakres planku poprawiony na osiagalne 30-40 s ───────────────────
+{
+  const seedPlank = SEED_EXERCISES.find((x) => x.id === "plank")!;
+  check("SEED_EXERCISES: plank repMin = 30 (bylo sztywne 40==40)", seedPlank.repMin === 30 && seedPlank.repMax === 40);
+
+  const stale: any = defaultState();
+  stale.exercises = stale.exercises.map((e: any) => (e.id === "plank" ? { ...e, repMin: 40, repMax: 40 } : e));
+  delete stale.plankRangeSeeded;
+  const fixed = migrateState({ ...stale, version: SCHEMA_VERSION });
+  const fixedPlank = fixed.exercises.find((e) => e.id === "plank")!;
+  check("migracja: plank repMin 40 -> 30", fixedPlank.repMin === 30 && fixedPlank.repMax === 40, fixedPlank);
+  check("migracja: flaga plankRangeSeeded ustawiona", fixed.plankRangeSeeded === true);
+
+  // Reczna zmiana zakresu przez uzytkownika (w Planie) NIE moze zostac nadpisana.
+  const manual: any = defaultState();
+  manual.exercises = manual.exercises.map((e: any) => (e.id === "plank" ? { ...e, repMin: 25, repMax: 40 } : e));
+  delete manual.plankRangeSeeded;
+  const manualFixed = migrateState({ ...manual, version: SCHEMA_VERSION });
+  check(
+    "migracja: reczny zakres (25) zostaje nietkniety",
+    manualFixed.exercises.find((e) => e.id === "plank")!.repMin === 25,
+    manualFixed.exercises.find((e) => e.id === "plank")
+  );
+
+  check(
+    "migracja: idempotentna (drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixed, version: SCHEMA_VERSION }).exercises.find((e) => e.id === "plank")!.repMin === 30
+  );
+}
+
+// ── P7-3: drabinka hantli per siłownia ──────────────────────────────────────
+{
+  const wellFitness = [20, 22.5, 25]; // wycinek do testow snap* w izolacji
+  check("snapLoadUp: 24,5 od 22,5 -> 25 (nastepny szczebel)", snapLoadUp(24.5, 22.5, wellFitness) === 25);
+  check("snapLoadUp: 23 od 22,5 -> 25, NIGDY nie zostaje na from", snapLoadUp(23, 22.5, wellFitness) === 25);
+  check("snapLoadUp: 50 od 45 -> 50 (poza drabinka, brak wyzszego)", snapLoadUp(50, 45, wellFitness) === 50);
+  check("snapLoadUp: pusta drabinka -> candidate bez zmian", snapLoadUp(24.5, 22.5, []) === 24.5);
+  check("snapLoadDown: 24 -> 22,5 (najwiekszy <= candidate)", snapLoadDown(24, wellFitness) === 22.5);
+  check("snapLoadDown: ponizej najlzejszego -> candidate", snapLoadDown(15, wellFitness) === 15);
+  check("snapLoadDown: pusta drabinka -> candidate", snapLoadDown(24, []) === 24);
+  check("snapLoadDownFrom: lustro w dol, gwarantuje postep", snapLoadDownFrom(22, 22.5, wellFitness) === 20);
+  check("snapLoadNearest: 23,5 blizej 22,5 niz 25 -> 22,5", snapLoadNearest(23.5, wellFitness) === 22.5);
+  check("snapLoadNearest: remis (dokladnie posrodku) -> mniejszy", snapLoadNearest(23.75, wellFitness) === 22.5);
+  check("snapLoadNearest: pusta drabinka -> candidate", snapLoadNearest(23.5, []) === 23.5);
+
+  const stLadder = defaultState();
+  const homeLadder = stLadder.settings.dumbbells ?? [];
+  const myFitnessProfile = (stLadder.settings.gymProfiles ?? []).find((p) => p.id === "myfitness") ?? null;
+  const myFitnessLadder = myFitnessProfile?.dumbbells ?? [];
+  check("SEED: Well Fitness (domowa) ma niepusta drabinke", homeLadder.length > 0, homeLadder);
+  check("SEED: My Fitness Place ma niepusta drabinke", myFitnessLadder.length > 0, myFitnessLadder);
+  check("SEED: wed.gymProfileId = myfitness", stLadder.days.find((d) => d.id === "wed")!.gymProfileId === "myfitness");
+  check(
+    "gymForDay: dzien bez gymProfileId -> null (domowa)",
+    gymForDay(stLadder, stLadder.days.find((d) => d.id === "fri")) === null
+  );
+  check(
+    "gymForDay: wed -> profil My Fitness Place",
+    gymForDay(stLadder, stLadder.days.find((d) => d.id === "wed"))?.id === "myfitness"
+  );
+  check(
+    "dumbbellLadder: profil null -> drabinka domowa (settings.dumbbells)",
+    JSON.stringify(dumbbellLadder(stLadder, null)) === JSON.stringify(homeLadder)
+  );
+  check("isDumbbellSnappable: rdl (hantle) -> true", isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "rdl")!));
+  check(
+    "isDumbbellSnappable: kb_swing (wyjatek kettlebell) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "kb_swing")!)
+  );
+  check(
+    "isDumbbellSnappable: french (sztanga) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "french")!)
+  );
+  check(
+    "isDumbbellSnappable: plank (isHold) -> false",
+    !isDumbbellSnappable(SEED_EXERCISES.find((e) => e.id === "plank")!)
+  );
+
+  // computeProgression: bez drabinki - dowod wstecznej zgodnosci (dokladnie
+  // dawne zachowanie, zaden z 388 istniejacych testow nie musial sie zmienic).
+  const rdlEx = SEED_EXERCISES.find((e) => e.id === "rdl")!;
+  const rdlFullSets = [
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+    { weight: 22.5, reps: 12, done: true },
+  ];
+  const rdlNoLadder = computeProgression(rdlEx, 22.5, rdlFullSets);
+  check(
+    "computeProgression bez drabinki: rdl 22,5 + komplet -> 24,5 (dawne zachowanie)",
+    rdlNoLadder.status === "up" && rdlNoLadder.nextWeight === 24.5,
+    rdlNoLadder
+  );
+  // Z drabinka Well Fitness (mon/fri): scenariusz ze screena Kamila.
+  const rdlWithLadder = computeProgression(rdlEx, 22.5, rdlFullSets, undefined, undefined, undefined, undefined, undefined, homeLadder);
+  check(
+    "computeProgression z drabinka mon/fri: rdl 22,5 + komplet -> 25 (nie 24,5, ktorego nie ma na stojaku)",
+    rdlWithLadder.status === "up" && rdlWithLadder.nextWeight === 25,
+    rdlWithLadder
+  );
+  // Z drabinka wed: krok 2 zostaje (16 jest juz na drabince My Fitness Place).
+  const lungesEx = SEED_EXERCISES.find((e) => e.id === "lunges")!;
+  const lungesWithLadder = computeProgression(
+    lungesEx, 14,
+    [
+      { weight: 14, reps: 12, done: true },
+      { weight: 14, reps: 12, done: true },
+      { weight: 14, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, myFitnessLadder
+  );
+  check(
+    "computeProgression z drabinka wed: lunges 14 + komplet -> 16 (krok 2 zachowany)",
+    lungesWithLadder.status === "up" && lungesWithLadder.nextWeight === 16,
+    lungesWithLadder
+  );
+  // Podwojny skok przy RIR>=3 tez snapuje do drabinki.
+  const rdlDoubleJump = computeProgression(
+    rdlEx, 30,
+    [
+      { weight: 30, reps: 12, done: true, rir: 3 },
+      { weight: 30, reps: 12, done: true, rir: 3 },
+      { weight: 30, reps: 12, done: true, rir: 3 },
+    ],
+    3, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression podwojny skok + drabinka: rdl 30 -> 35 (nie 34, ktorego nie ma na stojaku)",
+    rdlDoubleJump.status === "up" && rdlDoubleJump.nextWeight === 35,
+    rdlDoubleJump
+  );
+  // kb_swing pominiety mimo unit="dumbbell" - wlasna drabinka kettlebelli.
+  const kbEx = SEED_EXERCISES.find((e) => e.id === "kb_swing")!;
+  const kbWithLadder = computeProgression(
+    kbEx, 16,
+    [
+      { weight: 16, reps: 20, done: true },
+      { weight: 16, reps: 20, done: true },
+      { weight: 16, reps: 20, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression: kb_swing NIE snapuje (wyjatek kettlebell)",
+    kbWithLadder.status === "up" && kbWithLadder.nextWeight === 20, // round25(16+4)=20, bez zmian od drabinki
+    kbWithLadder
+  );
+  // Sztanga nietknieta przez drabinke hantli.
+  const frenchEx = SEED_EXERCISES.find((e) => e.id === "french")!;
+  const frenchWithLadder = computeProgression(
+    frenchEx, 22.5,
+    [
+      { weight: 22.5, reps: 12, done: true },
+      { weight: 22.5, reps: 12, done: true },
+    ],
+    undefined, undefined, undefined, undefined, undefined, homeLadder
+  );
+  check(
+    "computeProgression: french (sztanga) nietkniety przez drabinke hantli -> 25",
+    frenchWithLadder.status === "up" && frenchWithLadder.nextWeight === 25,
+    frenchWithLadder
+  );
+
+  // deloadTargetFor z drabinka: nigdy powyzej 90% celu, dla KAZDEGO cwiczenia z bazy.
+  {
+    const stAllLadder = migrateState(null);
+    const overshoot = stAllLadder.exercises.filter((e) => {
+      const target = stAllLadder.targets[e.id] ?? 0;
+      if (e.isHold || target <= 0) return false;
+      const days = stAllLadder.days.filter((d) => d.exerciseIds.includes(e.id));
+      const ladder = days.length > 0 ? dumbbellLadder(stAllLadder, gymForDay(stAllLadder, days[0])) : [];
+      return deloadTargetFor(stAllLadder, e, ladder) > target * DELOAD_LOAD_FACTOR + 1e-9;
+    });
+    check(
+      "deloadTargetFor z drabinka: ZADNE cwiczenie nie przekracza 90% celu",
+      overshoot.length === 0,
+      overshoot.map((e) => e.name)
+    );
+  }
+
+  // Migracja: profil dodany raz, wed.gymProfileId ustawiony, idempotentna.
+  const freshMigrated = migrateState(null);
+  check(
+    "migracja: profil My Fitness Place dolozony raz",
+    (freshMigrated.settings.gymProfiles ?? []).filter((p) => p.id === "myfitness").length === 1
+  );
+  check("migracja: flaga gymLaddersSeeded ustawiona", freshMigrated.gymLaddersSeeded === true);
+  check("migracja: flaga dumbbellTargetsSnapped ustawiona", freshMigrated.dumbbellTargetsSnapped === true);
+  check(
+    "migracja: idempotentna (drugi przebieg nie duplikuje profilu)",
+    (migrateState({ ...freshMigrated, version: SCHEMA_VERSION }).settings.gymProfiles ?? []).filter(
+      (p) => p.id === "myfitness"
+    ).length === 1
+  );
+
+  // Usuniecie profilu przez uzytkownika jest TRWALE - flaga blokuje powrot.
+  const removedProfile: any = migrateState(null);
+  removedProfile.settings = { ...removedProfile.settings, gymProfiles: [] };
+  const afterRemoval = migrateState({ ...removedProfile, version: SCHEMA_VERSION });
+  check(
+    "migracja: usuniecie profilu jest trwale (flaga blokuje ponowny dosiew)",
+    (afterRemoval.settings.gymProfiles ?? []).length === 0,
+    afterRemoval.settings.gymProfiles
+  );
+
+  // Stary stan (sprzed P7-3) bez zadnych flag - dosiew dziala i snapuje istniejace cele.
+  const oldStyleState: any = defaultState();
+  oldStyleState.settings = { ...oldStyleState.settings, gymProfiles: [], dumbbells: undefined };
+  oldStyleState.days = oldStyleState.days.map((d: any) =>
+    d.id === "wed" ? { ...d, gymProfileId: undefined } : d
+  );
+  oldStyleState.targets = { ...oldStyleState.targets, row_db: 22, lunges: 14 };
+  delete oldStyleState.gymLaddersSeeded;
+  delete oldStyleState.dumbbellTargetsSnapped;
+  const migratedOldStyle = migrateState({ ...oldStyleState, version: SCHEMA_VERSION });
+  check(
+    "migracja ze starego stanu: row_db 22 -> 22,5 (dopasowanie do drabinki Well Fitness)",
+    migratedOldStyle.targets.row_db === 22.5,
+    migratedOldStyle.targets.row_db
+  );
+  check(
+    "migracja ze starego stanu: lunges 14 BEZ ZMIAN (juz pasuje do drabinki My Fitness Place, krok 2)",
+    migratedOldStyle.targets.lunges === 14,
+    migratedOldStyle.targets.lunges
+  );
+}
+
+// ── P7-8: trainingCycles — tydzień = cykl rotacji, nie kratka kalendarza ────
+{
+  const mkSession = (id: string, dayId: string, date: string): Session => ({
+    id, dayId, date, completed: true, entries: [],
+  });
+
+  // 1. Trening 1 (niedziela) -> 2 (wtorek) -> 3 (czwartek): JEDEN cykl.
+  // Sedno zgłoszenia Kamila: "robię sobie ten trening wcześniej jeden dzień".
+  const stSunday = defaultState();
+  stSunday.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"), // niedziela
+    mkSession("s2", "wed", "2026-08-04"), // wtorek
+    mkSession("s3", "fri", "2026-08-06")  // czwartek
+  );
+  const cyclesSunday = trainingCycles(stSunday);
+  check(
+    "trainingCycles: Trening 1 (niedziela) -> 2 (wtorek) -> 3 (czwartek) = JEDEN cykl",
+    cyclesSunday.length === 1 && cyclesSunday[0].done === 3,
+    cyclesSunday
+  );
+
+  // 2. Trening 1 -> 2 -> 3 -> 1: dwa cykle, drugi otwarty na czwartej sesji.
+  const st1231 = defaultState();
+  st1231.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "wed", "2026-08-04"),
+    mkSession("s3", "fri", "2026-08-06"),
+    mkSession("s4", "mon", "2026-08-08")
+  );
+  const cycles1231 = trainingCycles(st1231);
+  check(
+    "trainingCycles: 1->2->3->1 = dwa cykle, drugi otwarty na 4. sesji",
+    cycles1231.length === 2 && cycles1231[0].sessions.length === 3 && cycles1231[1].sessions.length === 1,
+    cycles1231
+  );
+
+  // 3. Trening 2 -> 3 -> 1 -> 2: cykl łamie się na Treningu 1.
+  const st2312 = defaultState();
+  st2312.sessions.push(
+    mkSession("s1", "wed", "2026-08-02"),
+    mkSession("s2", "fri", "2026-08-04"),
+    mkSession("s3", "mon", "2026-08-06"),
+    mkSession("s4", "wed", "2026-08-08")
+  );
+  const cycles2312 = trainingCycles(st2312);
+  check(
+    "trainingCycles: 2->3->1->2 = cykl lamie sie na Treningu 1 (dwa cykle: [2,3] i [1,2])",
+    cycles2312.length === 2 &&
+      cycles2312[0].sessions.map((s) => s.dayId).join(",") === "wed,fri" &&
+      cycles2312[1].sessions.map((s) => s.dayId).join(",") === "mon,wed",
+    cycles2312
+  );
+
+  // 4. Pominięty Trening 1 (2 -> 3 -> 2): drugi "2" otwiera nowy cykl.
+  const st232 = defaultState();
+  st232.sessions.push(
+    mkSession("s1", "wed", "2026-08-02"),
+    mkSession("s2", "fri", "2026-08-04"),
+    mkSession("s3", "wed", "2026-08-06")
+  );
+  const cycles232 = trainingCycles(st232);
+  check(
+    "trainingCycles: pominiety Trening 1 (2->3->2) - drugi '2' otwiera nowy cykl",
+    cycles232.length === 2 && cycles232[1].sessions[0].id === "s3",
+    cycles232
+  );
+
+  // 5. 14 dni przerwy w środku rotacji -> nowy cykl MIMO rosnącej pozycji dnia.
+  const stGap = defaultState();
+  stGap.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "wed", "2026-08-16") // 14 dni pozniej, pozycja rosnie (0->1)
+  );
+  const cyclesGap = trainingCycles(stGap);
+  check(
+    "trainingCycles: 14 dni przerwy -> nowy cykl mimo rosnacej pozycji dnia",
+    cyclesGap.length === 2,
+    cyclesGap
+  );
+
+  // 6. Bonus w środku cyklu -> NIE łamie cyklu, podbija bonusDone.
+  const stBonusMid = defaultState();
+  stBonusMid.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "bonus", "2026-08-03"),
+    mkSession("s3", "wed", "2026-08-04")
+  );
+  const cyclesBonusMid = trainingCycles(stBonusMid);
+  check(
+    "trainingCycles: bonus w srodku cyklu nie lamie go, podbija bonusDone",
+    cyclesBonusMid.length === 1 && cyclesBonusMid[0].done === 2 && cyclesBonusMid[0].bonusDone === 1,
+    cyclesBonusMid
+  );
+
+  // 7. Dwie sesje TEGO SAMEGO dnia planu w jednym cyklu -> done liczy 1.
+  // (Natychmiastowy powtorka tego samego dnia = duplikat/redo, nie nowy cykl -
+  // spojne z §16: "dwa zapisy tego samego dnia liczą się raz".)
+  const stSameDay = defaultState();
+  stSameDay.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "mon", "2026-08-03") // redo tego samego dnia, zaraz potem
+  );
+  const cyclesSameDay = trainingCycles(stSameDay);
+  check(
+    "trainingCycles: dwie sesje tego samego dnia planu w jednym cyklu -> done liczy 1",
+    cyclesSameDay.length === 1 && cyclesSameDay[0].done === 1 && cyclesSameDay[0].sessions.length === 2,
+    cyclesSameDay
+  );
+
+  // 8. Pusta historia -> [].
+  check("trainingCycles: pusta historia -> []", trainingCycles(defaultState()).length === 0);
+
+  // Dodatkowo: count/nowIso dzialaja jak reszta modulu.
+  const stMany = defaultState();
+  stMany.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "mon", "2026-08-20"), // >10 dni -> cykl 2
+    mkSession("s3", "mon", "2026-09-10")  // >10 dni -> cykl 3
+  );
+  check("trainingCycles: count ogranicza do ostatnich N", trainingCycles(stMany, 2).length === 2);
+  check(
+    "trainingCycles: nowIso przycina do sesji <= nowIso",
+    trainingCycles(stMany, undefined, "2026-08-25T00:00:00.000Z").length === 2
   );
 }
 
