@@ -1106,6 +1106,11 @@ export function TrainScreen() {
               ? entry.sets.find((s) => !s.done)?.weight ?? entry.sets[entry.sets.length - 1]?.weight ?? entry.targetWeight
               : null;
           const platePlanForEntry = plateWeight !== null ? platePlan(plateWeight, activeBar, activePlates) : null;
+          // P7-7: rekord życia tego ćwiczenia — odpowiada wprost na "dlaczego
+          // to nie jest PR" (np. przysiad 65×8 nie bije rekordu 62,5×12, bo
+          // e1RM 82,3 < 87,5, ale bez tej linii wygląda na awarię aplikacji).
+          const exBest = personalBestsByExercise.get(ex.id);
+          const hasRecord = ex.isHold ? (exBest?.holdSeconds ?? 0) > 0 : (exBest?.e1rm ?? 0) > 0;
           // Etap 4: czy jest COKOLWIEK do pokazania pod "Pomoc i szczegóły" - bez
           // tego pusty, klikalny nagłówek wisiałby na każdej karcie bez powodu.
           const hasHelp =
@@ -1113,7 +1118,8 @@ export function TrainScreen() {
             !!hEx.note ||
             warmupSteps.length > 0 ||
             !!platePlanForEntry ||
-            !!guide;
+            !!guide ||
+            hasRecord;
           // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
           // (decyduje o widocznosci przycisku Zamien), swapCandidates to ta sama
           // lista po filtrze tekstowym (swapSearch) i posortowana: historia
@@ -1260,6 +1266,13 @@ export function TrainScreen() {
                     {openHelp.has(ei) && (
                       <div className="mt-1 space-y-2 rounded-md border border-border p-2">
                         <MuscleTags exercise={ex} only="secondary" />
+                        {hasRecord && exBest && (
+                          <p className="text-[11px] text-amber-300/90">
+                            {ex.isHold
+                              ? `Rekord: ${exBest.holdSeconds} s${exBest.holdWeight ? ` @ ${fmtKg(exBest.holdWeight)}` : ""}`
+                              : `Rekord: ${fmtKg(exBest.e1rmWeight)} × ${exBest.e1rmReps} (e1RM ${fmtKg(Math.round(exBest.e1rm * 10) / 10)})`}
+                          </p>
+                        )}
                         {hEx.note && (
                           <p className="text-[11px] leading-snug text-amber-200/70">{hEx.note}</p>
                         )}
