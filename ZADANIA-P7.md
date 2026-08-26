@@ -979,3 +979,188 @@ druga = **My Fitness Place** (śr, hantle co 2 kg).
 a e1RM niższy od rekordu (P7-7 wyjaśnia to w UI). Suwnica 80 kg przy celu 120 też nie
 jest błędem: cel dosiany przez migrację z §19 był zgadywany, a po tej sesji §24.1 sam
 ściągnie go do 80 kg.
+
+---
+---
+
+# P7 — seria III (dwa ostatnie screeny)
+
+Jedno nowe zadanie (**P7-10**) + **korekta P7-2 i P7-6** dla ćwiczeń na czas.
+Miejsce w kolejności: **P7-10 razem z P7-6** (oba dotykają planku, jeden commit byłby
+zbyt gruby — zrób dwa, ale pod rząd).
+
+---
+
+## P7-10 — „Spadek formy" odpala się dokładnie wtedy, gdy progresja ZADZIAŁAŁA
+
+### Objaw
+Screen 12 (podsumowanie, ⚠️ bursztynowa ikona):
+`Plank (deska) — Spadek formy (3 serie poniżej 40 s) — odbuduj powtórzenia na tym ciężarze.`
+
+Kamil: *„Np. plank jest większym ciężarem, a mam info, że słabo, bo za mało sekund.
+Nie tak to chyba powinno wyglądać?"*
+
+Ma rację i to jest **błąd w silniku, nie w komunikacie**. Kontekst z tej samej sesji:
+obciążenie planku właśnie wskoczyło z **10 na 15 kg** (screen 11: `cel 15 kg`,
+`Ostatnie: 40/40/40/40`). Krótszy czas na świeżo podniesionym obciążeniu to **oczekiwany,
+normalny skutek udanej progresji** — a apka raportuje go jako regres.
+
+### Root cause — dwie warstwy
+
+**Warstwa 1: brak wyjątku „pierwszy trening na nowym ciężarze".**
+`computeProgression` (`logic.ts:482-487`):
+```ts
+if (belowMin >= 2) {
+  return { status: "deload", nextWeight: targetWeight,
+    message: `Spadek formy (${belowMin} serie poniżej ${ex.repMin} ${unitWord}) — odbuduj powtórzenia na tym ciężarze.` };
+}
+```
+Reguła nie wie nic o tym, że `targetWeight` jest **wyższy niż na sesji referencyjnej**.
+Porównanie, które to rozstrzyga, istnieje już w `prefillRepsForEntry` (`logic.ts:1177-1178`)
+i dochodzi w `progressGoal` (P7-1) — brakuje go tylko tam, gdzie zapada werdykt.
+
+**Warstwa 2: plank nie ma zakresu, w którym mógłby odbudować wynik.**
+`seed.ts:131` — `ex("plank", …, "bodyweight", 40, 40, 4, 5, …)`, czyli `repMin === repMax === 40`.
+Dla każdego innego ćwiczenia po skoku ciężaru schodzisz na `repMin` i przez kolejne
+tygodnie wracasz do `repMax`. Plank takiej przestrzeni **nie ma w ogóle**: jedyny
+dopuszczalny wynik to komplet, więc **każde** podniesienie obciążenia gwarantuje
+„2+ serie poniżej minimum" i fałszywy sygnał deloadu. Bug był wpisany w dane planu.
+
+**Warstwa 3 (drobiazg): komunikat miesza jednostki.** `unitWord` jest poprawnie
+odmieniane (`3 serie poniżej 40 s`), ale zaraz po nim stoi zaszyte na sztywno
+„odbuduj **powtórzenia**". Dla planku ma być „odbuduj czas".
+
+### Co zrobić
+
+**1. Wyjątek „ciężar właśnie wskoczył" w `computeProgression`.**
+Nowy **opcjonalny** parametr (np. `weightJustIncreased?: boolean`); brak = dzisiejsze
+zachowanie ⇒ istniejące testy bez zmian. Gdy `true`, gałąź `belowMin >= 2` **nie
+zwraca `deload`**, tylko:
+```ts
+{ status: "hold", nextWeight: targetWeight,
+  message: `Pierwszy trening na nowym ciężarze — ${belowMin} z ${ex.targetSets} serii poniżej ${ex.repMin} ${unitWord}. Zostań na tym ciężarze, aż wrócisz do zakresu.` }
+```
+Wartość liczy `store.finishSession` z `referenceEntry` (to samo źródło co P7-1 —
+najnowsza ukończona sesja tego ćwiczenia **poza deloadem**):
+```ts
+const ref = referenceEntry(state, ex.id);
+const refWeight = ref ? Math.max(...ref.sets.map((s) => s.weight)) : 0;
+const weightJustIncreased = !!ref && progressionBase > refWeight + 1e-9;
+```
+**Uwaga na kolejność:** licz to od `progressionBase` (czyli po uwzględnieniu §24.1
+i P7-5), a nie od `entry.targetWeight` — inaczej podbicie ciężaru w loggerze nie
+uruchomi wyjątku.
+
+**2. Naprawa komunikatu** — „odbuduj powtórzenia" → `odbuduj ${ex.isHold ? "czas" : "powtórzenia"}`.
+
+**3. Plank dostaje zakres 30–40 s** (decyzja Kamila).
+- `seed.ts:131`: `ex("plank", "Plank (deska)", "Brzuch", "bodyweight", 30, 40, 4, 5, …)`
+- **PUŁAPKA (§13, §18.2):** `mergeExerciseLibrary` **świadomie nie dolewa pól do
+  ćwiczeń, które użytkownik już ma**. Sama zmiana seeda nie dotrze do telefonu Kamila.
+  Potrzebna jednorazowa migracja `setPlankRangeOnce` (flaga `plankRangeSeeded`):
+  zmień `repMin` na 30 **wyłącznie** gdy jest dokładnie `40` **i** `repMax` to `40`
+  (ręczna zmiana zakresu przez użytkownika zostaje nietknięta).
+- `resetAll()` ustawia flagę na `true` (pułapka nr 2).
+- **Sprawdź `side_plank`** (`SEED_TARGETS.side_plank: 0`, plank bokiem w dniu bonusowym)
+  i każde inne `isHold` z `repMin === repMax` — mają ten sam wbudowany problem.
+  Zdecyduj świadomie: albo dostają analogiczny zakres, albo zostają i ratuje je
+  wyjątek z punktu 1. **Wypisz w commicie, co wybrałeś i dlaczego.**
+
+**4. Konsekwencje zakresu 30–40 s — przejdź je i potwierdź, że są w porządku:**
+- `prefillRepsForEntry`: po skoku obciążenia wypełni **30 s**, nie 40 — o to chodzi
+- `progressGoal` (P7-1): `Do skoku ciężaru: 4×40 s — ostatnio zabrakło N s` zaczyna
+  mieć sens, bo jest dystans do pokazania
+- `deloadSets` / tryb deload: bez zmian (deload planku tnie serie 4→2, §20.2)
+- `exerciseForMode`: `isHold` jest z niego wyłączone we wszystkich trybach — potwierdź,
+  że hipertrofia dalej nie rusza zakresu planku
+- objętość tygodniowa: `plannedSets` bez zmian (4 serie), więc licznik partii Brzuch
+  się nie ruszy
+
+### Testy (≥8 nowych)
+- plank 40/35/35/35 przy celu 15 kg i referencji 10 kg → **`hold`**, komunikat
+  „Pierwszy trening na nowym ciężarze", **nie** `deload` ← scenariusz ze screena
+- plank 40/35/35/35 przy celu 15 kg i referencji **15 kg** → nadal `deload`
+  (drugi trening na tym samym ciężarze to już realny spadek — nie znieczulaj reguły)
+- ćwiczenie zwykłe: 45 kg (referencja 42,5), serie 7/6/6 przy `repMin` 8 → `hold`
+  z komunikatem o nowym ciężarze, nie „Spadek formy"
+- to samo przy referencji 45 kg → `deload` (bez zmian)
+- brak historii (`ref === null`) → zachowanie jak dziś
+- komunikat dla `isHold` mówi „odbuduj **czas**", dla reszty „odbuduj **powtórzenia**"
+- migracja: `repMin` planku 40 → 30; ręcznie ustawione 25 **zostaje 25**; idempotentna
+- po migracji `prefillRepsForEntry` dla planku po skoku obciążenia daje **30**, nie 40
+
+### Kryteria akceptacji
+1. Sesja ze screena (plank 15 kg, wcześniej 10 kg, czasy poniżej kompletu) w podsumowaniu
+   pokazuje **„Pierwszy trening na nowym ciężarze"** z ikoną neutralną, a nie ⚠️ „Spadek formy".
+2. Plank ma w karcie `4×30–40 s`, a po skoku obciążenia logger wypełnia **30 s**.
+3. Ten sam wynik na **niezmienionym** obciążeniu dalej uczciwie raportuje spadek formy.
+
+---
+
+## Korekta P7-2 i P7-6 — kratka „ost." przy INNYM obciążeniu (ćwiczenia na czas)
+
+### Objaw
+Screen 11: plank, seria `15 kg × 35 s` zaliczona, kratka `ost. 40` na **bursztynowo**.
+Kamil: *„No ostatnio 40, ale przecież waga mniejsza była"*.
+
+### Werdykt
+Nie da się uczciwie porównać `35 s @ 15 kg` z `40 s @ 10 kg`. Przy masie ciała ~88 kg
+dodatkowe 5 kg to **+5% obciążenia**, a 40 → 35 s to **−12,5% czasu** — więc każda
+miara typu „obciążenie × czas" powiedziałaby, że ta seria była **słabsza**, i bursztyn
+byłby formalnie poprawny. Ale metryka dla planku z obciążeniem nie jest niczym
+ustalonym, a wyliczanie jej z masy ciała to pozorna precyzja.
+
+**Decyzja Kamila: gdy obciążenie się różni — bez koloru.**
+
+### Co zmienić w specyfikacji
+**`compareSetToReference` (P7-2) — gałąź `isHold` dostaje trzeci wynik `"incomparable"`:**
+```ts
+export type SetComparison = "better" | "same" | "worse" | "incomparable";
+```
+- `isHold` **i** obciążenia równe → porównanie po sekundach (`better`/`same`/`worse`)
+- `isHold` **i** obciążenia różne → **`"incomparable"`**
+- ćwiczenia zwykłe → bez zmian, po e1RM (tam ciężar i powtórzenia mają wspólną walutę)
+
+**UI (`TrainScreen.tsx:1354-1358`):** `incomparable` → ten sam szary co `same`
+(`text-muted-foreground/70`). **Kropkowane podkreślenie już tam jest** i dokładnie to
+znaczy („inne obciążenie"), więc sygnał nie ginie — znika tylko fałszywy werdykt.
+Tooltip pokazuje oba wyniki wprost: `Ostatnio: 10 kg × 40 s · dziś: 15 kg × 35 s`.
+
+### To NIE zmienia P7-6 (odznaka PR)
+Rekord to co innego niż porównanie: seria jest rekordem, gdy **nie jest zdominowana**
+(dłuższa przy nie mniejszym obciążeniu albo cięższa przy nie krótszym czasie).
+`35 s @ 15 kg` przy rekordzie `40 s @ 10 kg` **nie jest** rekordem — jest krótsza,
+a cięższa tylko o tyle, ile nie wystarcza, by to przeważyło. Brak PR na screenie 11
+jest więc poprawny i **zostaje**. Rekordem będzie dopiero `40 s @ 15 kg` — i to właśnie
+naprawia P7-6.
+
+### Testy (≥3 dodatkowe do P7-2)
+- plank `35 s @ 15 kg` vs `40 s @ 10 kg` → **`incomparable`** (szare) ← screen 11
+- plank `35 s @ 15 kg` vs `40 s @ 15 kg` → `worse` (to samo obciążenie, krótszy czas)
+- plank `45 s @ 15 kg` vs `40 s @ 15 kg` → `better`
+
+---
+
+## Zaktualizowana lista zadań (serie I–III)
+
+| # | Zadanie | Typ |
+|---|---|---|
+| P7-1 | „dziś powinien wskoczyć" mimo że ciężar już wskoczył | błąd logiki |
+| P7-2 | kolor „ost. N" z powtórzeń zamiast z siły (+ `incomparable` dla `isHold`) | błąd logiki |
+| P7-3 | drabinka hantli + siłownia per dzień + przełącznik na trening | funkcja |
+| P7-4 | brak czasu treningu (liczony od wejścia w dzień) | błąd logiki |
+| P7-5 | „nowy ciężar" ≤ temu, co dziś podniósł | błąd logiki |
+| P7-6 | plank: brak PR mimo większego obciążenia | błąd logiki |
+| P7-7 | rekord życia niewidoczny w karcie ćwiczenia | informacja |
+| P7-8 | tydzień = cykl rotacji zamiast kratki kalendarza | funkcja |
+| P7-9 | migracje celów pomijają `hyperTargets` (+ utrata danych przy bumpie wersji) | błąd danych |
+| P7-10 | fałszywy „Spadek formy" po skoku ciężaru + plank bez zakresu (30–40 s) | błąd logiki + plan |
+
+**Kolejność wykonania:** P7-4 → P7-1 → P7-2 → P7-6 → P7-10 → P7-5 → P7-7 → P7-9 → P7-3 → P7-8.
+
+Wspólny wątek P7-1, P7-5 i P7-10: **to samo porównanie „dzisiejszy cel vs ciężar sesji
+referencyjnej" jest potrzebne w trzech miejscach**, a dziś istnieje tylko w jednym
+(`prefillRepsForEntry`). Wyciągnij je raz — np. `weightVsReference(state, ex, targetWeight)`
+zwracające `{ refWeight, relation: "up" | "same" | "down" }` — i użyj w `progressGoal`,
+w `computeProgression` (przez parametr) oraz w prefillu. Trzy kopie tej samej reguły
+rozjadą się przy pierwszej zmianie.
