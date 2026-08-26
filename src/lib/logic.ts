@@ -1178,12 +1178,9 @@ export function prefillRepsForEntry(
   setCount: number
 ): number[] {
   const fill = (r: number) => Array.from({ length: setCount }, () => r);
-  const ref = referenceEntry(state, ex.id);
-  if (!ref || ref.sets.length === 0) return fill(modeEx.repMin);
-
-  const refTop = Math.max(...ref.sets.map((s) => s.weight));
-  if (targetWeight > refTop + 1e-9) return fill(modeEx.repMin);
-  return fill(modeEx.repMax);
+  const cmp = weightVsReference(state, ex.id, targetWeight);
+  if (!cmp) return fill(modeEx.repMin);
+  return cmp.relation === "up" ? fill(modeEx.repMin) : fill(modeEx.repMax);
 }
 
 /**
@@ -1207,12 +1204,54 @@ export function loggedWorkingWeight(entry: ExerciseLog, targetSets: number): num
   return working.every((s) => Math.abs(s.weight - w) < 1e-9) ? w : null;
 }
 
+export type WeightVsReference = "up" | "same" | "down";
+
+export interface ReferenceWeightComparison {
+  /** Najcięższa seria ROBOCZA sesji referencyjnej (punkt odniesienia). */
+  refWeight: number;
+  /** Dzisiejszy cel vs `refWeight`. */
+  relation: WeightVsReference;
+}
+
+/**
+ * Dzisiejszy cel porównany z ciężarem sesji referencyjnej (`referenceEntry` —
+ * najnowsza ukończona sesja POZA deloadem). Jedno źródło prawdy dla trzech
+ * miejsc, które potrzebują dokładnie tego samego porównania: `progressGoal`
+ * (P7-1 — "dziś powinien wskoczyć" tylko gdy NIE wskoczył jeszcze),
+ * `computeProgression` przez wywołującego (P7-10 — pierwszy trening na nowym
+ * ciężarze nie jest spadkiem formy) i `prefillRepsForEntry` (P7-1 dawne, §22 —
+ * po skoku ciężaru cykl startuje od `repMin`). Wcześniej ta sama logika żyła
+ * osobno w każdym z tych miejsc i rozjeżdżała się przy zmianach — stąd P7-1
+ * mogło ogłosić "dziś powinien wskoczyć" dla ciężaru, który już wskoczył.
+ * `null`, gdy brak historii — nie ma do czego porównywać.
+ */
+export function weightVsReference(
+  state: AppState,
+  exId: string,
+  targetWeight: number
+): ReferenceWeightComparison | null {
+  const ref = referenceEntry(state, exId);
+  if (!ref || ref.sets.length === 0) return null;
+  const refWeight = Math.max(...ref.sets.map((s) => s.weight));
+  const relation: WeightVsReference =
+    targetWeight > refWeight + 1e-9 ? "up" : targetWeight < refWeight - 1e-9 ? "down" : "same";
+  return { refWeight, relation };
+}
+
 export interface ProgressGoal {
   /** Powtórzeń w KAŻDEJ serii roboczej, żeby ciężar wskoczył. */
   repsPerSet: number;
+  /** Dół zakresu — cel prefillu ZARAZ po skoku ciężaru (P7-1: UI go pokazuje
+   *  w gałęzi `weightVsRef === "up"`, żeby nie liczyć exerciseForDay ponownie). */
+  repMin: number;
   setCount: number;
-  /** Ile powtórzeń łącznie zabrakło na ostatnim treningu (0 = był komplet). */
+  /** Ile powtórzeń łącznie zabrakło na ostatnim treningu — ma sens TYLKO gdy
+   *  `weightVsRef === "same"` (0 poza tym, patrz niżej). */
   missingReps: number;
+  /** Najcięższa seria sesji referencyjnej (punkt odniesienia). */
+  refWeight: number;
+  /** Dzisiejszy cel vs ciężar sesji referencyjnej. */
+  weightVsRef: WeightVsReference;
 }
 
 /**
@@ -1221,8 +1260,20 @@ export interface ProgressGoal {
  * zrobić": `repsPerSet` w `setCount` seriach to warunek skoku, `missingReps` to
  * dystans z ostatniego treningu (seria niezalogowana liczy się jako pełny brak).
  * `null`, gdy brak historii — nie ma do czego porównywać.
+ *
+ * P7-1: `missingReps` ma sens WYŁĄCZNIE gdy dzisiejszy `targetWeight` jest TAKI
+ * SAM jak ciężar sesji referencyjnej (`weightVsRef === "same"`). Gdy ciężar już
+ * wskoczył (`"up"`) — sesja referencyjna była kompletem, który podniósł cel, więc
+ * "ile zabrakło" liczone do NIEAKTUALNEGO już ciężaru byłoby kłamstwem ("dziś
+ * powinien wskoczyć" mimo że już wskoczył). UI (TrainScreen) czyta `weightVsRef`
+ * i pokazuje inny komunikat dla każdego przypadku.
  */
-export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): ProgressGoal | null {
+export function progressGoal(
+  state: AppState,
+  ex: Exercise,
+  modeEx: Exercise,
+  targetWeight: number
+): ProgressGoal | null {
   const ref = referenceEntry(state, ex.id);
   if (!ref || ref.sets.length === 0) return null;
   const working = ref.sets.slice(0, modeEx.targetSets);
@@ -1230,7 +1281,16 @@ export function progressGoal(state: AppState, ex: Exercise, modeEx: Exercise): P
   for (let i = 0; i < modeEx.targetSets; i++) {
     missing += Math.max(0, modeEx.repMax - (working[i]?.reps ?? 0));
   }
-  return { repsPerSet: modeEx.repMax, setCount: modeEx.targetSets, missingReps: missing };
+  const cmp = weightVsReference(state, ex.id, targetWeight)!; // ref istnieje (sprawdzone wyżej)
+  const missingReps = cmp.relation === "same" ? missing : 0;
+  return {
+    repsPerSet: modeEx.repMax,
+    repMin: modeEx.repMin,
+    setCount: modeEx.targetSets,
+    missingReps,
+    refWeight: cmp.refWeight,
+    weightVsRef: cmp.relation,
+  };
 }
 
 /** Punkt historii ćwiczenia wzbogacony o kontekst progresji (tryb tygodnia + serie robocze dnia). */

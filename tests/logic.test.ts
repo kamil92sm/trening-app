@@ -49,6 +49,7 @@ import {
   progressSince,
   maxGainPerSession,
   progressGoal,
+  weightVsReference,
   exerciseHistory,
   loggedWorkingWeight,
   type HistoryPoint,
@@ -2653,17 +2654,71 @@ check(
     }];
     return s;
   };
-  const g = progressGoal(stEasy, curl, curl)!;
+  const g = progressGoal(stEasy, curl, curl, 17.5)!;
   check("progressGoal: warunek skoku = 2x12", g.setCount === 2 && g.repsPerSet === 12, g);
-  check("progressGoal: 10/10 przy celu 12 -> brakuje 4", g.missingReps === 4, g);
-  const gSame = progressGoal(curlSess("near", [12, 11]), curl, curl)!;
+  check("progressGoal: 10/10 przy celu 12 -> brakuje 4 (ten sam ciezar, weightVsRef=same)", g.missingReps === 4 && g.weightVsRef === "same", g);
+  const gSame = progressGoal(curlSess("near", [12, 11]), curl, curl, 17.5)!;
   check("progressGoal: 12/11 -> brakuje 1", gSame.missingReps === 1, gSame);
-  check("progressGoal: komplet -> brakuje 0", progressGoal(curlSess("full", [12, 12]), curl, curl)!.missingReps === 0);
-  check("progressGoal: brak historii -> null", progressGoal(defaultState(), curl, curl) === null);
+  check("progressGoal: komplet, ten sam ciezar -> brakuje 0", progressGoal(curlSess("full", [12, 12]), curl, curl, 17.5)!.missingReps === 0);
+  check("progressGoal: brak historii -> null", progressGoal(defaultState(), curl, curl, 17.5) === null);
   check(
     "progressGoal: brakujaca seria liczy sie jako pelny brak (12 powt.)",
-    progressGoal(curlSess("one", [12]), curl, curl)!.missingReps === 12,
-    progressGoal(curlSess("one", [12]), curl, curl)
+    progressGoal(curlSess("one", [12]), curl, curl, 17.5)!.missingReps === 12,
+    progressGoal(curlSess("one", [12]), curl, curl, 17.5)
+  );
+
+  // P7-1: "dzis powinien wskoczyc" bylo NIEPRAWDA, gdy cel juz wskoczyl - komplet
+  // z sesji referencyjnej BYL tym kompletem, ktory go podniosl. weightVsRef
+  // rozstrzyga, ktory z trzech wariantow UI ma sie pokazac.
+  const gUp = progressGoal(curlSess("full", [12, 12]), curl, curl, 18.75)!;
+  check(
+    "progressGoal: cel wyzszy niz referencja -> weightVsRef=up, missingReps=0 (nie liczymy do nieaktualnego ciezaru)",
+    gUp.weightVsRef === "up" && gUp.missingReps === 0 && gUp.refWeight === 17.5,
+    gUp
+  );
+  const gDown = progressGoal(curlSess("full", [12, 12]), curl, curl, 15)!;
+  check(
+    "progressGoal: cel nizszy niz referencja -> weightVsRef=down, missingReps=0",
+    gDown.weightVsRef === "down" && gDown.missingReps === 0 && gDown.refWeight === 17.5,
+    gDown
+  );
+  check(
+    "progressGoal: refWeight = MAKSIMUM serii referencyjnych, nie pierwsza",
+    (() => {
+      const s = defaultState();
+      s.sessions = [{
+        id: "mixed", dayId: "mon", date: "2026-07-08", completed: true, mode: "strength",
+        entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: [
+          { weight: 20, reps: 12, done: true },
+          { weight: 22.5, reps: 12, done: true },
+        ] }],
+      }];
+      return progressGoal(s, curl, curl, 22.5)!.refWeight === 22.5;
+    })()
+  );
+
+  // P7-1: isHold (plank) - weightVsRef porownuje OBCIAZENIE (SetLog.weight),
+  // nie sekundy (te sa w .reps i maja wlasna sciezke - repsPerSet/missingReps).
+  // Po skoku obciazenia komunikat UI ma mowic o kg, nie o "powt.".
+  const plankSess = (id: string, weight: number, secs: number[]) => {
+    const s = defaultState();
+    s.sessions = [{
+      id, dayId: "wed", date: "2026-07-08", completed: true, mode: "strength" as const,
+      entries: [{ exerciseId: "plank", targetWeight: weight, sets: secs.map((r) => ({ weight, reps: r, done: true })) }],
+    }];
+    return s;
+  };
+  const gPlankUp = progressGoal(plankSess("plank-full", 10, [40, 40, 40, 40]), plank, plank, 15)!;
+  check(
+    "progressGoal (isHold): obciazenie wskoczylo 10->15 -> weightVsRef=up",
+    gPlankUp.weightVsRef === "up" && gPlankUp.refWeight === 10 && gPlankUp.repsPerSet === 40,
+    gPlankUp
+  );
+  const gPlankSame = progressGoal(plankSess("plank-same", 15, [35, 35, 35, 35]), plank, plank, 15)!;
+  check(
+    "progressGoal (isHold): to samo obciazenie -> weightVsRef=same, brakuje sekund",
+    gPlankSame.weightVsRef === "same" && gPlankSame.missingReps === 20,
+    gPlankSame
   );
 }
 

@@ -1062,7 +1062,9 @@ export function TrainScreen() {
           // liczbie serii z planu TEGO dnia - w deloadzie progresja jest wylaczona,
           // wiec nie ma czego pokazywac.
           const goal =
-            draft.mode === "deload" ? null : progressGoal(state, ex, exerciseForDay(hEx, day));
+            draft.mode === "deload"
+              ? null
+              : progressGoal(state, ex, exerciseForDay(hEx, day), entry.targetWeight);
           // Serie z ostatniego treningu (poza deloadem) - do podpowiedzi "ost." przy wierszu.
           const refSets = referenceEntry(state, ex.id)?.sets ?? [];
           const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
@@ -1180,20 +1182,37 @@ export function TrainScreen() {
                 )}
                 {/* Wprost: ile trzeba dzis zrobic, zeby ciezar wskoczyl, i jak
                     blisko bylo ostatnio. Pola serii pokazuja juz ten cel, ale
-                    sam dystans ("brakuje 1 powt.") jest tu najmocniejszy. */}
+                    sam dystans ("brakuje 1 powt.") jest tu najmocniejszy.
+                    P7-1: trzy warianty wg `weightVsRef` — dawne "ostatnio komplet,
+                    dziś powinien wskoczyć" bylo NIEPRAWDĄ, gdy cel już wskoczył
+                    (ostatnia sesja BYŁA tym kompletem, który go podniósł). */}
                 {goal && (
                   <p className="text-xs">
                     <span className="text-muted-foreground">Do skoku ciężaru: </span>
                     <span className="font-medium text-sky-300">
                       {goal.setCount}×{goal.repsPerSet} {hEx.isHold ? "s" : "powt."}
                     </span>
-                    {goal.missingReps > 0 ? (
+                    {goal.weightVsRef === "up" ? (
+                      <span className="text-green-400">
+                        {" "}
+                        — ciężar właśnie wskoczył z {fmtKg(goal.refWeight)} na {fmtKg(entry.targetWeight)},
+                        dziś celujesz w {goal.setCount}×{goal.repMin} {hEx.isHold ? "s" : "powt."}
+                      </span>
+                    ) : goal.weightVsRef === "down" ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio szło {fmtKg(goal.refWeight)}, dziś lżej
+                      </span>
+                    ) : goal.missingReps > 0 ? (
                       <span className="text-muted-foreground">
                         {" "}
                         — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
                       </span>
                     ) : (
-                      <span className="text-green-400"> — ostatnio komplet, dziś powinien wskoczyć</span>
+                      <span className="text-amber-400">
+                        {" "}
+                        — ostatnio komplet, ale cel się nie zmienił — sprawdź ciężar w Planie
+                      </span>
                     )}
                   </p>
                 )}
