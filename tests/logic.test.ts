@@ -51,6 +51,7 @@ import {
   maxGainPerSession,
   progressGoal,
   weightVsReference,
+  trainingCycles,
   snapLoadUp,
   snapLoadDown,
   snapLoadDownFrom,
@@ -1127,38 +1128,38 @@ check(
   );
 }
 
-// P2-11: kalendarz konsekwencji (8 tygodni)
+// P7-8: konsekwencja = cykle rotacji planu, NIE kalendarzowe tygodnie
+// (bylo: P2-11 "kalendarz konsekwencji (8 tygodni)" - zastapione).
 const stAdh = defaultState();
 stAdh.sessions.push(
   { id: "a1", dayId: "mon", date: "2026-07-20", completed: true, entries: [] },
   { id: "a2", dayId: "wed", date: "2026-07-22", completed: true, entries: [] },
-  { id: "a3", dayId: "fri", date: "2026-07-24", completed: true, entries: [] },
-  { id: "a4", dayId: "bonus", date: "2026-07-08", completed: true, entries: [] }
+  // Bonus MIEDZY wed a fri, w tym samym cyklu - nie powinien go przerywac.
+  { id: "a4", dayId: "bonus", date: "2026-07-23", completed: true, entries: [] },
+  { id: "a3", dayId: "fri", date: "2026-07-24", completed: true, entries: [] }
 );
 const adherence = weeklyAdherence(stAdh, 8, "2026-07-26");
-check("weeklyAdherence: okno = dokladnie 8 tygodni", adherence.length === 8, adherence.length);
 check(
-  "weeklyAdherence: ostatni element = tydzien zawierajacy nowIso",
-  adherence[adherence.length - 1].week === "2026-07-20",
-  adherence[adherence.length - 1]
+  "weeklyAdherence: jeden cykl z 3 sesji glownych -> jeden element (brak dopelniania pustymi)",
+  adherence.length === 1,
+  adherence.length
 );
-const fullWeek = adherence.find((w) => w.week === "2026-07-20")!;
+const cyc = adherence[0];
 check(
-  "weeklyAdherence: tydzien z 3/3 sesji -> done === planned",
-  fullWeek.done === 3 && fullWeek.planned === 3,
-  fullWeek
+  "weeklyAdherence: startIso/endIso to pierwsza/ostatnia sesja cyklu (nie poniedzialek/niedziela)",
+  cyc.week === "2026-07-20" && cyc.endIso === "2026-07-24",
+  cyc
 );
-const bonusWeek = adherence.find((w) => w.week === "2026-07-06")!;
+check("weeklyAdherence: cykl z 3/3 sesji glownych -> done === planned", cyc.done === 3 && cyc.planned === 3, cyc);
 check(
-  "weeklyAdherence: dzien bonusowy liczy sie osobno, NIE podbija done/planned",
-  bonusWeek.done === 0 && bonusWeek.planned === 3 && bonusWeek.bonusDone === 1,
-  bonusWeek
+  "weeklyAdherence: bonus W SRODKU cyklu liczy sie osobno, NIE podbija done ani nie przerywa cyklu",
+  cyc.bonusDone === 1 && cyc.done === 3,
+  cyc
 );
-const emptyWeek = adherence.find((w) => w.week === "2026-06-29");
+check("weeklyAdherence: cycleNumber 1-indeksowany od pierwszego cyklu w historii", cyc.cycleNumber === 1, cyc);
 check(
-  "weeklyAdherence: pusty tydzien -> done 0 i bonusDone 0",
-  emptyWeek !== undefined && emptyWeek.done === 0 && emptyWeek.bonusDone === 0,
-  emptyWeek
+  "weeklyAdherence: brak historii -> pusta tablica (cykl bez sesji nie istnieje, nie ma czym dopelnic)",
+  weeklyAdherence(defaultState(), 8, "2026-07-26").length === 0
 );
 
 // Zadanie 4: powtórzenie tego samego dnia nie może udawać realizacji kolejnego
@@ -1686,22 +1687,29 @@ check(
   deloadTargetFor(defaultState(), plank)
 );
 
+// P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe tygodnie.
 check("weeksSinceDeload: brak historii -> 0", weeksSinceDeload(defaultState()) === 0);
 const stWeeksA = defaultState();
-stWeeksA.sessions.push({ id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] });
+stWeeksA.sessions.push(
+  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] }, // cykl 1
+  { id: "w2", dayId: "wed", date: "2026-07-01", completed: true, entries: [] }, // przerwa >10 dni -> cykl 2
+  { id: "w3", dayId: "fri", date: "2026-07-03", completed: true, entries: [] }, // ten sam cykl 2
+  { id: "w4", dayId: "mon", date: "2026-07-20", completed: true, entries: [] } // przerwa >10 dni -> cykl 3
+);
 check(
-  "weeksSinceDeload: brak sesji deload -> liczy od pierwszej sesji w historii (6 tygodni)",
-  weeksSinceDeload(stWeeksA, "2026-07-27") === 6,
+  "weeksSinceDeload: brak sesji deload -> liczy cykle od PIERWSZEJ sesji w historii (2 cykle minely)",
+  weeksSinceDeload(stWeeksA, "2026-07-27") === 2,
   weeksSinceDeload(stWeeksA, "2026-07-27")
 );
 const stWeeksB = defaultState();
 stWeeksB.sessions.push(
-  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] },
-  { id: "w2", dayId: "wed", date: "2026-07-13", completed: true, entries: [], mode: "deload" }
+  { id: "w1", dayId: "mon", date: "2026-06-15", completed: true, entries: [] }, // cykl 1
+  { id: "w2", dayId: "wed", date: "2026-07-01", completed: true, entries: [], mode: "deload" }, // cykl 2
+  { id: "w3", dayId: "fri", date: "2026-07-20", completed: true, entries: [] } // cykl 3
 );
 check(
-  "weeksSinceDeload: liczy od OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (2 tygodnie)",
-  weeksSinceDeload(stWeeksB, "2026-07-27") === 2,
+  "weeksSinceDeload: liczy od cyklu OSTATNIEJ sesji deload, nie od pierwszej sesji w ogole (1 cykl minal)",
+  weeksSinceDeload(stWeeksB, "2026-07-27") === 1,
   weeksSinceDeload(stWeeksB, "2026-07-27")
 );
 
@@ -2380,19 +2388,24 @@ check(
   check("weeklyReport: brak poprzedniego tygodnia - tonaz biezacy > 0", noPrev.tonnageCurrent > 0, noPrev);
   check("weeklyReport: brak poprzedniego tygodnia - brak porownania", noPrev.tonnagePrevious === null && noPrev.tonnageChangePct === null, noPrev);
 
-  // Granica poniedzialek/niedziela: sesja w niedziele (koniec POPRZEDNIEGO tygodnia)
-  // i sesja w poniedzialek (poczatek TEGO tygodnia) NIE moga wpasc do tego samego kubelka.
+  // P7-8: "poprzedni"/"ten" to teraz POPRZEDNI/BIEŻĄCY CYKL, nie kalendarzowy
+  // tydzień — sesja >10 dni wcześniej (przerwa = nowy cykl) NIE może wpaść
+  // do tego samego "kubełka" co sesja bieżąca.
   const sundayBefore = new Date(monday + "T12:00:00");
   sundayBefore.setDate(sundayBefore.getDate() - 1);
   const sundayStr = sundayBefore.toISOString().slice(0, 10);
   const stBoundary = defaultState();
   stBoundary.sessions.push(
-    { id: "b-sun", dayId: mainDays[0].id, date: sundayStr, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [{ weight: 40, reps: 10, done: true }] }] },
-    { id: "b-mon", dayId: mainDays[0].id, date: monday, completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 50, sets: [{ weight: 50, reps: 10, done: true }] }] }
+    { id: "b-prev", dayId: mainDays[0].id, date: "2026-06-01", completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [{ weight: 40, reps: 10, done: true }] }] },
+    { id: "b-curr", dayId: mainDays[0].id, date: "2026-06-20", completed: true, entries: [{ exerciseId: "bench_bb", targetWeight: 50, sets: [{ weight: 50, reps: 10, done: true }] }] }
   );
-  const boundary = weeklyReport(stBoundary, NOW);
-  check("weeklyReport: granica pn/nd - niedziela liczy sie do POPRZEDNIEGO tygodnia", boundary.tonnagePrevious === 400, boundary);
-  check("weeklyReport: granica pn/nd - poniedzialek liczy sie do TEGO tygodnia", boundary.tonnageCurrent === 500, boundary);
+  const boundary = weeklyReport(stBoundary, "2026-06-25T10:00:00.000Z");
+  check(
+    "weeklyReport: sesja >10 dni wczesniej trafia do POPRZEDNIEGO cyklu (przerwa = nowy cykl)",
+    boundary.tonnagePrevious === 400,
+    boundary
+  );
+  check("weeklyReport: biezaca sesja liczy sie do TEGO cyklu", boundary.tonnageCurrent === 500, boundary);
 
   // Sesja bonusowa NIE zwiększa liczby wymaganych dni i nie udaje realizacji
   // dnia głównego — jest raportowana osobno.
@@ -3487,6 +3500,132 @@ check(
     "migracja ze starego stanu: lunges 14 BEZ ZMIAN (juz pasuje do drabinki My Fitness Place, krok 2)",
     migratedOldStyle.targets.lunges === 14,
     migratedOldStyle.targets.lunges
+  );
+}
+
+// ── P7-8: trainingCycles — tydzień = cykl rotacji, nie kratka kalendarza ────
+{
+  const mkSession = (id: string, dayId: string, date: string): Session => ({
+    id, dayId, date, completed: true, entries: [],
+  });
+
+  // 1. Trening 1 (niedziela) -> 2 (wtorek) -> 3 (czwartek): JEDEN cykl.
+  // Sedno zgłoszenia Kamila: "robię sobie ten trening wcześniej jeden dzień".
+  const stSunday = defaultState();
+  stSunday.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"), // niedziela
+    mkSession("s2", "wed", "2026-08-04"), // wtorek
+    mkSession("s3", "fri", "2026-08-06")  // czwartek
+  );
+  const cyclesSunday = trainingCycles(stSunday);
+  check(
+    "trainingCycles: Trening 1 (niedziela) -> 2 (wtorek) -> 3 (czwartek) = JEDEN cykl",
+    cyclesSunday.length === 1 && cyclesSunday[0].done === 3,
+    cyclesSunday
+  );
+
+  // 2. Trening 1 -> 2 -> 3 -> 1: dwa cykle, drugi otwarty na czwartej sesji.
+  const st1231 = defaultState();
+  st1231.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "wed", "2026-08-04"),
+    mkSession("s3", "fri", "2026-08-06"),
+    mkSession("s4", "mon", "2026-08-08")
+  );
+  const cycles1231 = trainingCycles(st1231);
+  check(
+    "trainingCycles: 1->2->3->1 = dwa cykle, drugi otwarty na 4. sesji",
+    cycles1231.length === 2 && cycles1231[0].sessions.length === 3 && cycles1231[1].sessions.length === 1,
+    cycles1231
+  );
+
+  // 3. Trening 2 -> 3 -> 1 -> 2: cykl łamie się na Treningu 1.
+  const st2312 = defaultState();
+  st2312.sessions.push(
+    mkSession("s1", "wed", "2026-08-02"),
+    mkSession("s2", "fri", "2026-08-04"),
+    mkSession("s3", "mon", "2026-08-06"),
+    mkSession("s4", "wed", "2026-08-08")
+  );
+  const cycles2312 = trainingCycles(st2312);
+  check(
+    "trainingCycles: 2->3->1->2 = cykl lamie sie na Treningu 1 (dwa cykle: [2,3] i [1,2])",
+    cycles2312.length === 2 &&
+      cycles2312[0].sessions.map((s) => s.dayId).join(",") === "wed,fri" &&
+      cycles2312[1].sessions.map((s) => s.dayId).join(",") === "mon,wed",
+    cycles2312
+  );
+
+  // 4. Pominięty Trening 1 (2 -> 3 -> 2): drugi "2" otwiera nowy cykl.
+  const st232 = defaultState();
+  st232.sessions.push(
+    mkSession("s1", "wed", "2026-08-02"),
+    mkSession("s2", "fri", "2026-08-04"),
+    mkSession("s3", "wed", "2026-08-06")
+  );
+  const cycles232 = trainingCycles(st232);
+  check(
+    "trainingCycles: pominiety Trening 1 (2->3->2) - drugi '2' otwiera nowy cykl",
+    cycles232.length === 2 && cycles232[1].sessions[0].id === "s3",
+    cycles232
+  );
+
+  // 5. 14 dni przerwy w środku rotacji -> nowy cykl MIMO rosnącej pozycji dnia.
+  const stGap = defaultState();
+  stGap.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "wed", "2026-08-16") // 14 dni pozniej, pozycja rosnie (0->1)
+  );
+  const cyclesGap = trainingCycles(stGap);
+  check(
+    "trainingCycles: 14 dni przerwy -> nowy cykl mimo rosnacej pozycji dnia",
+    cyclesGap.length === 2,
+    cyclesGap
+  );
+
+  // 6. Bonus w środku cyklu -> NIE łamie cyklu, podbija bonusDone.
+  const stBonusMid = defaultState();
+  stBonusMid.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "bonus", "2026-08-03"),
+    mkSession("s3", "wed", "2026-08-04")
+  );
+  const cyclesBonusMid = trainingCycles(stBonusMid);
+  check(
+    "trainingCycles: bonus w srodku cyklu nie lamie go, podbija bonusDone",
+    cyclesBonusMid.length === 1 && cyclesBonusMid[0].done === 2 && cyclesBonusMid[0].bonusDone === 1,
+    cyclesBonusMid
+  );
+
+  // 7. Dwie sesje TEGO SAMEGO dnia planu w jednym cyklu -> done liczy 1.
+  // (Natychmiastowy powtorka tego samego dnia = duplikat/redo, nie nowy cykl -
+  // spojne z §16: "dwa zapisy tego samego dnia liczą się raz".)
+  const stSameDay = defaultState();
+  stSameDay.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "mon", "2026-08-03") // redo tego samego dnia, zaraz potem
+  );
+  const cyclesSameDay = trainingCycles(stSameDay);
+  check(
+    "trainingCycles: dwie sesje tego samego dnia planu w jednym cyklu -> done liczy 1",
+    cyclesSameDay.length === 1 && cyclesSameDay[0].done === 1 && cyclesSameDay[0].sessions.length === 2,
+    cyclesSameDay
+  );
+
+  // 8. Pusta historia -> [].
+  check("trainingCycles: pusta historia -> []", trainingCycles(defaultState()).length === 0);
+
+  // Dodatkowo: count/nowIso dzialaja jak reszta modulu.
+  const stMany = defaultState();
+  stMany.sessions.push(
+    mkSession("s1", "mon", "2026-08-02"),
+    mkSession("s2", "mon", "2026-08-20"), // >10 dni -> cykl 2
+    mkSession("s3", "mon", "2026-09-10")  // >10 dni -> cykl 3
+  );
+  check("trainingCycles: count ogranicza do ostatnich N", trainingCycles(stMany, 2).length === 2);
+  check(
+    "trainingCycles: nowIso przycina do sesji <= nowIso",
+    trainingCycles(stMany, undefined, "2026-08-25T00:00:00.000Z").length === 2
   );
 }
 

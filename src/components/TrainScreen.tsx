@@ -947,10 +947,12 @@ export function TrainScreen() {
         </div>
         {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+            {/* P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe
+                tygodnie — etykieta mówi "cykli", nie "tygodni". */}
             {weeksSinceDeloadCount >= 6 && plateauCount >= 3
-              ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
+              ? `${weeksSinceDeloadCount} cykli bez lżejszego tygodnia i zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`
               : weeksSinceDeloadCount >= 6
-                ? `${weeksSinceDeloadCount} tygodni bez lżejszego tygodnia — rozważ tydzień deloadu.`
+                ? `${weeksSinceDeloadCount} cykli bez lżejszego tygodnia — rozważ tydzień deloadu.`
                 : `Zastój w ${plateauCount} ćwiczeniach — rozważ tydzień deloadu.`}
           </div>
         )}

@@ -1079,20 +1079,26 @@ export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode,
 }
 
 /**
- * Liczba PEŁNYCH tygodni (wg poniedziałków) od ostatniej ukończonej sesji
- * w trybie deload; brak takiej sesji w historii → liczy od pierwszej
- * ukończonej sesji w ogóle (żeby świeży użytkownik bez historii deloadu nie
- * dostał fałszywie wysokiej liczby). Brak jakiejkolwiek historii → 0 (za mało
+ * Liczba PEŁNYCH CYKLI ROTACJI (P7-8: nie kalendarzowych tygodni, patrz
+ * `trainingCycles`) od cyklu zawierającego ostatnią ukończoną sesję w trybie
+ * deload; brak takiej sesji w historii → liczy od cyklu pierwszej ukończonej
+ * sesji w ogóle (żeby świeży użytkownik bez historii deloadu nie dostał
+ * fałszywie wysokiej liczby). Brak jakiejkolwiek historii → 0 (za mało
  * danych na sugestię — `detectPlateau` i tak wymaga min. 3 sesji na ćwiczenie).
+ * Nazwa funkcji zostaje ("tygodnie" w potocznym sensie "cykl treningowy") —
+ * zmieniła się tylko jednostka pod spodem.
  */
 export function weeksSinceDeload(state: AppState, nowIso?: string): number {
-  const completed = [...state.sessions].filter((s) => s.completed).sort((a, b) => a.date.localeCompare(b.date));
-  if (completed.length === 0) return 0;
+  const cycles = trainingCycles(state, undefined, nowIso);
+  if (cycles.length === 0) return 0;
+  const now = nowIso ?? new Date().toISOString();
+  const completed = [...state.sessions].filter((s) => s.completed && s.date <= now).sort((a, b) => a.date.localeCompare(b.date));
   const lastDeload = [...completed].reverse().find((s) => s.mode === "deload");
-  const referenceDate = lastDeload?.date ?? completed[0].date;
-  const refMonday = new Date(mondayOf(referenceDate) + "T12:00:00").getTime();
-  const nowMonday = new Date(mondayOf(nowIso ?? new Date().toISOString()) + "T12:00:00").getTime();
-  return Math.max(0, Math.floor((nowMonday - refMonday) / (7 * 86400000)));
+  const referenceSession = lastDeload ?? completed[0];
+  if (!referenceSession) return 0;
+  const refCycleIdx = cycles.findIndex((c) => c.sessions.some((s) => s.id === referenceSession.id));
+  if (refCycleIdx < 0) return 0;
+  return Math.max(0, cycles.length - 1 - refCycleIdx);
 }
 
 /**
@@ -1722,10 +1728,112 @@ export function mondayOf(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface TrainingCycle {
+  /** ISO daty PIERWSZEJ sesji cyklu (nie poniedziałek kalendarzowy). */
+  startIso: string;
+  /** ISO daty OSTATNIEJ sesji cyklu. */
+  endIso: string;
+  /** Unikalne `dayId` (główne i bonusowe) widziane w tym cyklu. */
+  dayIds: Set<string>;
+  /** Unikalne ukończone dni GŁÓWNE w cyklu. Bonus nie podbija tej liczby. */
+  done: number;
+  /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
+  planned: number;
+  /** Unikalne ukończone dni opcjonalne. Renderowane osobno jako fioletowe kropki. */
+  bonusDone: number;
+  /** Sesje tego cyklu, rosnąco po dacie. */
+  sessions: Session[];
+}
+
+/**
+ * P7-8: dzieli ukończone sesje na CYKLE ROTACJI planu — nie kalendarzowe
+ * tygodnie (`mondayOf`). Zgłoszenie Kamila: "robię sobie ten trening
+ * wcześniej jeden dzień, jak mam czas" — Trening 1 zrobiony w niedzielę
+ * wpadał do tygodnia, który już się rozliczył, a Treningi 2/3 tego samego
+ * cyklu lądowały w PUSTYM nowym tygodniu (dwa "urwane" tygodnie zamiast
+ * jednego pełnego).
+ *
+ * Sesja GŁÓWNA (nie-bonusowa) otwiera NOWY cykl, gdy zachodzi którykolwiek
+ * warunek:
+ *  - jest pierwszą ukończoną sesją w historii,
+ *  - minęło >10 dni od poprzedniej sesji głównej (przerwa = nowy cykl, nie
+ *    jeden rozciągnięty na miesiąc),
+ *  - jej pozycja w kolejności dni głównych planu jest ≤ pozycji poprzedniej
+ *    sesji głównej (rotacja się cofnęła albo pełny obieg wrócił na początek)
+ *    — Z WYJĄTKIEM natychmiastowego powtórzenia TEGO SAMEGO dnia (identyczny
+ *    `dayId` jak poprzednia sesja główna), traktowanego jak duplikat/redo tego
+ *    samego treningu, nie jak nowy cykl (spójne z §16: "dwa zapisy tego
+ *    samego dnia liczą się raz" — inaczej gorszy dzień zalogowany dwa razy
+ *    z rzędu fałszywie otwierałby drugi cykl).
+ * Dzień BONUSOWY nigdy nie otwiera cyklu i nie przesuwa punktu odniesienia
+ * pozycji (dolicza się do trwającego cyklu — bonus nie jest wymagany do
+ * pełnego cyklu, §16 Zadanie 4).
+ *
+ * Zwraca WSZYSTKIE cykle (rosnąco), przycięte do `nowIso` i do ostatnich
+ * `count`, jeśli podane. Pusta historia → `[]`.
+ */
+export function trainingCycles(state: AppState, count?: number, nowIso?: string): TrainingCycle[] {
+  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
+  const optionalDayIds = new Set(state.days.filter((d) => d.optional).map((d) => d.id));
+  const planned = mainDayIds.size;
+  const mainOrder = state.days.filter((d) => !d.optional).map((d) => d.id);
+  const now = nowIso ?? new Date().toISOString();
+
+  const completed = [...state.sessions]
+    .filter((s) => s.completed && s.date <= now)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const buildCycle = (sessions: Session[]): TrainingCycle => {
+    const dayIds = new Set(sessions.map((s) => s.dayId));
+    const doneMain = new Set(sessions.filter((s) => mainDayIds.has(s.dayId)).map((s) => s.dayId));
+    const doneBonus = new Set(sessions.filter((s) => optionalDayIds.has(s.dayId)).map((s) => s.dayId));
+    return {
+      startIso: sessions[0].date,
+      endIso: sessions[sessions.length - 1].date,
+      dayIds,
+      done: doneMain.size,
+      planned,
+      bonusDone: doneBonus.size,
+      sessions,
+    };
+  };
+
+  const cycles: TrainingCycle[] = [];
+  let current: Session[] = [];
+  let lastMain: Session | null = null;
+
+  for (const s of completed) {
+    const isBonus = optionalDayIds.has(s.dayId);
+    let opensNew = current.length === 0;
+    if (!opensNew && !isBonus && lastMain) {
+      const gapDays = (new Date(s.date).getTime() - new Date(lastMain.date).getTime()) / 86400000;
+      const posThis = mainOrder.indexOf(s.dayId);
+      const posLast = mainOrder.indexOf(lastMain.dayId);
+      const sameDayRepeat = s.dayId === lastMain.dayId;
+      if (gapDays > 10) opensNew = true;
+      else if (posThis >= 0 && posLast >= 0 && posThis <= posLast && !sameDayRepeat) opensNew = true;
+    }
+    if (opensNew && current.length > 0) {
+      cycles.push(buildCycle(current));
+      current = [];
+    }
+    current.push(s);
+    if (!isBonus) lastMain = s;
+  }
+  if (current.length > 0) cycles.push(buildCycle(current));
+
+  return count !== undefined ? cycles.slice(-count) : cycles;
+}
+
 export interface WeekAdherence {
-  /** ISO daty poniedziałku tego tygodnia (klucz). */
+  /** ISO startu cyklu (klucz) — NIE poniedziałek kalendarzowy, patrz `trainingCycles`. */
   week: string;
-  /** Unikalne ukończone dni GŁÓWNE w tym tygodniu. Bonus nie podbija tej liczby. */
+  /** ISO końca cyklu — razem z `week` daje zakres do etykiety w UI ("3–9 sie"). */
+  endIso: string;
+  /** Numer cyklu, 1-indeksowany od PIERWSZEGO cyklu w całej historii (nie od
+   *  początku zwróconej tablicy) — do etykiety "Cykl N" w UI. */
+  cycleNumber: number;
+  /** Unikalne ukończone dni GŁÓWNE w tym cyklu. Bonus nie podbija tej liczby. */
   done: number;
   /** Stała liczba dni GŁÓWNYCH (nie-opcjonalnych) w planie — bonus jej nie podbija. */
   planned: number;
@@ -1734,104 +1842,91 @@ export interface WeekAdherence {
 }
 
 /**
- * Konsekwencja treningowa (P2-11) — ostatnie `weeks` tygodni (domyślnie 8),
- * chronologicznie rosnąco, kończąc na tygodniu zawierającym `nowIso` (domyślnie
- * dziś). `done` i `bonusDone` liczą UNIKALNE `dayId`, więc dwie sesje tego
- * samego dnia planu nie udają realizacji dwóch różnych treningów. Bonus jest
- * raportowany osobno i nie wpływa na zaliczenie obowiązkowego planu.
+ * Konsekwencja treningowa (P2-11) — ostatnie `weeks` CYKLI ROTACJI (domyślnie
+ * 8, P7-8: nie kalendarzowych tygodni), chronologicznie rosnąco. `done`
+ * i `bonusDone` liczą UNIKALNE `dayId`, więc dwie sesje tego samego dnia
+ * planu nie udają realizacji dwóch różnych treningów. Bonus jest raportowany
+ * osobno i nie wpływa na zaliczenie obowiązkowego planu. Mniej niż `weeks`
+ * cykli w historii → tablica krótsza niż `weeks` (nie ma czym dopełnić —
+ * w przeciwieństwie do kalendarza cykl bez sesji po prostu nie istnieje).
  */
 export function weeklyAdherence(state: AppState, weeks = 8, nowIso?: string): WeekAdherence[] {
-  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
-  const optionalDayIds = new Set(state.days.filter((d) => d.optional).map((d) => d.id));
-  const planned = mainDayIds.size;
-  const thisMonday = mondayOf(nowIso ?? new Date().toISOString());
-  const base = new Date(thisMonday + "T12:00:00");
-
-  const weekKeys: string[] = [];
-  for (let i = weeks - 1; i >= 0; i--) {
-    const d = new Date(base);
-    d.setDate(d.getDate() - i * 7);
-    weekKeys.push(d.toISOString().slice(0, 10));
-  }
-
-  return weekKeys.map((week) => {
-    const completedDayIds = new Set(
-      state.sessions
-        .filter((s) => s.completed && mondayOf(s.date) === week)
-        .map((s) => s.dayId)
-    );
-    return {
-      week,
-      done: [...mainDayIds].filter((id) => completedDayIds.has(id)).length,
-      planned,
-      bonusDone: [...optionalDayIds].filter((id) => completedDayIds.has(id)).length,
-    };
-  });
+  const all = trainingCycles(state, undefined, nowIso);
+  return all.slice(-weeks).map((c, i, arr) => ({
+    week: c.startIso,
+    endIso: c.endIso,
+    cycleNumber: all.length - arr.length + i + 1,
+    done: c.done,
+    planned: c.planned,
+    bonusDone: c.bonusDone,
+  }));
 }
 
-// ── Etap 5: raport tygodniowy — "Ten tydzień", jedna karta, cztery liczby ──
+// ── Etap 5: raport "Ten cykl" (P7-8: cykl rotacji, nie kalendarzowy tydzień) ──
 
 export type WeeklyRecommendation = "deload" | "adherence" | "bonus" | "onTrack";
 
 export interface WeeklyReport {
-  weekMonday: string;
+  /** ISO startu BIEŻĄCEGO cyklu (P7-8: nie poniedziałek — patrz `trainingCycles`).
+   *  Brak historii → `nowIso`/dziś, żeby pole zawsze niosło sensowną datę. */
+  cycleStartIso: string;
   sessionsDone: number;
   sessionsPlanned: number;
   /** Ukończone unikalne dni opcjonalne — pokazywane obok planu, nie jako „4 z 3”. */
   sessionsBonus: number;
   tonnageCurrent: number;
-  /** `null` = brak sesji w poprzednim tygodniu — "brak porównania", nigdy Infinity/NaN. */
+  /** `null` = brak POPRZEDNIEGO cyklu — "brak porównania", nigdy Infinity/NaN. */
   tonnagePrevious: number | null;
-  /** Procentowa zmiana tonażu vs poprzedni tydzień, `null` gdy `tonnagePrevious` to `null`. */
+  /** Procentowa zmiana tonażu vs poprzedni CYKL, `null` gdy `tonnagePrevious` to `null`. */
   tonnageChangePct: number | null;
-  /** Ćwiczenia, których e1RM w TYM tygodniu przebił najlepsze e1RM SPRZED tego tygodnia. */
+  /** Ćwiczenia, których e1RM w TYM CYKLU przebił najlepsze e1RM SPRZED tego cyklu. */
   strengthImproved: number;
-  /** Ćwiczenia w zastoju (detectPlateau) — sygnał niezależny od tygodnia, ten sam co nudge deloadu. */
+  /** Ćwiczenia w zastoju (detectPlateau) — sygnał niezależny od cyklu, ten sam co nudge deloadu. */
   strengthPlateaued: number;
-  /** Partie poniżej zakresu w oknie "Wykonane (7 dni)" (actualWeeklyMuscleVolume). */
+  /** Partie poniżej zakresu w oknie "Wykonane (7 dni)" (actualWeeklyMuscleVolume — ŚWIADOMIE
+   *  zostaje na oknie kroczącym, nie na cyklu: to metryka fizjologiczna, nie rozliczenie planu). */
   lowVolumeMuscles: number;
   recommendation: WeeklyRecommendation;
 }
 
 /**
- * Etap 5/P4-7/P6-11: sklejenie z ISTNIEJĄCYCH funkcji (weeklyAdherence,
- * sessionVolume, bestE1rm, detectPlateau, actualWeeklyMuscleVolume) — zero
- * nowej matematyki poza samym sklejeniem i wyborem rekomendacji. `nowIso`
- * testowalne, jak reszta modułu.
+ * Etap 5/P4-7/P6-11, przepisane pod P7-8: sklejenie z ISTNIEJĄCYCH funkcji
+ * (`trainingCycles`, `sessionVolume`, `bestE1rm`, `detectPlateau`,
+ * `actualWeeklyMuscleVolume`) — zero nowej matematyki poza samym sklejeniem
+ * i wyborem rekomendacji. "Ten cykl"/"poprzedni cykl" zamiast kalendarzowego
+ * tygodnia — Trening 1 zrobiony w niedzielę nie ląduje już w rozliczonym
+ * tygodniu, tylko w tym samym cyklu co Treningi 2/3, które po nim idą.
+ * `nowIso` testowalne, jak reszta modułu.
  */
 export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
   const now = nowIso ?? new Date().toISOString();
-  const monday = mondayOf(now);
-  const prevMondayDate = new Date(monday + "T12:00:00");
-  prevMondayDate.setDate(prevMondayDate.getDate() - 7);
-  const prevMonday = prevMondayDate.toISOString().slice(0, 10);
+  const cycles = trainingCycles(state, undefined, now);
+  const currentCycle = cycles[cycles.length - 1] ?? null;
+  const prevCycle = cycles.length >= 2 ? cycles[cycles.length - 2] : null;
 
-  const [thisWeekAdherence] = weeklyAdherence(state, 1, now);
+  const mainDayIds = new Set(state.days.filter((d) => !d.optional).map((d) => d.id));
+  const planned = mainDayIds.size;
+  const sessionsDone = currentCycle?.done ?? 0;
+  const sessionsBonus = currentCycle?.bonusDone ?? 0;
 
-  let tonnageCurrent = 0;
-  let tonnagePrevious = 0;
-  let hasPrevious = false;
-  for (const s of state.sessions) {
-    if (!s.completed) continue;
-    const week = mondayOf(s.date);
-    if (week === monday) tonnageCurrent += sessionVolume(state, s);
-    else if (week === prevMonday) {
-      tonnagePrevious += sessionVolume(state, s);
-      hasPrevious = true;
-    }
-  }
-  // Brak sesji w poprzednim tygodniu ALBO tonaż zerowy -> "brak porównania",
-  // nigdy dzielenie przez zero (Infinity/NaN).
+  const tonnageCurrent = (currentCycle?.sessions ?? []).reduce((sum, s) => sum + sessionVolume(state, s), 0);
+  const hasPrevious = !!prevCycle;
+  const tonnagePrevious = prevCycle ? prevCycle.sessions.reduce((sum, s) => sum + sessionVolume(state, s), 0) : 0;
+  // Brak poprzedniego cyklu ALBO tonaż zerowy -> "brak porównania", nigdy
+  // dzielenie przez zero (Infinity/NaN).
   const tonnageChangePct =
     hasPrevious && tonnagePrevious > 0 ? ((tonnageCurrent - tonnagePrevious) / tonnagePrevious) * 100 : null;
 
-  // Poprawa e1RM: najlepszy wynik W TYM TYGODNIU vs najlepszy SPRZED tego
-  // tygodnia — liczone TYLKO dla ćwiczeń z historią sprzed tygodnia (bez tego
-  // pierwszy trening nowego ćwiczenia wyglądałby jak "poprawa").
+  // Poprawa e1RM: najlepszy wynik W TYM CYKLU vs najlepszy SPRZED tego cyklu —
+  // liczone TYLKO dla ćwiczeń z historią sprzed cyklu (bez tego pierwszy
+  // trening nowego ćwiczenia wyglądałby jak "poprawa"). Pusta historia
+  // (brak currentCycle) -> cycleStartIso = `now`, więc żadna sesja nie jest
+  // "sprzed" ani "w" cyklu -> strengthImproved = 0, poprawnie.
+  const cycleStartIso = currentCycle?.startIso ?? now;
   let strengthImproved = 0;
   for (const ex of state.exercises) {
     if (ex.archived || ex.isHold) continue;
-    let thisWeekBest = 0;
+    let thisCycleBest = 0;
     let beforeBest = 0;
     let hasBefore = false;
     for (const s of state.sessions) {
@@ -1840,13 +1935,13 @@ export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
       if (!entry) continue;
       const e = bestE1rm(ex, entry);
       if (e <= 0) continue;
-      if (mondayOf(s.date) >= monday) thisWeekBest = Math.max(thisWeekBest, e);
+      if (s.date >= cycleStartIso) thisCycleBest = Math.max(thisCycleBest, e);
       else {
         beforeBest = Math.max(beforeBest, e);
         hasBefore = true;
       }
     }
-    if (hasBefore && thisWeekBest > beforeBest) strengthImproved++;
+    if (hasBefore && thisCycleBest > beforeBest) strengthImproved++;
   }
 
   const strengthPlateaued = state.exercises.filter((ex) => !ex.archived && detectPlateau(state, ex.id)).length;
@@ -1856,15 +1951,15 @@ export function weeklyReport(state: AppState, nowIso?: string): WeeklyReport {
 
   let recommendation: WeeklyRecommendation;
   if (strengthPlateaued >= 3) recommendation = "deload";
-  else if (thisWeekAdherence.done < thisWeekAdherence.planned) recommendation = "adherence";
+  else if (sessionsDone < planned) recommendation = "adherence";
   else if (lowVolumeMuscles >= 2) recommendation = "bonus";
   else recommendation = "onTrack";
 
   return {
-    weekMonday: monday,
-    sessionsDone: thisWeekAdherence.done,
-    sessionsPlanned: thisWeekAdherence.planned,
-    sessionsBonus: thisWeekAdherence.bonusDone,
+    cycleStartIso,
+    sessionsDone,
+    sessionsPlanned: planned,
+    sessionsBonus,
     tonnageCurrent,
     tonnagePrevious: hasPrevious ? tonnagePrevious : null,
     tonnageChangePct,

@@ -262,7 +262,7 @@ export function ProgressScreen() {
             className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
             aria-expanded={reportExpanded}
           >
-            <CardTitle>Ten tydzień</CardTitle>
+            <CardTitle>Ten cykl</CardTitle>
             {reportExpanded ? (
               <ChevronDown size={16} className="shrink-0 text-muted-foreground" />
             ) : (
@@ -286,7 +286,7 @@ export function ProgressScreen() {
                 <span className={report.tonnageChangePct >= 0 ? "text-green-400" : "text-amber-400"}>
                   {" "}
                   ({report.tonnageChangePct >= 0 ? "+" : ""}
-                  {Math.round(report.tonnageChangePct)}% vs poprzedni tydzień)
+                  {Math.round(report.tonnageChangePct)}% vs poprzedni cykl)
                 </span>
               ) : (
                 <span className="text-muted-foreground"> (brak porównania)</span>
@@ -657,7 +657,9 @@ export function ProgressScreen() {
       <Card>
         <CardHeader>
           <CardTitle>Konsekwencja</CardTitle>
-          <CardDescription>Ukończone treningi tygodniami — najsilniejszy predyktor wyniku</CardDescription>
+          <CardDescription>
+            Ukończone treningi cyklami rotacji (nie kalendarzem) — najsilniejszy predyktor wyniku
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex justify-between gap-1">
@@ -687,7 +689,13 @@ export function ProgressScreen() {
                       />
                     ))}
                   </div>
-                  <span className="text-[8px] text-muted-foreground">{fmtDateShort(w.week)}</span>
+                  {/* P7-8: numer cyklu + zakres dat, NIE "tydzień 3-9 sie" — żeby
+                      nikt nie czytał tego jako kratki kalendarza. */}
+                  <span className="text-center text-[8px] leading-tight text-muted-foreground">
+                    C{w.cycleNumber}
+                    <br />
+                    {fmtDateShort(w.week)}–{fmtDateShort(w.endIso)}
+                  </span>
                 </div>
               );
             })}
