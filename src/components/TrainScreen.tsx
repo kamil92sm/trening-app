@@ -38,6 +38,7 @@ import {
   platePlan,
   nextDaySuggestion,
   weeksSinceDeload,
+  comebackSuggestion,
   lastEntries,
   fmtLastEntries,
   plannedSets,
@@ -379,6 +380,8 @@ export function TrainScreen() {
     (p) => p.id === draft?.gymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
+  // P8-2: przerwa dłuższa niż BREAK_DAYS -> propozycja tygodnia rozruchowego.
+  const comeback = useMemo(() => comebackSuggestion(state, mode), [state, mode]);
   // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
   const layout = state.settings.loggerLayout ?? "list";
   // P1-9/P3-5: rozgrzewka i talerze licza sie wzgledem AKTYWNEGO sprzetu (profil
@@ -945,7 +948,32 @@ export function TrainScreen() {
             onCheckedChange={(v) => store.updateSettings({ loggerLayout: v ? "focus" : "list" })}
           />
         </div>
-        {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
+        {/* P8-2: powrót po przerwie. Idzie PRZED nudge'em deloadu i wyklucza go
+            (niżej), bo mówią o tym samym rozwiązaniu z dwóch różnych powodów —
+            dwa bursztynowe pudełka pod sobą to szum, nie informacja. */}
+        {comeback && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+            <p>
+              <span className="font-medium">{comeback.days} dni przerwy.</span> Siła po takiej
+              przerwie praktycznie nie spada — wracają zakwasy. Pierwszy tydzień zrób w trybie
+              Deload: ~90% ciężaru, połowa serii, cele zamrożone. Nic się nie cofa.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                store.updateSettings({ trainingMode: "deload" });
+                toast(
+                  "Tydzień rozruchowy",
+                  "Deload włączony: ~90% ciężaru, połowa serii. Cele zamrożone — w przyszłym tygodniu wracasz do swoich ciężarów."
+                );
+              }}
+              className="mt-2 min-h-11 rounded-md border border-amber-500/50 px-3 py-1.5 font-medium text-amber-200 hover:bg-amber-500/10"
+            >
+              Włącz tydzień rozruchowy
+            </button>
+          </div>
+        )}
+        {!comeback && mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
             {/* P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe
                 tygodnie — etykieta mówi "cykli", nie "tygodni". */}

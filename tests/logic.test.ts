@@ -30,6 +30,8 @@ import {
   exerciseForMode,
   weightForReps,
   hyperTargetFor,
+  comebackSuggestion,
+  daysSinceLastSession,
   hypertrophyKeepsRange,
   targetForMode,
   deloadTargetFor,
@@ -3703,6 +3705,57 @@ check(
     merged.hyperTargets === undefined,
     merged.hyperTargets
   );
+}
+
+// ── P8-2: powrot po przerwie proponuje tydzien rozruchowy (deload) ─────────
+{
+  const withSession = (dateIso: string, mode?: any): any => {
+    const st: any = defaultState();
+    st.sessions = [
+      { id: "b1", dayId: "mon", date: dateIso, entries: [], completed: true, ...(mode ? { mode } : {}) },
+    ];
+    return st;
+  };
+  const NOW = "2026-08-27T09:00:00.000Z";
+
+  check("daysSinceLastSession: brak historii -> null", daysSinceLastSession(defaultState(), NOW) === null);
+  check(
+    "daysSinceLastSession: 14 dni przerwy",
+    daysSinceLastSession(withSession("2026-08-13T09:00:00.000Z"), NOW) === 14,
+    daysSinceLastSession(withSession("2026-08-13T09:00:00.000Z"), NOW)
+  );
+  check(
+    "daysSinceLastSession: pelne doby, nie ulamki (trening wczoraj wieczorem = 1 dzien)",
+    daysSinceLastSession(withSession("2026-08-26T20:00:00.000Z"), NOW) === 0,
+    daysSinceLastSession(withSession("2026-08-26T20:00:00.000Z"), NOW)
+  );
+  check(
+    "comebackSuggestion: 14 dni przerwy -> sugestia",
+    comebackSuggestion(withSession("2026-08-13T09:00:00.000Z"), "hypertrophy", NOW)?.days === 14
+  );
+  check(
+    "comebackSuggestion: 9 dni (ponizej progu) -> brak sugestii",
+    comebackSuggestion(withSession("2026-08-18T09:00:00.000Z"), "hypertrophy", NOW) === null
+  );
+  check(
+    "comebackSuggestion: dokladnie 10 dni -> sugestia (prog wlaczajacy)",
+    comebackSuggestion(withSession("2026-08-17T09:00:00.000Z"), "strength", NOW)?.days === 10
+  );
+  check(
+    "comebackSuggestion: tydzien juz ustawiony na deload -> nie ma czego proponowac",
+    comebackSuggestion(withSession("2026-08-13T09:00:00.000Z"), "deload", NOW) === null
+  );
+  check(
+    "comebackSuggestion: brak historii -> brak sugestii (nie ma od czego liczyc przerwy)",
+    comebackSuggestion(defaultState(), "hypertrophy", NOW) === null
+  );
+  {
+    // Niedokonczona sesja (porzucony draft zapisany jako completed:false) nie
+    // moze udawac treningu i chowac przerwy.
+    const st: any = withSession("2026-08-13T09:00:00.000Z");
+    st.sessions.push({ id: "b2", dayId: "wed", date: "2026-08-26T09:00:00.000Z", entries: [], completed: false });
+    check("comebackSuggestion: nieukonczona sesja nie kasuje przerwy", comebackSuggestion(st, "hypertrophy", NOW)?.days === 14);
+  }
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

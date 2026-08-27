@@ -1127,6 +1127,55 @@ export function weeksSinceDeload(state: AppState, nowIso?: string): number {
 }
 
 /**
+ * P8-2: przerwa (w dniach) od ostatniej UKOŃCZONEJ sesji. `null` = brak
+ * historii (nie ma od czego liczyć). Liczone w pełnych dobach, żeby "wczoraj"
+ * nie robiło się "1,3 dnia" zależnie od godziny treningu.
+ */
+export function daysSinceLastSession(state: AppState, nowIso?: string): number | null {
+  const now = nowIso ?? new Date().toISOString();
+  const last = [...state.sessions]
+    .filter((s) => s.completed && s.date <= now)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last) return null;
+  return Math.floor((new Date(now).getTime() - new Date(last.date).getTime()) / 86400000);
+}
+
+/**
+ * Próg przerwy, po której apka proponuje tydzień rozruchowy. Ta sama liczba,
+ * którą `trainingCycles` uznaje za "przerwa = nowy cykl" — jedna definicja
+ * przerwy w całej apce, żeby raport tygodniowy i ta podpowiedź nie mówiły
+ * o dwóch różnych rzeczach.
+ */
+export const BREAK_DAYS = 10;
+
+/**
+ * P8-2: powrót po przerwie. Zgłoszenie Kamila: "2 tyg. nie byłem na siłce
+ * i w przyszłym tygodniu wracam — może dać jakiś trening rozruchowy?".
+ *
+ * Osobny, CZWARTY tryb nie jest do tego potrzebny i byłby drogi (własna
+ * matematyka celu, własne testy, własne miejsce w każdym widoku — patrz koszt
+ * trybów w §5.7). Deload robi dokładnie to, czego trzeba po przerwie: ~90%
+ * ciężaru, POŁOWA serii, RIR +2 i ZAMROŻONE cele — czyli tydzień, który nie
+ * cofa progresji i nie kładzie zakwasami. Brakowało tylko tego, żeby apka
+ * sama go zaproponowała: dotychczasowy nudge patrzył wyłącznie na liczbę
+ * cykli bez deloadu i na zastój (`weeksSinceDeload`/`detectPlateau`), więc
+ * przerwy w treningach NIE WIDZIAŁ WCALE.
+ *
+ * `null`, gdy: nie ma historii, przerwa < `BREAK_DAYS`, albo tydzień i tak
+ * jest już ustawiony na deload (nie ma czego proponować).
+ */
+export function comebackSuggestion(
+  state: AppState,
+  mode: TrainingMode,
+  nowIso?: string
+): { days: number } | null {
+  if (mode === "deload") return null;
+  const days = daysSinceLastSession(state, nowIso);
+  if (days === null || days < BREAK_DAYS) return null;
+  return { days };
+}
+
+/**
  * P4-5: numer tygodnia bieżącego mezocyklu (1-indeksowany), liczony od
  * poniedziałku tygodnia `mesoStartIso` do poniedziałku tygodnia `nowIso`
  * (te same granice tygodnia — poniedziałek — co `weeksSinceDeload`, żeby
