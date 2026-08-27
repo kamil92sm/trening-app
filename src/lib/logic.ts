@@ -1006,17 +1006,42 @@ export function weightForReps(e1: number, reps: number, rir: number): number {
 }
 
 /**
- * Cel hipertrofii dla ćwiczenia. Kolejność: (1) już wypracowana progresja w
- * `hyperTargets`; (2) jeśli tryb hipertrofii NIE zmienia zakresu (bazowy
- * `repMax > 8`) → ten sam cel co siła (różnica tylko w RIR); (3) konwersja
- * z ciężkiego zakresu przez e1RM (z historii albo, przy jej braku, z
- * bieżącego celu siłowego) — patrz POMYSLY.md P0-5 pkt 2, sanity-check na
- * realnych danych.
+ * Czy tryb hipertrofii zostawia zakres powtórzeń tego ćwiczenia BEZ ZMIAN
+ * (różnica trybów to wtedy sam RIR). Dla takich ćwiczeń „cel siłowy" i „cel
+ * hipertroficzny" to z definicji TA SAMA liczba kilogramów — nie ma czego
+ * przeliczać (§5.7 pkt 2), więc nie mogą żyć w dwóch osobnych kopiach.
+ *
+ * P8-1: dokładnie ten rozjazd zgłosił Kamil — uginanie bicepsa (10–12, zakres
+ * w hipertrofii bez zmian) pokazywało cel 17,5 kg mimo domkniętego kompletu
+ * 3×12, bo progresja poszła do `targets`, a widok hipertrofii czytał starą
+ * wartość z `hyperTargets`, która miała BEZWARUNKOWE pierwszeństwo. Raz
+ * rozjechane cele nigdy się nie schodziły. Ćwiczenia, którym hipertrofia
+ * PODNOSI zakres (bazowy `repMax ≤ 8`, np. wyciskanie 5–8 → 8–12), nadal mają
+ * własny, niżej położony cel — tam rozdział celów jest zamierzony.
+ */
+export function hypertrophyKeepsRange(ex: Exercise): boolean {
+  const h = exerciseForMode(ex, "hypertrophy");
+  return h.repMin === ex.repMin && h.repMax === ex.repMax;
+}
+
+/**
+ * Cel hipertrofii dla ćwiczenia. Kolejność: (1) jeśli tryb hipertrofii NIE
+ * zmienia zakresu → ten sam cel co siła (`targets`, różnica trybów to sam RIR
+ * — patrz `hypertrophyKeepsRange`); (2) już wypracowana progresja w
+ * `hyperTargets`; (3) konwersja z ciężkiego zakresu przez e1RM (z historii
+ * albo, przy jej braku, z bieżącego celu siłowego) — patrz POMYSLY.md P0-5
+ * pkt 2, sanity-check na realnych danych.
+ *
+ * P8-1: kolejność (1) i (2) ZAMIENIONA względem pierwotnej wersji. Migracja
+ * `unifyHyperTargetsOnce` i tak czyści wpisy `hyperTargets` dla ćwiczeń
+ * z niezmienionym zakresem, ale ta kolejność jest bezpiecznikiem: nawet gdyby
+ * taki wpis skądś wrócił (stary backup, import), widok hipertrofii pokaże
+ * cel zgodny z progresją, a nie zamrożoną kopię sprzed tygodni.
  */
 export function hyperTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
-  if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const target = state.targets[ex.id] ?? 0;
-  if (ex.repMax > 8) return target;
+  if (hypertrophyKeepsRange(ex)) return target;
+  if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const history = exerciseHistory(state, ex.id);
   const e1 = history.length > 0
     ? history[history.length - 1].e1rm

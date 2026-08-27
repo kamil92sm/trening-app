@@ -14,6 +14,7 @@ import {
   computeProgression,
   dumbbellLadder,
   gymForDay,
+  hypertrophyKeepsRange,
   isDumbbellSnappable,
   snapLoadNearest,
 } from "./logic";
@@ -951,6 +952,54 @@ function fixHyperRdlTargetOnce(state: AppState): AppState {
 }
 
 /**
+ * P8-1: scala rozjechane cele Siły i Hipertrofii w JEDEN — dla ćwiczeń,
+ * którym tryb hipertrofii nie zmienia zakresu powtórzeń
+ * (`hypertrophyKeepsRange`, np. uginanie bicepsa 10–12). Do tej pory
+ * `hyperTargetFor()` czytało `hyperTargets` z bezwarunkowym pierwszeństwem,
+ * więc wystarczył jeden tydzień w drugim trybie (albo ręczna zmiana celu
+ * w Planie, która pisze wyłącznie do `targets`), żeby obie kopie tego samego
+ * ciężaru rozeszły się NA ZAWSZE — żadna nie doganiała drugiej. Zgłoszenie
+ * Kamila: komplet 3×12 na 17,5 kg podniósł cel siłowy do 18,75, a karta
+ * w trybie Hipertrofia dalej pokazywała 17,5 i pisała "ostatnio komplet,
+ * ale cel się nie zmienił".
+ *
+ * Bierze WYŻSZĄ z dwóch wartości — obie opisują ten sam ciężar tego samego
+ * ćwiczenia w tym samym zakresie, więc ta dalej posunięta jest po prostu
+ * świeższa (nieważne, w którym trybie ją wypracowano). Potem kasuje wpis
+ * z `hyperTargets`, żeby nie było do czego wracać. Ćwiczenia, którym
+ * hipertrofia PODNOSI zakres (bazowy `repMax ≤ 8`), zachowują własny cel —
+ * tam rozdział jest zamierzony i policzony przez e1RM.
+ */
+function unifyHyperTargets(state: AppState): AppState {
+  const hyper = state.hyperTargets;
+  if (!hyper) return state;
+  const targets = { ...state.targets };
+  const rest: Record<string, number> = {};
+  let changed = false;
+  for (const [id, weight] of Object.entries(hyper)) {
+    const ex = state.exercises.find((e) => e.id === id);
+    if (!ex || !hypertrophyKeepsRange(ex)) {
+      rest[id] = weight;
+      continue;
+    }
+    targets[id] = Math.max(targets[id] ?? 0, weight);
+    changed = true;
+  }
+  if (!changed) return state;
+  // Pusty obiekt-śmieć zamiast braku pola psułby porównania kształtu stanu
+  // (ten sam wzorzec co przenoszenie hyperTargets w migracji wersji).
+  const next: AppState = { ...state, targets };
+  if (Object.keys(rest).length > 0) next.hyperTargets = rest;
+  else delete next.hyperTargets;
+  return next;
+}
+
+function unifyHyperTargetsOnce(state: AppState): AppState {
+  if (state.hyperTargetsUnified) return state;
+  return { ...unifyHyperTargets(state), hyperTargetsUnified: true };
+}
+
+/**
  * P7-10: zakres planku 40==40 → 30-40 s. Sztywne repMin===repMax nie
  * zostawiało ŻADNEJ przestrzeni na odbudowanie wyniku po skoku obciążenia —
  * "2+ serie poniżej minimum" (minimum == maksimum) odpalało się przy KAŻDYM
@@ -1157,6 +1206,10 @@ function applyOneTimeSeeds(state: AppState): AppState {
   // gymProfileId, który pierwsza dopiero dosiewa.
   s = seedGymLaddersOnce(s);
   s = snapDumbbellTargetsOnce(s);
+  // P8-1 na KOŃCU: scala cele obu trybów dopiero po tym, jak wszystkie
+  // wcześniejsze dosiewy skończyły ruszać `targets`/`hyperTargets` — inaczej
+  // scalałaby wartości, które chwilę później i tak by się zmieniły.
+  s = unifyHyperTargetsOnce(s);
   return s;
 }
 

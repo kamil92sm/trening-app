@@ -33,6 +33,7 @@ import {
   exerciseForMode,
   failedAtRirZero,
   gymForDay,
+  hypertrophyKeepsRange,
   loggedWorkingWeight,
   weightVsReference,
   type ProgressionResult,
@@ -186,6 +187,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTarget(exerciseId, weight) {
         mutate((d) => {
           d.targets[exerciseId] = weight;
+          // P8-1: dla ćwiczeń z niezmienionym zakresem cel jest JEDEN — bez
+          // tego ręczna zmiana w Planie nie miała żadnego skutku w trybie
+          // Hipertrofia (czytał `hyperTargets`), a apka i tak odsyłała do
+          // Planu ("sprawdź ciężar w Planie"). Ślepy zaułek.
+          const ex = d.exercises.find((e) => e.id === exerciseId);
+          if (d.hyperTargets && ex && hypertrophyKeepsRange(ex)) delete d.hyperTargets[exerciseId];
           return d;
         });
       },
@@ -310,11 +317,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return d;
           }
           for (const s of summaries) {
-            if (mode === "hypertrophy") {
+            // P8-1: osobny cel hipertrofii ma sens WYŁĄCZNIE dla ćwiczeń,
+            // którym ten tryb zmienia zakres powtórzeń (bazowy repMax ≤ 8 —
+            // tam cel jest realnie niższy, bo liczony przez e1RM). Gdy zakres
+            // zostaje bez zmian, obie ścieżki opisują ten sam ciężar, więc
+            // progresja idzie do `targets` — inaczej tydzień siłowy i tydzień
+            // hipertroficzny rozjeżdżały cele tego samego ćwiczenia i żaden
+            // z nich nigdy nie doganiał drugiego (zgłoszenie Kamila: komplet
+            // 3×12 na 17,5 kg podniósł cel siłowy do 18,75, a karta w trybie
+            // Hipertrofia dalej pokazywała 17,5).
+            if (mode === "hypertrophy" && !hypertrophyKeepsRange(s.exercise)) {
               d.hyperTargets = d.hyperTargets ?? {};
               d.hyperTargets[s.exercise.id] = s.result.nextWeight;
             } else {
               d.targets[s.exercise.id] = s.result.nextWeight;
+              if (d.hyperTargets) delete d.hyperTargets[s.exercise.id];
             }
           }
           return d;
@@ -519,6 +536,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           plankRangeSeeded: true,
           gymLaddersSeeded: true,
           dumbbellTargetsSnapped: true,
+          hyperTargetsUnified: true,
         });
       },
 

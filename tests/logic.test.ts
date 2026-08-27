@@ -30,6 +30,7 @@ import {
   exerciseForMode,
   weightForReps,
   hyperTargetFor,
+  hypertrophyKeepsRange,
   targetForMode,
   deloadTargetFor,
   deloadSets,
@@ -3206,7 +3207,9 @@ check(
   const oldWithHyper = {
     version: 2,
     targets: {},
-    hyperTargets: { curl_bb: 17.5, fake_removed_exercise: 99 },
+    // bench_bb (5-8) -> hipertrofia PODNOSI zakres do 8-12, wiec ma wlasny,
+    // osobny cel i po P8-1 nadal zyje w hyperTargets.
+    hyperTargets: { bench_bb: 40, fake_removed_exercise: 99 },
     sessions: [],
     body: [],
     squash: [],
@@ -3214,8 +3217,8 @@ check(
   };
   const migHyper = migrateState(oldWithHyper);
   check(
-    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (curl_bb)",
-    migHyper.hyperTargets?.curl_bb === 17.5,
+    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (bench_bb)",
+    migHyper.hyperTargets?.bench_bb === 40,
     migHyper.hyperTargets
   );
   check(
@@ -3244,7 +3247,15 @@ check(
   staleHyper.hyperTargets = { rdl: 22 };
   delete staleHyper.rdlHyperTargetFixed;
   const fixedHyper = migrateState({ ...staleHyper, version: SCHEMA_VERSION });
-  check("migracja: hyperTargets.rdl 22 -> 22,5", fixedHyper.hyperTargets?.rdl === 22.5, fixedHyper.hyperTargets);
+  // P8-1: RDL (8-12) ma w hipertrofii TEN SAM zakres co w sile, wiec cel jest
+  // JEDEN i po scaleniu mieszka w `targets`. Sama wartosc nadal musi byc
+  // dogoniona do 22,5 - to jest niezmiennik z P7-9, zmienilo sie tylko pole.
+  check("migracja: cel RDL z hipertrofii 22 -> 22,5", fixedHyper.targets.rdl === 22.5, fixedHyper.targets.rdl);
+  check(
+    "migracja: hyperTargets.rdl skasowane po scaleniu (cel jest jeden)",
+    fixedHyper.hyperTargets?.rdl === undefined,
+    fixedHyper.hyperTargets
+  );
   check("migracja: flaga rdlHyperTargetFixed ustawiona", fixedHyper.rdlHyperTargetFixed === true);
 
   // Tak samo jak targets.rdl wyzej: fixHyperRdlTargetOnce nie rusza (rusza
@@ -3253,13 +3264,13 @@ check(
   progressedHyper.hyperTargets = { rdl: 26 };
   delete progressedHyper.rdlHyperTargetFixed;
   check(
-    "migracja: wypracowany hyperTargets.rdl (26) nie wraca do seeda, snapuje do 25",
-    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 25,
-    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets
+    "migracja: wypracowany cel RDL z hipertrofii (26) nie wraca do seeda, snapuje do 25",
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).targets.rdl === 25,
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).targets.rdl
   );
   check(
-    "migracja: idempotentna (hyperTargets.rdl, drugi przebieg nic nie zmienia)",
-    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 22.5
+    "migracja: idempotentna (cel RDL, drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).targets.rdl === 22.5
   );
 
   // Osobna flaga od rdlTargetFixed - na juz zmigrowanym urzadzeniu (stara
@@ -3271,9 +3282,9 @@ check(
   delete alreadyMigrated.rdlHyperTargetFixed;
   const catchUp = migrateState({ ...alreadyMigrated, version: SCHEMA_VERSION });
   check(
-    "migracja: hyperTargets.rdl dogania sie NAWET gdy rdlTargetFixed juz byl true",
-    catchUp.hyperTargets?.rdl === 22.5,
-    catchUp.hyperTargets
+    "migracja: cel RDL z hipertrofii dogania sie NAWET gdy rdlTargetFixed juz byl true",
+    catchUp.targets.rdl === 22.5,
+    catchUp.targets.rdl
   );
 }
 
@@ -3626,6 +3637,71 @@ check(
   check(
     "trainingCycles: nowIso przycina do sesji <= nowIso",
     trainingCycles(stMany, undefined, "2026-08-25T00:00:00.000Z").length === 2
+  );
+}
+
+// ── P8-1: cele Sily i Hipertrofii przestaja sie rozjezdzac ─────────────────
+{
+  const base = defaultState();
+  const curl = base.exercises.find((e) => e.id === "curl_bb")!;   // 10-12 -> zakres bez zmian
+  const bench = base.exercises.find((e) => e.id === "bench_bb")!; // 5-8   -> hipertrofia 8-12
+  const dead = base.exercises.find((e) => e.id === "deadlift")!;  // 5-6   -> hipertrofia 6-8
+  const plank = base.exercises.find((e) => e.id === "plank")!;    // isHold
+
+  check("hypertrophyKeepsRange: uginanie bicepsa (10-12) - zakres bez zmian", hypertrophyKeepsRange(curl) === true);
+  check("hypertrophyKeepsRange: wyciskanie (5-8) - zakres podniesiony", hypertrophyKeepsRange(bench) === false);
+  check("hypertrophyKeepsRange: martwy ciag (5-6 -> 6-8) - zakres zmieniony", hypertrophyKeepsRange(dead) === false);
+  check("hypertrophyKeepsRange: plank (isHold) - zakres bez zmian", hypertrophyKeepsRange(plank) === true);
+
+  // Zgloszenie Kamila: komplet 3x12 na 17,5 podniosl cel silowy do 18,75,
+  // a karta w trybie Hipertrofia dalej pokazywala 17,5 (stary hyperTargets
+  // mial bezwarunkowe pierwszenstwo).
+  const desynced: any = structuredClone(base);
+  desynced.targets = { ...desynced.targets, curl_bb: 18.75 };
+  desynced.hyperTargets = { curl_bb: 17.5 };
+  check(
+    "hyperTargetFor: zakres bez zmian -> cel z targets, nie zamrozona kopia",
+    hyperTargetFor(desynced, curl) === 18.75,
+    hyperTargetFor(desynced, curl)
+  );
+
+  // Odwrotny kierunek: progresja wypracowana w hipertrofii tez nie moze zniknac.
+  const merged = migrateState({ ...desynced, version: SCHEMA_VERSION, hyperTargetsUnified: undefined });
+  check("migracja: scalony cel bierze wyzsza z dwoch wartosci", merged.targets.curl_bb === 18.75, merged.targets.curl_bb);
+  check("migracja: wpis hyperTargets skasowany po scaleniu", merged.hyperTargets?.curl_bb === undefined, merged.hyperTargets);
+  check("migracja: flaga hyperTargetsUnified ustawiona", merged.hyperTargetsUnified === true);
+
+  const hyperAhead: any = structuredClone(base);
+  hyperAhead.targets = { ...hyperAhead.targets, curl_bb: 15 };
+  hyperAhead.hyperTargets = { curl_bb: 20 };
+  delete hyperAhead.hyperTargetsUnified;
+  const merged2 = migrateState({ ...hyperAhead, version: SCHEMA_VERSION });
+  check(
+    "migracja: cel wypracowany w hipertrofii (20) wygrywa z zastalym silowym (15)",
+    merged2.targets.curl_bb === 20,
+    merged2.targets.curl_bb
+  );
+
+  // Cwiczenie, ktoremu hipertrofia PODNOSI zakres, zachowuje wlasny cel.
+  const withBench: any = structuredClone(base);
+  withBench.targets = { ...withBench.targets, bench_bb: 45 };
+  withBench.hyperTargets = { bench_bb: 40 };
+  delete withBench.hyperTargetsUnified;
+  const merged3 = migrateState({ ...withBench, version: SCHEMA_VERSION });
+  check(
+    "migracja: bench_bb (zakres podniesiony) zachowuje OSOBNY cel hipertrofii",
+    merged3.hyperTargets?.bench_bb === 40 && merged3.targets.bench_bb === 45,
+    merged3.hyperTargets
+  );
+  check("hyperTargetFor: bench_bb dalej czyta swoj wlasny cel", hyperTargetFor(merged3, bench) === 40);
+
+  // Idempotencja + brak pustego obiektu-smiecia.
+  const twice = migrateState({ ...merged, version: SCHEMA_VERSION });
+  check("migracja: idempotentna (drugi przebieg nie rusza scalonego celu)", twice.targets.curl_bb === 18.75);
+  check(
+    "migracja: po scaleniu jedynego wpisu hyperTargets znika calkiem (nie pusty obiekt)",
+    merged.hyperTargets === undefined,
+    merged.hyperTargets
   );
 }
 
