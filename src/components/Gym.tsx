@@ -1,5 +1,5 @@
 import { Pause, Play, RotateCcw, TimerReset } from "lucide-react";
-import { platePlan, fmtKg, MUSCLE_COLORS } from "@/lib/logic";
+import { platePlan, fmtKg, fmtNumPl, MUSCLE_COLORS } from "@/lib/logic";
 import { remainingMs, isRunning, isPaused, isFinished, isFreshlyFinished } from "@/lib/rest-timer";
 import { restTimer, useRestTimerState } from "@/hooks/use-rest-timer";
 import type { Exercise, Muscle } from "@/lib/types";
@@ -56,15 +56,37 @@ export function PlateBar({
   barWeight,
   plates,
   compact,
+  inline,
 }: {
   target: number;
   barWeight: number;
   plates: number[];
   /** P3-5: mniejsza wersja do loggera (Trening) - "Wiecej" zostaje pelnowymiarowa. */
   compact?: boolean;
+  /** P8-4: pasek widoczny NA STALE przy cwiczeniu - sam rysunek, bez podpisu
+   *  pod spodem (opis stoi obok, w jednej linii) i bez rozpychania karty na
+   *  wysokosc. Uzywany razem z `compact`. */
+  inline?: boolean;
 }) {
   const plan = platePlan(target, barWeight, plates);
   const maxPlate = Math.max(...plates, 25);
+
+  if (inline) {
+    return (
+      <div className="flex h-7 shrink-0 items-center gap-[2px]" aria-hidden>
+        <div className="h-1 w-4 rounded-l bg-zinc-500" />
+        <div className="h-2.5 w-1 bg-zinc-400" />
+        {plan.perSide.map((p, i) => (
+          <div
+            key={i}
+            className="rounded-[1px] bg-primary/80"
+            style={{ height: 10 + (p / maxPlate) * 16, width: p >= 10 ? 5 : 3 }}
+          />
+        ))}
+        <div className="h-1 w-3 rounded-r bg-zinc-500" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -89,7 +111,8 @@ export function PlateBar({
       <div className="mt-1 text-center text-xs text-muted-foreground">
         {plan.perSide.length > 0 ? (
           <>
-            Na stronę: <span className="font-medium text-foreground">{plan.perSide.join(" + ")}</span>
+            Na stronę:{" "}
+            <span className="font-medium text-foreground">{plan.perSide.map(fmtNumPl).join(" + ")}</span>
           </>
         ) : (
           "Sam gryf"

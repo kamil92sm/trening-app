@@ -1762,7 +1762,7 @@ export function warmupPlan(ex: Exercise, workWeight: number, bar: number, plates
 
 // ── Formatery ──────────────────────────────────────────────────────────────
 
-function fmtNumPl(x: number): string {
+export function fmtNumPl(x: number): string {
   return (+x.toFixed(2)).toString().replace(".", ",");
 }
 

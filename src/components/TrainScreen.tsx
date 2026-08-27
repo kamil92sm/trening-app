@@ -17,6 +17,7 @@ import { useStore, type FinishSummary, type UndoSnapshot } from "@/lib/store";
 import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
+  fmtNumPl,
   fmtTonnage,
   sessionVolume,
   sessionDuration,
@@ -1182,7 +1183,8 @@ export function TrainScreen() {
             (ex.secondaryMuscles?.length ?? 0) > 0 ||
             !!hEx.note ||
             warmupSteps.length > 0 ||
-            !!platePlanForEntry ||
+            // P8-4: talerze wyprowadzone nad "Pomoc i szczegóły" — nie są już
+            // powodem, żeby ta sekcja w ogóle istniała na karcie.
             !!guide ||
             hasRecord;
           // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
@@ -1273,6 +1275,51 @@ export function TrainScreen() {
                         ))
                       )}
                     </div>
+                  </div>
+                )}
+                {/* P8-4: talerze WIDOCZNE od razu przy ćwiczeniu — zgłoszenie
+                    Kamila: "często korzystam z tego obrazka ile talerzy założyć,
+                    fajnie by było mieć małe widoczne gdzieś przy ćwiczeniu,
+                    a nie w tej rozwijanej liście". Rysunek jest tym, po co się
+                    sięga W TRAKCIE ładowania sztangi — schowany za dwoma
+                    kliknięciami przestaje pełnić swoją funkcję. Rozgrzewka
+                    i reszta szczegółów zostają pod "Pomoc i szczegóły". */}
+                {/* "Cel lżejszy niż gryf" (np. uginanie na krótkim gryfie, którego
+                    apka nie modeluje) nie niesie żadnej informacji do działania —
+                    na stałe widoczne byłoby samym szumem na każdej karcie.
+                    "Brakuje X kg" zostaje: to realna wiadomość, że tego ciężaru
+                    nie da się złożyć z talerzy tej siłowni. */}
+                {platePlanForEntry && (platePlanForEntry.ok || platePlanForEntry.leftover > 0) && (
+                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1">
+                    <PlateBar
+                      target={plateWeight!}
+                      barWeight={activeBar}
+                      plates={activePlates}
+                      compact
+                      inline
+                    />
+                    <p className="min-w-0 text-[11px] leading-tight">
+                      {platePlanForEntry.ok ? (
+                        <>
+                          <span className="text-muted-foreground">
+                            {fmtKg(plateWeight!)} ·{" "}
+                          </span>
+                          {platePlanForEntry.perSide.length > 0 ? (
+                            <span className="font-medium">
+                              {platePlanForEntry.perSide.map(fmtNumPl).join(" + ")}
+                              <span className="text-muted-foreground"> na stronę</span>
+                            </span>
+                          ) : (
+                            <span className="font-medium">sam gryf</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-amber-400">
+                          {fmtKg(plateWeight!)} · nie do złożenia, brakuje{" "}
+                          {fmtKg(platePlanForEntry.leftover)}
+                        </span>
+                      )}
+                    </p>
                   </div>
                 )}
                 {lastFew.length > 0 && (
@@ -1368,36 +1415,14 @@ export function TrainScreen() {
                                       {fmtKg(s.weight)} × {s.reps}
                                     </span>
                                     <span className="text-muted-foreground">
-                                      {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
+                                      {plan.perSide.length > 0
+                                        ? `Na stronę: ${plan.perSide.map(fmtNumPl).join("+")}`
+                                        : "Sam gryf"}
                                     </span>
                                   </div>
                                 );
                               })}
                               <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
-                            </div>
-                          </div>
-                        )}
-                        {platePlanForEntry && (
-                          <div>
-                            <p className="text-[11px] font-medium text-foreground/80">
-                              {platePlanForEntry.ok ? (
-                                <>
-                                  Talerze ·{" "}
-                                  {platePlanForEntry.perSide.length > 0
-                                    ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
-                                    : "sam gryf"}
-                                </>
-                              ) : (
-                                <span className="text-amber-400">
-                                  Talerze ·{" "}
-                                  {platePlanForEntry.leftover > 0
-                                    ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
-                                    : "cel lżejszy niż gryf"}
-                                </span>
-                              )}
-                            </p>
-                            <div className="mt-1">
-                              <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
                             </div>
                           </div>
                         )}
