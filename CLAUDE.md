@@ -1256,3 +1256,82 @@ warianty `weightJustIncreased`/`mixedWorkingWeights`/`ladder`, migracja zakresu
 planku, `sessionDuration` od `startedAt`, migracje `hyperTargets`, `snapLoadUp/
 Down/DownFrom/Nearest`, migracje drabinki hantli, `trainingCycles` — wszystkie
 8 scenariuszy ze specyfikacji P7-8 wprost). `npm run build` bez błędów.
+
+---
+
+## 26. Sesja 27.08.2026 — rozjazd celów, powrót po przerwie, talerze na wierzchu
+
+Zgłoszenie Kamila ze zrzutu: uginanie bicepsa, komplet **3×12 na 17,5 kg**,
+a karta dalej pokazuje cel 17,5 i pisze „ostatnio komplet, ale cel się nie
+zmienił — sprawdź ciężar w Planie". Cztery zmiany, każda osobnym commitem.
+
+### 26.1 P8-1 — cele Siły i Hipertrofii przestają się rozjeżdżać (root cause zgłoszenia)
+- **Było:** `hyperTargetFor()` czytało `state.hyperTargets` z **bezwarunkowym
+  pierwszeństwem**. Dla ćwiczeń, którym hipertrofia NIE zmienia zakresu
+  powtórzeń (uginanie bicepsa 10–12), obie liczby opisują dokładnie ten sam
+  ciężar — §5.7 pkt 2 mówi to wprost, ale ta reguła była **nieosiągalna**,
+  bo cache sprawdzał się przed nią. Wystarczył jeden tydzień w drugim trybie
+  albo ręczna zmiana celu w Planie (`setTarget` pisze WYŁĄCZNIE do `targets`),
+  żeby dwie kopie tego samego ciężaru rozeszły się **na zawsze** — żadna nie
+  doganiała drugiej.
+- **Odtworzone 1:1 w symulacji** na stanie z historią: cel siłowy 18,75 (po
+  komplecie 3×12), karta w Hipertrofii 17,5 — razem z sąsiednim kafelkiem
+  („Allahy: ciężar właśnie wskoczył z 40 na 42,5"), który wyglądał poprawnie
+  i przez to sugerował, że silnik działa.
+- **Jest:** `hypertrophyKeepsRange(ex)` rozstrzyga, czy cel jest JEDEN.
+  Ćwiczenia, którym hipertrofia PODNOSI zakres (bazowy `repMax ≤ 8`, np.
+  wyciskanie 5–8 → 8–12, martwy 5–6 → 6–8), zachowują własny cel liczony przez
+  e1RM — tam rozdział jest zamierzony. `finishSession` i `setTarget` nie
+  tworzą już drugiej kopii; `setTarget` **kasuje** cel hipertrofii (bez tego
+  odesłanie „popraw w Planie" było w tym trybie ślepym zaułkiem).
+- **Migracja `unifyHyperTargetsOnce`** (flaga `hyperTargetsUnified`, bez bumpa
+  `SCHEMA_VERSION`) scala to, co już się rozjechało — bierze **wyższą** z dwóch
+  wartości (obie opisują ten sam ciężar, więc dalej posunięta jest świeższa),
+  potem kasuje wpis z `hyperTargets`. Idzie na KOŃCU `applyOneTimeSeeds`, po
+  wszystkich dosiewach ruszających cele.
+
+### 26.2 P8-2 — powrót po przerwie: tydzień rozruchowy zamiast czwartego trybu
+Kamil: „2 tyg. nie byłem na siłce i w przyszłym tygodniu wracam — może dać
+jakąś opcję treningu rozruchowego?". **Osobny tryb nie jest do tego potrzebny:**
+Deload robi dokładnie to, czego trzeba po przerwie (~90% ciężaru, POŁOWA serii,
+RIR +2, **cele zamrożone** — §18.1), więc tydzień nie cofa progresji i nie kładzie
+zakwasami. Brakowało tylko tego, żeby apka sama go zaproponowała: dotychczasowy
+nudge patrzył wyłącznie na `weeksSinceDeload`/`detectPlateau` i **przerw w
+treningach nie widział wcale**.
+- `daysSinceLastSession` (pełne doby, tylko sesje ukończone) + `BREAK_DAYS = 10`
+  — ten sam próg, który `trainingCycles` uznaje za „przerwa = nowy cykl" (§25.9),
+  żeby cała apka miała jedną definicję przerwy.
+- `comebackSuggestion(state, mode)` → `null` przy braku historii, przerwie poniżej
+  progu i gdy tydzień już stoi na deloadzie.
+- Pudełko „N dni przerwy" + przycisk **„Włącz tydzień rozruchowy"** na ekranie
+  wyboru dnia; **wyklucza** nudge deloadu (mówią o tym samym rozwiązaniu z dwóch
+  powodów — dwa bursztynowe pudełka pod sobą to szum).
+
+### 26.3 P8-3 — „Ostatnie:" pokazuje ciężar KAŻDEJ serii + uczciwy komunikat
+- `fmtLastEntries` brało ciężar wyłącznie z **pierwszej** serii i doklejało do
+  niego powtórzenia wszystkich — trening `17,5×12 / 16,25×12 / 16,25×12`
+  wyglądał jak `17,5×12/12/12`, czyli jak domknięty komplet na jednym ciężarze.
+  Teraz różne ciężary rozwijają się per seria; jednolity zapis bez zmian.
+- `ProgressGoal.refMixedWeights` + trzeci wariant komunikatu: „ostatnio komplet,
+  ale serie szły na różnych ciężarach; domknij go na X kg". Poprzednia treść
+  („sprawdź ciężar w Planie") obwiniała ustawienia za decyzję, którą silnik
+  podjął świadomie (`mixedWorkingWeights`, §25.5).
+- Ostatni wariant (jednolity komplet, a cel nie drgnął) mówi wprost o realnej
+  przyczynie: **edycja sesji w Historii nie przelicza progresji wstecz**
+  (`store.updateSession` tylko podmienia sesję). To zostaje jako otwarty temat.
+
+### 26.4 P8-4 — talerze widoczne od razu przy ćwiczeniu
+Kamil: „często korzystam z tego obrazka ile talerzy założyć — fajnie mieć małe
+widoczne przy ćwiczeniu, a nie w rozwijanej liście". Rysunek jest tym, po co
+sięga się W TRAKCIE ładowania sztangi. `PlateBar` dostał wariant `inline` (sam
+rysunek, 28 px, bez podpisu pod spodem), pasek „45 kg · 10 + 2,5 na stronę"
+stoi pod opisem ćwiczenia. Rozgrzewka i reszta zostają pod „Pomoc i szczegóły".
+Wariant „cel lżejszy niż gryf" (uginanie na krótkim gryfie, którego apka nie
+modeluje) **nie jest pokazywany** — nie niesie informacji do działania;
+„brakuje X kg" zostaje. Liczby talerzy formatowane po polsku (2,5 nie 2.5).
+
+**Testy:** 510 (30 nowych; 5 testów P7-9 przestrojonych — niezmiennik „wartość
+nie ginie" zostaje, zmieniło się pole docelowe). Zweryfikowane w Chromium na
+zbudowanym `docs/index.html`: 320/360/390 px bez poziomego scrolla, zero błędów
+JS, przycisk rozruchowy przełącza tydzień na deload (18 → 12 serii, cel
+wyciskania 45 → 40 kg).
