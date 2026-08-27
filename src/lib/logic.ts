@@ -1525,6 +1525,12 @@ export interface ProgressGoal {
   refWeight: number;
   /** Dzisiejszy cel vs ciężar sesji referencyjnej. */
   weightVsRef: WeightVsReference;
+  /** P8-3: serie ROBOCZE sesji referencyjnej szły na RÓŻNYCH ciężarach. Komplet
+   *  powtórzeń zebrany z kilku różnych ciężarów NIE domyka podwójnej progresji
+   *  (patrz `mixedWorkingWeights` w `computeProgression`) — bez tej flagi UI
+   *  ogłaszało "ostatnio komplet, ale cel się nie zmienił" i odsyłało do Planu,
+   *  czyli obwiniało dane za decyzję, którą silnik podjął świadomie. */
+  refMixedWeights: boolean;
 }
 
 /**
@@ -1556,6 +1562,7 @@ export function progressGoal(
   }
   const cmp = weightVsReference(state, ex.id, targetWeight)!; // ref istnieje (sprawdzone wyżej)
   const missingReps = cmp.relation === "same" ? missing : 0;
+  const firstWeight = working[0]?.weight ?? 0;
   return {
     repsPerSet: modeEx.repMax,
     repMin: modeEx.repMin,
@@ -1563,6 +1570,7 @@ export function progressGoal(
     missingReps,
     refWeight: cmp.refWeight,
     weightVsRef: cmp.relation,
+    refMixedWeights: working.length > 1 && working.some((s) => Math.abs(s.weight - firstWeight) > 1e-9),
   };
 }
 
@@ -1769,13 +1777,26 @@ export function fmtKg(x: number): string {
  * pojedynczym wpisem "Ostatnio"). Hantle: `weight` jest JUŻ "na rękę" (tak
  * przechowywane w `SetLog`, patrz §4 CLAUDE.md `perHand`) - bez dodatkowego mnożenia.
  */
+/**
+ * P8-3: gdy serie jednego treningu szły na RÓŻNYCH ciężarach, każda dostaje
+ * własne `ciężar×powt.`. Wcześniej funkcja brała ciężar WYŁĄCZNIE z pierwszej
+ * serii (`e.sets[0].weight`) i doklejała do niego powtórzenia wszystkich —
+ * trening 17,5×12 / 16,25×12 / 16,25×12 wyglądał na ekranie jak "17,5×12/12/12",
+ * czyli jak domknięty komplet na jednym ciężarze. Nie dało się z tego ekranu
+ * zrozumieć, dlaczego apka nie podniosła ciężaru (zgłoszenie Kamila).
+ * Jednolity ciężar w serii formatuje się jak dotąd — wersja per seria włącza
+ * się tylko wtedy, gdy naprawdę jest co pokazać.
+ */
 export function fmtLastEntries(entries: LastEntry[], isHold: boolean): string {
   return entries
-    .map((e) =>
-      isHold
-        ? e.sets.map((s) => s.reps).join("/")
-        : `${fmtNumPl(e.sets[0]?.weight ?? 0)}×${e.sets.map((s) => s.reps).join("/")}`
-    )
+    .map((e) => {
+      if (isHold) return e.sets.map((s) => s.reps).join("/");
+      const first = e.sets[0]?.weight ?? 0;
+      const uniform = e.sets.every((s) => Math.abs(s.weight - first) < 1e-9);
+      return uniform
+        ? `${fmtNumPl(first)}×${e.sets.map((s) => s.reps).join("/")}`
+        : e.sets.map((s) => `${fmtNumPl(s.weight)}×${s.reps}`).join("/");
+    })
     .join(" · ");
 }
 

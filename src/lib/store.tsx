@@ -187,12 +187,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTarget(exerciseId, weight) {
         mutate((d) => {
           d.targets[exerciseId] = weight;
-          // P8-1: dla ćwiczeń z niezmienionym zakresem cel jest JEDEN — bez
-          // tego ręczna zmiana w Planie nie miała żadnego skutku w trybie
-          // Hipertrofia (czytał `hyperTargets`), a apka i tak odsyłała do
-          // Planu ("sprawdź ciężar w Planie"). Ślepy zaułek.
-          const ex = d.exercises.find((e) => e.id === exerciseId);
-          if (d.hyperTargets && ex && hypertrophyKeepsRange(ex)) delete d.hyperTargets[exerciseId];
+          // P8-1/P8-3: ręczna zmiana celu w Planie KASUJE cel hipertrofii tego
+          // ćwiczenia. Bez tego zmiana w Planie nie miała w trybie Hipertrofia
+          // żadnego skutku (widok czytał `hyperTargets`), a apka i tak odsyłała
+          // do Planu — ślepy zaułek. Dla ćwiczeń z niezmienionym zakresem cel
+          // jest po prostu JEDEN; dla pozostałych (własny cel liczony przez
+          // e1RM) skasowany cache odbuduje się z nowej wartości — użytkownik
+          // właśnie powiedział, że to ona jest prawdą.
+          if (d.hyperTargets) delete d.hyperTargets[exerciseId];
           return d;
         });
       },

@@ -3758,5 +3758,50 @@ check(
   }
 }
 
+// ── P8-3: "Ostatnie:" nie chowa juz roznych ciezarow w serii ───────────────
+{
+  const uniform = [{ date: "2026-08-20T09:00:00.000Z", sets: [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ], mode: "hypertrophy" as any }];
+  check("fmtLastEntries: jednolity ciezar formatuje sie jak dotad", fmtLastEntries(uniform, false) === "17,5×12/12/12", fmtLastEntries(uniform, false));
+
+  const mixed = [{ date: "2026-08-20T09:00:00.000Z", sets: [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 16.25, reps: 12, done: true },
+    { weight: 16.25, reps: 12, done: true },
+  ], mode: "hypertrophy" as any }];
+  check(
+    "fmtLastEntries: rozne ciezary -> kazda seria z wlasnym (bylo: 17,5×12/12/12)",
+    fmtLastEntries(mixed, false) === "17,5×12/16,25×12/16,25×12",
+    fmtLastEntries(mixed, false)
+  );
+  check("fmtLastEntries: isHold bez zmian (same sekundy)", fmtLastEntries(mixed, true) === "12/12/12");
+
+  // progressGoal.refMixedWeights - UI ma powiedziec prawde zamiast odsylac do Planu.
+  const st: any = defaultState();
+  const curl = st.exercises.find((e: any) => e.id === "curl_bb")!;
+  const day = st.days.find((d: any) => d.id === "mon")!;
+  const modeEx = exerciseForDay(exerciseForMode(curl, "hypertrophy"), day);
+  st.sessions = [{
+    id: "m1", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight: 16.25, sets: mixed[0].sets }],
+  }];
+  const goalMixed = progressGoal(st, curl, modeEx, 17.5)!;
+  check("progressGoal: rozne ciezary w sesji referencyjnej -> refMixedWeights", goalMixed.refMixedWeights === true);
+  check("progressGoal: komplet powtorzen mimo roznych ciezarow -> missingReps 0", goalMixed.missingReps === 0);
+
+  const stUniform: any = defaultState();
+  stUniform.sessions = [{
+    id: "u1", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: uniform[0].sets }],
+  }];
+  check(
+    "progressGoal: jednolity ciezar -> refMixedWeights false",
+    progressGoal(stUniform, curl, modeEx, 17.5)!.refMixedWeights === false
+  );
+}
+
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

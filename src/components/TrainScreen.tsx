@@ -1308,10 +1308,23 @@ export function TrainScreen() {
                         {" "}
                         — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
                       </span>
+                    ) : goal.refMixedWeights ? (
+                      /* P8-3: komplet powtórzeń zebrany z RÓŻNYCH ciężarów nie
+                         domyka podwójnej progresji — apka celowo zostawiła
+                         ciężar (patrz mixedWorkingWeights w computeProgression).
+                         Wcześniej UI ogłaszało tu "cel się nie zmienił — sprawdź
+                         ciężar w Planie", czyli obwiniało ustawienia za własną,
+                         świadomą decyzję silnika. */
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio komplet, ale serie szły na różnych ciężarach; domknij go na{" "}
+                        {fmtKg(entry.targetWeight)}
+                      </span>
                     ) : (
                       <span className="text-amber-400">
                         {" "}
-                        — ostatnio komplet, ale cel się nie zmienił — sprawdź ciężar w Planie
+                        — ostatnio komplet, a cel nie drgnął. Jeśli poprawiałeś ten trening
+                        w Historii, progresja nie przelicza się wstecz — popraw cel w Planie.
                       </span>
                     )}
                   </p>
