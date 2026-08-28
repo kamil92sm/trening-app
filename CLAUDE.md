@@ -1330,8 +1330,32 @@ Wariant „cel lżejszy niż gryf" (uginanie na krótkim gryfie, którego apka n
 modeluje) **nie jest pokazywany** — nie niesie informacji do działania;
 „brakuje X kg" zostaje. Liczby talerzy formatowane po polsku (2,5 nie 2.5).
 
-**Testy:** 510 (30 nowych; 5 testów P7-9 przestrojonych — niezmiennik „wartość
+### 26.5 P8-5 — edycja treningu w Historii przelicza progresję
+Ostatni otwarty temat z §26.3: `store.updateSession` tylko podmieniało sesję,
+więc cele zostawały policzone ze STARYCH liczb — po poprawieniu wyniku karta
+w Treningu twierdziła „ostatnio komplet, a cel nie drgnął" i nie dawało się
+tego naprawić inaczej niż ręczną zmianą celu w Planie.
+- `sessionProgressionSummaries(state, session)` — matematyka progresji
+  wydzielona z `finishSession` bez zmiany zachowania, żeby edycja liczyła
+  DOKŁADNIE to samo co zakończenie treningu. **Kontrakt:** `state.sessions`
+  nie zawiera liczonej sesji (punkt odniesienia ciężaru i „poprzednia sesja"
+  są czytane właśnie stamtąd) — `finishSession` spełnia to naturalnie,
+  `updateSession` filtruje sesję i wszystko, co wydarzyło się po niej.
+- `recomputeTargetsForEditedSession(state, session)` — czysta funkcja
+  zwracająca listę zmian. Przelicza **wyłącznie** ćwiczenia, dla których
+  edytowana sesja jest NAJŚWIEŻSZA: jeśli po niej był kolejny trening tego
+  ćwiczenia, to on wyznaczył obecny cel. Pełne odtwarzanie historii w przód
+  świadomie NIE jest robione — cele niosą też ręczne korekty z Planu i dosiewy
+  migracji, więc „przeliczenie wszystkiego od zera" umiałoby wyzerować rzeczy,
+  których żadna sesja nie tłumaczy. Deload (cele zamrożone, §18.1) i sesja
+  nieukończona nie ruszają celów.
+- Historia mówi wprost, co się zmieniło: „Zapisano — cel przeliczony ·
+  Ściąganie drążka: 50 kg → 52,5 kg". Bez tego poprawka wyglądałaby na
+  kosmetyczną, a po cichu ruszała ciężary na następny trening.
+
+**Testy:** 518 (38 nowych; 5 testów P7-9 przestrojonych — niezmiennik „wartość
 nie ginie" zostaje, zmieniło się pole docelowe). Zweryfikowane w Chromium na
 zbudowanym `docs/index.html`: 320/360/390 px bez poziomego scrolla, zero błędów
 JS, przycisk rozruchowy przełącza tydzień na deload (18 → 12 serii, cel
-wyciskania 45 → 40 kg).
+wyciskania 45 → 40 kg), a poprawka 9 → 10 powt. w Historii podnosi cel
+ściągania drążka 50 → 52,5 kg z komunikatem o przeliczeniu.
