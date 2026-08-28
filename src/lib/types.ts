@@ -201,6 +201,9 @@ export interface AppState {
   /** P7-3: czy istniejące cele hantlowe (targets I hyperTargets) dociągnięto
    * do drabinki ich dnia — jednorazowo. */
   dumbbellTargetsSnapped?: boolean;
+  /** P8-1: czy rozjechane cele Siły i Hipertrofii scalono w jeden dla ćwiczeń,
+   * którym hipertrofia nie zmienia zakresu powtórzeń — jednorazowo. */
+  hyperTargetsUnified?: boolean;
   /** Zadanie 3: czy dni mon/wed/fri dostały już neutralne nazwy ("Trening 1/2/3"
    * zamiast Poniedziałek/Środa/Piątek) — jednorazowo, żeby nie nadpisywać
    * później ręcznej zmiany nazwy przez użytkownika w Planie. */
@@ -208,7 +211,10 @@ export interface AppState {
   exercises: Exercise[];
   days: WorkoutDay[];
   targets: Record<string, number>;
-  /** Cele trybu hipertrofii — OSOBNE od `targets` (siła), żeby tryby nie psuły sobie progresji. */
+  /** Cele trybu hipertrofii — OSOBNE od `targets` (siła), żeby tryby nie psuły
+   *  sobie progresji. P8-1: TYLKO dla ćwiczeń, którym hipertrofia realnie
+   *  zmienia zakres powtórzeń (bazowy repMax ≤ 8). Gdy zakres zostaje bez
+   *  zmian, cel jest jeden i mieszka w `targets` — patrz hypertrophyKeepsRange. */
   hyperTargets?: Record<string, number>;
   sessions: Session[];
   body: BodyEntry[];

@@ -30,6 +30,9 @@ import {
   exerciseForMode,
   weightForReps,
   hyperTargetFor,
+  comebackSuggestion,
+  daysSinceLastSession,
+  hypertrophyKeepsRange,
   targetForMode,
   deloadTargetFor,
   deloadSets,
@@ -74,6 +77,7 @@ import {
   SCHEMA_VERSION,
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
+import { recomputeTargetsForEditedSession } from "../src/lib/store";
 import { validateBackup } from "../src/lib/validate";
 import { serializeBackup } from "../src/lib/backup";
 import { niceScale } from "../src/lib/scale";
@@ -3206,7 +3210,9 @@ check(
   const oldWithHyper = {
     version: 2,
     targets: {},
-    hyperTargets: { curl_bb: 17.5, fake_removed_exercise: 99 },
+    // bench_bb (5-8) -> hipertrofia PODNOSI zakres do 8-12, wiec ma wlasny,
+    // osobny cel i po P8-1 nadal zyje w hyperTargets.
+    hyperTargets: { bench_bb: 40, fake_removed_exercise: 99 },
     sessions: [],
     body: [],
     squash: [],
@@ -3214,8 +3220,8 @@ check(
   };
   const migHyper = migrateState(oldWithHyper);
   check(
-    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (curl_bb)",
-    migHyper.hyperTargets?.curl_bb === 17.5,
+    "migracja stara wersja: hyperTargets zachowane dla istniejacego cwiczenia (bench_bb)",
+    migHyper.hyperTargets?.bench_bb === 40,
     migHyper.hyperTargets
   );
   check(
@@ -3244,7 +3250,15 @@ check(
   staleHyper.hyperTargets = { rdl: 22 };
   delete staleHyper.rdlHyperTargetFixed;
   const fixedHyper = migrateState({ ...staleHyper, version: SCHEMA_VERSION });
-  check("migracja: hyperTargets.rdl 22 -> 22,5", fixedHyper.hyperTargets?.rdl === 22.5, fixedHyper.hyperTargets);
+  // P8-1: RDL (8-12) ma w hipertrofii TEN SAM zakres co w sile, wiec cel jest
+  // JEDEN i po scaleniu mieszka w `targets`. Sama wartosc nadal musi byc
+  // dogoniona do 22,5 - to jest niezmiennik z P7-9, zmienilo sie tylko pole.
+  check("migracja: cel RDL z hipertrofii 22 -> 22,5", fixedHyper.targets.rdl === 22.5, fixedHyper.targets.rdl);
+  check(
+    "migracja: hyperTargets.rdl skasowane po scaleniu (cel jest jeden)",
+    fixedHyper.hyperTargets?.rdl === undefined,
+    fixedHyper.hyperTargets
+  );
   check("migracja: flaga rdlHyperTargetFixed ustawiona", fixedHyper.rdlHyperTargetFixed === true);
 
   // Tak samo jak targets.rdl wyzej: fixHyperRdlTargetOnce nie rusza (rusza
@@ -3253,13 +3267,13 @@ check(
   progressedHyper.hyperTargets = { rdl: 26 };
   delete progressedHyper.rdlHyperTargetFixed;
   check(
-    "migracja: wypracowany hyperTargets.rdl (26) nie wraca do seeda, snapuje do 25",
-    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 25,
-    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).hyperTargets
+    "migracja: wypracowany cel RDL z hipertrofii (26) nie wraca do seeda, snapuje do 25",
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).targets.rdl === 25,
+    migrateState({ ...progressedHyper, version: SCHEMA_VERSION }).targets.rdl
   );
   check(
-    "migracja: idempotentna (hyperTargets.rdl, drugi przebieg nic nie zmienia)",
-    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).hyperTargets?.rdl === 22.5
+    "migracja: idempotentna (cel RDL, drugi przebieg nic nie zmienia)",
+    migrateState({ ...fixedHyper, version: SCHEMA_VERSION }).targets.rdl === 22.5
   );
 
   // Osobna flaga od rdlTargetFixed - na juz zmigrowanym urzadzeniu (stara
@@ -3271,9 +3285,9 @@ check(
   delete alreadyMigrated.rdlHyperTargetFixed;
   const catchUp = migrateState({ ...alreadyMigrated, version: SCHEMA_VERSION });
   check(
-    "migracja: hyperTargets.rdl dogania sie NAWET gdy rdlTargetFixed juz byl true",
-    catchUp.hyperTargets?.rdl === 22.5,
-    catchUp.hyperTargets
+    "migracja: cel RDL z hipertrofii dogania sie NAWET gdy rdlTargetFixed juz byl true",
+    catchUp.targets.rdl === 22.5,
+    catchUp.targets.rdl
   );
 }
 
@@ -3627,6 +3641,239 @@ check(
     "trainingCycles: nowIso przycina do sesji <= nowIso",
     trainingCycles(stMany, undefined, "2026-08-25T00:00:00.000Z").length === 2
   );
+}
+
+// ── P8-1: cele Sily i Hipertrofii przestaja sie rozjezdzac ─────────────────
+{
+  const base = defaultState();
+  const curl = base.exercises.find((e) => e.id === "curl_bb")!;   // 10-12 -> zakres bez zmian
+  const bench = base.exercises.find((e) => e.id === "bench_bb")!; // 5-8   -> hipertrofia 8-12
+  const dead = base.exercises.find((e) => e.id === "deadlift")!;  // 5-6   -> hipertrofia 6-8
+  const plank = base.exercises.find((e) => e.id === "plank")!;    // isHold
+
+  check("hypertrophyKeepsRange: uginanie bicepsa (10-12) - zakres bez zmian", hypertrophyKeepsRange(curl) === true);
+  check("hypertrophyKeepsRange: wyciskanie (5-8) - zakres podniesiony", hypertrophyKeepsRange(bench) === false);
+  check("hypertrophyKeepsRange: martwy ciag (5-6 -> 6-8) - zakres zmieniony", hypertrophyKeepsRange(dead) === false);
+  check("hypertrophyKeepsRange: plank (isHold) - zakres bez zmian", hypertrophyKeepsRange(plank) === true);
+
+  // Zgloszenie Kamila: komplet 3x12 na 17,5 podniosl cel silowy do 18,75,
+  // a karta w trybie Hipertrofia dalej pokazywala 17,5 (stary hyperTargets
+  // mial bezwarunkowe pierwszenstwo).
+  const desynced: any = structuredClone(base);
+  desynced.targets = { ...desynced.targets, curl_bb: 18.75 };
+  desynced.hyperTargets = { curl_bb: 17.5 };
+  check(
+    "hyperTargetFor: zakres bez zmian -> cel z targets, nie zamrozona kopia",
+    hyperTargetFor(desynced, curl) === 18.75,
+    hyperTargetFor(desynced, curl)
+  );
+
+  // Odwrotny kierunek: progresja wypracowana w hipertrofii tez nie moze zniknac.
+  const merged = migrateState({ ...desynced, version: SCHEMA_VERSION, hyperTargetsUnified: undefined });
+  check("migracja: scalony cel bierze wyzsza z dwoch wartosci", merged.targets.curl_bb === 18.75, merged.targets.curl_bb);
+  check("migracja: wpis hyperTargets skasowany po scaleniu", merged.hyperTargets?.curl_bb === undefined, merged.hyperTargets);
+  check("migracja: flaga hyperTargetsUnified ustawiona", merged.hyperTargetsUnified === true);
+
+  const hyperAhead: any = structuredClone(base);
+  hyperAhead.targets = { ...hyperAhead.targets, curl_bb: 15 };
+  hyperAhead.hyperTargets = { curl_bb: 20 };
+  delete hyperAhead.hyperTargetsUnified;
+  const merged2 = migrateState({ ...hyperAhead, version: SCHEMA_VERSION });
+  check(
+    "migracja: cel wypracowany w hipertrofii (20) wygrywa z zastalym silowym (15)",
+    merged2.targets.curl_bb === 20,
+    merged2.targets.curl_bb
+  );
+
+  // Cwiczenie, ktoremu hipertrofia PODNOSI zakres, zachowuje wlasny cel.
+  const withBench: any = structuredClone(base);
+  withBench.targets = { ...withBench.targets, bench_bb: 45 };
+  withBench.hyperTargets = { bench_bb: 40 };
+  delete withBench.hyperTargetsUnified;
+  const merged3 = migrateState({ ...withBench, version: SCHEMA_VERSION });
+  check(
+    "migracja: bench_bb (zakres podniesiony) zachowuje OSOBNY cel hipertrofii",
+    merged3.hyperTargets?.bench_bb === 40 && merged3.targets.bench_bb === 45,
+    merged3.hyperTargets
+  );
+  check("hyperTargetFor: bench_bb dalej czyta swoj wlasny cel", hyperTargetFor(merged3, bench) === 40);
+
+  // Idempotencja + brak pustego obiektu-smiecia.
+  const twice = migrateState({ ...merged, version: SCHEMA_VERSION });
+  check("migracja: idempotentna (drugi przebieg nie rusza scalonego celu)", twice.targets.curl_bb === 18.75);
+  check(
+    "migracja: po scaleniu jedynego wpisu hyperTargets znika calkiem (nie pusty obiekt)",
+    merged.hyperTargets === undefined,
+    merged.hyperTargets
+  );
+}
+
+// ── P8-2: powrot po przerwie proponuje tydzien rozruchowy (deload) ─────────
+{
+  const withSession = (dateIso: string, mode?: any): any => {
+    const st: any = defaultState();
+    st.sessions = [
+      { id: "b1", dayId: "mon", date: dateIso, entries: [], completed: true, ...(mode ? { mode } : {}) },
+    ];
+    return st;
+  };
+  const NOW = "2026-08-27T09:00:00.000Z";
+
+  check("daysSinceLastSession: brak historii -> null", daysSinceLastSession(defaultState(), NOW) === null);
+  check(
+    "daysSinceLastSession: 14 dni przerwy",
+    daysSinceLastSession(withSession("2026-08-13T09:00:00.000Z"), NOW) === 14,
+    daysSinceLastSession(withSession("2026-08-13T09:00:00.000Z"), NOW)
+  );
+  check(
+    "daysSinceLastSession: pelne doby, nie ulamki (trening wczoraj wieczorem = 1 dzien)",
+    daysSinceLastSession(withSession("2026-08-26T20:00:00.000Z"), NOW) === 0,
+    daysSinceLastSession(withSession("2026-08-26T20:00:00.000Z"), NOW)
+  );
+  check(
+    "comebackSuggestion: 14 dni przerwy -> sugestia",
+    comebackSuggestion(withSession("2026-08-13T09:00:00.000Z"), "hypertrophy", NOW)?.days === 14
+  );
+  check(
+    "comebackSuggestion: 9 dni (ponizej progu) -> brak sugestii",
+    comebackSuggestion(withSession("2026-08-18T09:00:00.000Z"), "hypertrophy", NOW) === null
+  );
+  check(
+    "comebackSuggestion: dokladnie 10 dni -> sugestia (prog wlaczajacy)",
+    comebackSuggestion(withSession("2026-08-17T09:00:00.000Z"), "strength", NOW)?.days === 10
+  );
+  check(
+    "comebackSuggestion: tydzien juz ustawiony na deload -> nie ma czego proponowac",
+    comebackSuggestion(withSession("2026-08-13T09:00:00.000Z"), "deload", NOW) === null
+  );
+  check(
+    "comebackSuggestion: brak historii -> brak sugestii (nie ma od czego liczyc przerwy)",
+    comebackSuggestion(defaultState(), "hypertrophy", NOW) === null
+  );
+  {
+    // Niedokonczona sesja (porzucony draft zapisany jako completed:false) nie
+    // moze udawac treningu i chowac przerwy.
+    const st: any = withSession("2026-08-13T09:00:00.000Z");
+    st.sessions.push({ id: "b2", dayId: "wed", date: "2026-08-26T09:00:00.000Z", entries: [], completed: false });
+    check("comebackSuggestion: nieukonczona sesja nie kasuje przerwy", comebackSuggestion(st, "hypertrophy", NOW)?.days === 14);
+  }
+}
+
+// ── P8-3: "Ostatnie:" nie chowa juz roznych ciezarow w serii ───────────────
+{
+  const uniform = [{ date: "2026-08-20T09:00:00.000Z", sets: [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 17.5, reps: 12, done: true },
+  ], mode: "hypertrophy" as any }];
+  check("fmtLastEntries: jednolity ciezar formatuje sie jak dotad", fmtLastEntries(uniform, false) === "17,5×12/12/12", fmtLastEntries(uniform, false));
+
+  const mixed = [{ date: "2026-08-20T09:00:00.000Z", sets: [
+    { weight: 17.5, reps: 12, done: true },
+    { weight: 16.25, reps: 12, done: true },
+    { weight: 16.25, reps: 12, done: true },
+  ], mode: "hypertrophy" as any }];
+  check(
+    "fmtLastEntries: rozne ciezary -> kazda seria z wlasnym (bylo: 17,5×12/12/12)",
+    fmtLastEntries(mixed, false) === "17,5×12/16,25×12/16,25×12",
+    fmtLastEntries(mixed, false)
+  );
+  check("fmtLastEntries: isHold bez zmian (same sekundy)", fmtLastEntries(mixed, true) === "12/12/12");
+
+  // progressGoal.refMixedWeights - UI ma powiedziec prawde zamiast odsylac do Planu.
+  const st: any = defaultState();
+  const curl = st.exercises.find((e: any) => e.id === "curl_bb")!;
+  const day = st.days.find((d: any) => d.id === "mon")!;
+  const modeEx = exerciseForDay(exerciseForMode(curl, "hypertrophy"), day);
+  st.sessions = [{
+    id: "m1", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight: 16.25, sets: mixed[0].sets }],
+  }];
+  const goalMixed = progressGoal(st, curl, modeEx, 17.5)!;
+  check("progressGoal: rozne ciezary w sesji referencyjnej -> refMixedWeights", goalMixed.refMixedWeights === true);
+  check("progressGoal: komplet powtorzen mimo roznych ciezarow -> missingReps 0", goalMixed.missingReps === 0);
+
+  const stUniform: any = defaultState();
+  stUniform.sessions = [{
+    id: "u1", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: uniform[0].sets }],
+  }];
+  check(
+    "progressGoal: jednolity ciezar -> refMixedWeights false",
+    progressGoal(stUniform, curl, modeEx, 17.5)!.refMixedWeights === false
+  );
+}
+
+// ── P8-5: edycja treningu w Historii przelicza progresje ───────────────────
+{
+  const s = (weight: number, reps: number, done = true): any => ({ weight, reps, done });
+  const session = (id: string, date: string, sets: any[], targetWeight = 17.5, extra: any = {}): any => ({
+    id, dayId: "mon", date, completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight, sets }],
+    ...extra,
+  });
+  // Baza: cel 17,5 (uginanie bicepsa 3x10-12, increment 1,25).
+  const withEdited = (sets: any[], rest: any[] = []): any => {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, curl_bb: 17.5 };
+    st.sessions = [session("edited", "2026-08-20T09:00:00.000Z", sets), ...rest];
+    return st;
+  };
+
+  // Poprawka "zapomnialem odhaczyc trzecia serie" -> komplet -> cel rosnie.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: domkniety komplet po edycji podnosi cel 17,5 -> 18,75",
+      ch.length === 1 && ch[0].to === 18.75 && ch[0].from === 17.5, ch);
+    check("recompute: cel idzie do targets (zakres w hipertrofii bez zmian)", ch[0].hyper === false);
+  }
+  // Poprawka w dol -> cel NIE rosnie (i wraca do wartosci sprzed sesji).
+  {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, curl_bb: 18.75 }; // cel juz podniesiony przez ten trening
+    st.sessions = [session("edited", "2026-08-20T09:00:00.000Z", [s(17.5, 12), s(17.5, 11), s(17.5, 10)])];
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: poprawka w dol cofa cel 18,75 -> 17,5", ch.length === 1 && ch[0].to === 17.5, ch);
+  }
+  // Nic sie nie zmienilo -> brak zmian (zaden falszywy toast).
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 11), s(17.5, 11)]);
+    check("recompute: edycja bez wplywu na progresje -> brak zmian", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Pozniejszy trening tego cwiczenia wyznaczyl obecny cel - stara poprawka go nie nadpisuje.
+  {
+    const st = withEdited(
+      [s(17.5, 12), s(17.5, 12), s(17.5, 12)],
+      [session("later", "2026-08-25T09:00:00.000Z", [s(18.75, 10), s(18.75, 10), s(18.75, 10)], 18.75)]
+    );
+    check("recompute: nie nadpisuje celu, gdy po edytowanej sesji byl kolejny trening",
+      recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Deload ma cele zamrozone - edycja tez ich nie rusza.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    st.sessions[0].mode = "deload";
+    check("recompute: tydzien deloadu nie rusza celow", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Sesja nieukonczona (porzucony draft) tez nie.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    st.sessions[0].completed = false;
+    check("recompute: sesja nieukonczona nie rusza celow", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Cwiczenie z WLASNYM celem hipertrofii (bench_bb 5-8 -> 8-12) zapisuje do hyperTargets.
+  {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, bench_bb: 45 };
+    st.hyperTargets = { bench_bb: 40 };
+    st.sessions = [{
+      id: "edited", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+      entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [s(40, 12), s(40, 12), s(40, 12)] }],
+    }];
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: bench_bb w hipertrofii zapisuje do hyperTargets", ch.length === 1 && ch[0].hyper === true && ch[0].to === 42.5, ch);
+  }
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

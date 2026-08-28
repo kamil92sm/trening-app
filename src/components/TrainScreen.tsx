@@ -17,6 +17,7 @@ import { useStore, type FinishSummary, type UndoSnapshot } from "@/lib/store";
 import type { Exercise, ExerciseLog, Session, TrainingMode, WorkoutDay } from "@/lib/types";
 import {
   fmtKg,
+  fmtNumPl,
   fmtTonnage,
   sessionVolume,
   sessionDuration,
@@ -38,6 +39,7 @@ import {
   platePlan,
   nextDaySuggestion,
   weeksSinceDeload,
+  comebackSuggestion,
   lastEntries,
   fmtLastEntries,
   plannedSets,
@@ -379,6 +381,8 @@ export function TrainScreen() {
     (p) => p.id === draft?.gymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
+  // P8-2: przerwa dłuższa niż BREAK_DAYS -> propozycja tygodnia rozruchowego.
+  const comeback = useMemo(() => comebackSuggestion(state, mode), [state, mode]);
   // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
   const layout = state.settings.loggerLayout ?? "list";
   // P1-9/P3-5: rozgrzewka i talerze licza sie wzgledem AKTYWNEGO sprzetu (profil
@@ -945,7 +949,32 @@ export function TrainScreen() {
             onCheckedChange={(v) => store.updateSettings({ loggerLayout: v ? "focus" : "list" })}
           />
         </div>
-        {mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
+        {/* P8-2: powrót po przerwie. Idzie PRZED nudge'em deloadu i wyklucza go
+            (niżej), bo mówią o tym samym rozwiązaniu z dwóch różnych powodów —
+            dwa bursztynowe pudełka pod sobą to szum, nie informacja. */}
+        {comeback && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+            <p>
+              <span className="font-medium">{comeback.days} dni przerwy.</span> Siła po takiej
+              przerwie praktycznie nie spada — wracają zakwasy. Pierwszy tydzień zrób w trybie
+              Deload: ~90% ciężaru, połowa serii, cele zamrożone. Nic się nie cofa.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                store.updateSettings({ trainingMode: "deload" });
+                toast(
+                  "Tydzień rozruchowy",
+                  "Deload włączony: ~90% ciężaru, połowa serii. Cele zamrożone — w przyszłym tygodniu wracasz do swoich ciężarów."
+                );
+              }}
+              className="mt-2 min-h-11 rounded-md border border-amber-500/50 px-3 py-1.5 font-medium text-amber-200 hover:bg-amber-500/10"
+            >
+              Włącz tydzień rozruchowy
+            </button>
+          </div>
+        )}
+        {!comeback && mode !== "deload" && (weeksSinceDeloadCount >= 6 || plateauCount >= 3) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
             {/* P7-8: weeksSinceDeload liczy CYKLE ROTACJI, nie kalendarzowe
                 tygodnie — etykieta mówi "cykli", nie "tygodni". */}
@@ -1154,7 +1183,8 @@ export function TrainScreen() {
             (ex.secondaryMuscles?.length ?? 0) > 0 ||
             !!hEx.note ||
             warmupSteps.length > 0 ||
-            !!platePlanForEntry ||
+            // P8-4: talerze wyprowadzone nad "Pomoc i szczegóły" — nie są już
+            // powodem, żeby ta sekcja w ogóle istniała na karcie.
             !!guide ||
             hasRecord;
           // P3-8: baza urosla do ~90 pozycji - swapPool to PELNA lista kandydatow
@@ -1247,6 +1277,51 @@ export function TrainScreen() {
                     </div>
                   </div>
                 )}
+                {/* P8-4: talerze WIDOCZNE od razu przy ćwiczeniu — zgłoszenie
+                    Kamila: "często korzystam z tego obrazka ile talerzy założyć,
+                    fajnie by było mieć małe widoczne gdzieś przy ćwiczeniu,
+                    a nie w tej rozwijanej liście". Rysunek jest tym, po co się
+                    sięga W TRAKCIE ładowania sztangi — schowany za dwoma
+                    kliknięciami przestaje pełnić swoją funkcję. Rozgrzewka
+                    i reszta szczegółów zostają pod "Pomoc i szczegóły". */}
+                {/* "Cel lżejszy niż gryf" (np. uginanie na krótkim gryfie, którego
+                    apka nie modeluje) nie niesie żadnej informacji do działania —
+                    na stałe widoczne byłoby samym szumem na każdej karcie.
+                    "Brakuje X kg" zostaje: to realna wiadomość, że tego ciężaru
+                    nie da się złożyć z talerzy tej siłowni. */}
+                {platePlanForEntry && (platePlanForEntry.ok || platePlanForEntry.leftover > 0) && (
+                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1">
+                    <PlateBar
+                      target={plateWeight!}
+                      barWeight={activeBar}
+                      plates={activePlates}
+                      compact
+                      inline
+                    />
+                    <p className="min-w-0 text-[11px] leading-tight">
+                      {platePlanForEntry.ok ? (
+                        <>
+                          <span className="text-muted-foreground">
+                            {fmtKg(plateWeight!)} ·{" "}
+                          </span>
+                          {platePlanForEntry.perSide.length > 0 ? (
+                            <span className="font-medium">
+                              {platePlanForEntry.perSide.map(fmtNumPl).join(" + ")}
+                              <span className="text-muted-foreground"> na stronę</span>
+                            </span>
+                          ) : (
+                            <span className="font-medium">sam gryf</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-amber-400">
+                          {fmtKg(plateWeight!)} · nie do złożenia, brakuje{" "}
+                          {fmtKg(platePlanForEntry.leftover)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
                 {lastFew.length > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Ostatnie: {fmtLastEntries(lastFew, hEx.isHold)}
@@ -1280,10 +1355,23 @@ export function TrainScreen() {
                         {" "}
                         — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
                       </span>
+                    ) : goal.refMixedWeights ? (
+                      /* P8-3: komplet powtórzeń zebrany z RÓŻNYCH ciężarów nie
+                         domyka podwójnej progresji — apka celowo zostawiła
+                         ciężar (patrz mixedWorkingWeights w computeProgression).
+                         Wcześniej UI ogłaszało tu "cel się nie zmienił — sprawdź
+                         ciężar w Planie", czyli obwiniało ustawienia za własną,
+                         świadomą decyzję silnika. */
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio komplet, ale serie szły na różnych ciężarach; domknij go na{" "}
+                        {fmtKg(entry.targetWeight)}
+                      </span>
                     ) : (
                       <span className="text-amber-400">
                         {" "}
-                        — ostatnio komplet, ale cel się nie zmienił — sprawdź ciężar w Planie
+                        — ostatnio komplet, a cel nie drgnął. Sprawdź ciężar w Planie albo
+                        popraw ten trening w Historii (progresja przeliczy się od nowa).
                       </span>
                     )}
                   </p>
@@ -1327,36 +1415,14 @@ export function TrainScreen() {
                                       {fmtKg(s.weight)} × {s.reps}
                                     </span>
                                     <span className="text-muted-foreground">
-                                      {plan.perSide.length > 0 ? `Na stronę: ${plan.perSide.join("+")}` : "Sam gryf"}
+                                      {plan.perSide.length > 0
+                                        ? `Na stronę: ${plan.perSide.map(fmtNumPl).join("+")}`
+                                        : "Sam gryf"}
                                     </span>
                                   </div>
                                 );
                               })}
                               <p className="pt-0.5 text-[10px] text-muted-foreground">Nie loguje się do treningu.</p>
-                            </div>
-                          </div>
-                        )}
-                        {platePlanForEntry && (
-                          <div>
-                            <p className="text-[11px] font-medium text-foreground/80">
-                              {platePlanForEntry.ok ? (
-                                <>
-                                  Talerze ·{" "}
-                                  {platePlanForEntry.perSide.length > 0
-                                    ? `${platePlanForEntry.perSide.join(" + ")} na stronę`
-                                    : "sam gryf"}
-                                </>
-                              ) : (
-                                <span className="text-amber-400">
-                                  Talerze ·{" "}
-                                  {platePlanForEntry.leftover > 0
-                                    ? `brakuje ${fmtKg(platePlanForEntry.leftover)}`
-                                    : "cel lżejszy niż gryf"}
-                                </span>
-                              )}
-                            </p>
-                            <div className="mt-1">
-                              <PlateBar target={plateWeight!} barWeight={activeBar} plates={activePlates} compact />
                             </div>
                           </div>
                         )}

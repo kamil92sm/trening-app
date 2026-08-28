@@ -1006,17 +1006,42 @@ export function weightForReps(e1: number, reps: number, rir: number): number {
 }
 
 /**
- * Cel hipertrofii dla ćwiczenia. Kolejność: (1) już wypracowana progresja w
- * `hyperTargets`; (2) jeśli tryb hipertrofii NIE zmienia zakresu (bazowy
- * `repMax > 8`) → ten sam cel co siła (różnica tylko w RIR); (3) konwersja
- * z ciężkiego zakresu przez e1RM (z historii albo, przy jej braku, z
- * bieżącego celu siłowego) — patrz POMYSLY.md P0-5 pkt 2, sanity-check na
- * realnych danych.
+ * Czy tryb hipertrofii zostawia zakres powtórzeń tego ćwiczenia BEZ ZMIAN
+ * (różnica trybów to wtedy sam RIR). Dla takich ćwiczeń „cel siłowy" i „cel
+ * hipertroficzny" to z definicji TA SAMA liczba kilogramów — nie ma czego
+ * przeliczać (§5.7 pkt 2), więc nie mogą żyć w dwóch osobnych kopiach.
+ *
+ * P8-1: dokładnie ten rozjazd zgłosił Kamil — uginanie bicepsa (10–12, zakres
+ * w hipertrofii bez zmian) pokazywało cel 17,5 kg mimo domkniętego kompletu
+ * 3×12, bo progresja poszła do `targets`, a widok hipertrofii czytał starą
+ * wartość z `hyperTargets`, która miała BEZWARUNKOWE pierwszeństwo. Raz
+ * rozjechane cele nigdy się nie schodziły. Ćwiczenia, którym hipertrofia
+ * PODNOSI zakres (bazowy `repMax ≤ 8`, np. wyciskanie 5–8 → 8–12), nadal mają
+ * własny, niżej położony cel — tam rozdział celów jest zamierzony.
+ */
+export function hypertrophyKeepsRange(ex: Exercise): boolean {
+  const h = exerciseForMode(ex, "hypertrophy");
+  return h.repMin === ex.repMin && h.repMax === ex.repMax;
+}
+
+/**
+ * Cel hipertrofii dla ćwiczenia. Kolejność: (1) jeśli tryb hipertrofii NIE
+ * zmienia zakresu → ten sam cel co siła (`targets`, różnica trybów to sam RIR
+ * — patrz `hypertrophyKeepsRange`); (2) już wypracowana progresja w
+ * `hyperTargets`; (3) konwersja z ciężkiego zakresu przez e1RM (z historii
+ * albo, przy jej braku, z bieżącego celu siłowego) — patrz POMYSLY.md P0-5
+ * pkt 2, sanity-check na realnych danych.
+ *
+ * P8-1: kolejność (1) i (2) ZAMIENIONA względem pierwotnej wersji. Migracja
+ * `unifyHyperTargetsOnce` i tak czyści wpisy `hyperTargets` dla ćwiczeń
+ * z niezmienionym zakresem, ale ta kolejność jest bezpiecznikiem: nawet gdyby
+ * taki wpis skądś wrócił (stary backup, import), widok hipertrofii pokaże
+ * cel zgodny z progresją, a nie zamrożoną kopię sprzed tygodni.
  */
 export function hyperTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
-  if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const target = state.targets[ex.id] ?? 0;
-  if (ex.repMax > 8) return target;
+  if (hypertrophyKeepsRange(ex)) return target;
+  if (state.hyperTargets?.[ex.id] !== undefined) return state.hyperTargets[ex.id];
   const history = exerciseHistory(state, ex.id);
   const e1 = history.length > 0
     ? history[history.length - 1].e1rm
@@ -1099,6 +1124,55 @@ export function weeksSinceDeload(state: AppState, nowIso?: string): number {
   const refCycleIdx = cycles.findIndex((c) => c.sessions.some((s) => s.id === referenceSession.id));
   if (refCycleIdx < 0) return 0;
   return Math.max(0, cycles.length - 1 - refCycleIdx);
+}
+
+/**
+ * P8-2: przerwa (w dniach) od ostatniej UKOŃCZONEJ sesji. `null` = brak
+ * historii (nie ma od czego liczyć). Liczone w pełnych dobach, żeby "wczoraj"
+ * nie robiło się "1,3 dnia" zależnie od godziny treningu.
+ */
+export function daysSinceLastSession(state: AppState, nowIso?: string): number | null {
+  const now = nowIso ?? new Date().toISOString();
+  const last = [...state.sessions]
+    .filter((s) => s.completed && s.date <= now)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last) return null;
+  return Math.floor((new Date(now).getTime() - new Date(last.date).getTime()) / 86400000);
+}
+
+/**
+ * Próg przerwy, po której apka proponuje tydzień rozruchowy. Ta sama liczba,
+ * którą `trainingCycles` uznaje za "przerwa = nowy cykl" — jedna definicja
+ * przerwy w całej apce, żeby raport tygodniowy i ta podpowiedź nie mówiły
+ * o dwóch różnych rzeczach.
+ */
+export const BREAK_DAYS = 10;
+
+/**
+ * P8-2: powrót po przerwie. Zgłoszenie Kamila: "2 tyg. nie byłem na siłce
+ * i w przyszłym tygodniu wracam — może dać jakiś trening rozruchowy?".
+ *
+ * Osobny, CZWARTY tryb nie jest do tego potrzebny i byłby drogi (własna
+ * matematyka celu, własne testy, własne miejsce w każdym widoku — patrz koszt
+ * trybów w §5.7). Deload robi dokładnie to, czego trzeba po przerwie: ~90%
+ * ciężaru, POŁOWA serii, RIR +2 i ZAMROŻONE cele — czyli tydzień, który nie
+ * cofa progresji i nie kładzie zakwasami. Brakowało tylko tego, żeby apka
+ * sama go zaproponowała: dotychczasowy nudge patrzył wyłącznie na liczbę
+ * cykli bez deloadu i na zastój (`weeksSinceDeload`/`detectPlateau`), więc
+ * przerwy w treningach NIE WIDZIAŁ WCALE.
+ *
+ * `null`, gdy: nie ma historii, przerwa < `BREAK_DAYS`, albo tydzień i tak
+ * jest już ustawiony na deload (nie ma czego proponować).
+ */
+export function comebackSuggestion(
+  state: AppState,
+  mode: TrainingMode,
+  nowIso?: string
+): { days: number } | null {
+  if (mode === "deload") return null;
+  const days = daysSinceLastSession(state, nowIso);
+  if (days === null || days < BREAK_DAYS) return null;
+  return { days };
 }
 
 /**
@@ -1451,6 +1525,12 @@ export interface ProgressGoal {
   refWeight: number;
   /** Dzisiejszy cel vs ciężar sesji referencyjnej. */
   weightVsRef: WeightVsReference;
+  /** P8-3: serie ROBOCZE sesji referencyjnej szły na RÓŻNYCH ciężarach. Komplet
+   *  powtórzeń zebrany z kilku różnych ciężarów NIE domyka podwójnej progresji
+   *  (patrz `mixedWorkingWeights` w `computeProgression`) — bez tej flagi UI
+   *  ogłaszało "ostatnio komplet, ale cel się nie zmienił" i odsyłało do Planu,
+   *  czyli obwiniało dane za decyzję, którą silnik podjął świadomie. */
+  refMixedWeights: boolean;
 }
 
 /**
@@ -1482,6 +1562,7 @@ export function progressGoal(
   }
   const cmp = weightVsReference(state, ex.id, targetWeight)!; // ref istnieje (sprawdzone wyżej)
   const missingReps = cmp.relation === "same" ? missing : 0;
+  const firstWeight = working[0]?.weight ?? 0;
   return {
     repsPerSet: modeEx.repMax,
     repMin: modeEx.repMin,
@@ -1489,6 +1570,7 @@ export function progressGoal(
     missingReps,
     refWeight: cmp.refWeight,
     weightVsRef: cmp.relation,
+    refMixedWeights: working.length > 1 && working.some((s) => Math.abs(s.weight - firstWeight) > 1e-9),
   };
 }
 
@@ -1680,7 +1762,7 @@ export function warmupPlan(ex: Exercise, workWeight: number, bar: number, plates
 
 // ── Formatery ──────────────────────────────────────────────────────────────
 
-function fmtNumPl(x: number): string {
+export function fmtNumPl(x: number): string {
   return (+x.toFixed(2)).toString().replace(".", ",");
 }
 
@@ -1695,13 +1777,26 @@ export function fmtKg(x: number): string {
  * pojedynczym wpisem "Ostatnio"). Hantle: `weight` jest JUŻ "na rękę" (tak
  * przechowywane w `SetLog`, patrz §4 CLAUDE.md `perHand`) - bez dodatkowego mnożenia.
  */
+/**
+ * P8-3: gdy serie jednego treningu szły na RÓŻNYCH ciężarach, każda dostaje
+ * własne `ciężar×powt.`. Wcześniej funkcja brała ciężar WYŁĄCZNIE z pierwszej
+ * serii (`e.sets[0].weight`) i doklejała do niego powtórzenia wszystkich —
+ * trening 17,5×12 / 16,25×12 / 16,25×12 wyglądał na ekranie jak "17,5×12/12/12",
+ * czyli jak domknięty komplet na jednym ciężarze. Nie dało się z tego ekranu
+ * zrozumieć, dlaczego apka nie podniosła ciężaru (zgłoszenie Kamila).
+ * Jednolity ciężar w serii formatuje się jak dotąd — wersja per seria włącza
+ * się tylko wtedy, gdy naprawdę jest co pokazać.
+ */
 export function fmtLastEntries(entries: LastEntry[], isHold: boolean): string {
   return entries
-    .map((e) =>
-      isHold
-        ? e.sets.map((s) => s.reps).join("/")
-        : `${fmtNumPl(e.sets[0]?.weight ?? 0)}×${e.sets.map((s) => s.reps).join("/")}`
-    )
+    .map((e) => {
+      if (isHold) return e.sets.map((s) => s.reps).join("/");
+      const first = e.sets[0]?.weight ?? 0;
+      const uniform = e.sets.every((s) => Math.abs(s.weight - first) < 1e-9);
+      return uniform
+        ? `${fmtNumPl(first)}×${e.sets.map((s) => s.reps).join("/")}`
+        : e.sets.map((s) => `${fmtNumPl(s.weight)}×${s.reps}`).join("/");
+    })
     .join(" · ");
 }
 
