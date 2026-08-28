@@ -1370,8 +1370,8 @@ export function TrainScreen() {
                     ) : (
                       <span className="text-amber-400">
                         {" "}
-                        — ostatnio komplet, a cel nie drgnął. Jeśli poprawiałeś ten trening
-                        w Historii, progresja nie przelicza się wstecz — popraw cel w Planie.
+                        — ostatnio komplet, a cel nie drgnął. Sprawdź ciężar w Planie albo
+                        popraw ten trening w Historii (progresja przeliczy się od nowa).
                       </span>
                     )}
                   </p>

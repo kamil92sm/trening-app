@@ -77,6 +77,7 @@ import {
   SCHEMA_VERSION,
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
+import { recomputeTargetsForEditedSession } from "../src/lib/store";
 import { validateBackup } from "../src/lib/validate";
 import { serializeBackup } from "../src/lib/backup";
 import { niceScale } from "../src/lib/scale";
@@ -3801,6 +3802,78 @@ check(
     "progressGoal: jednolity ciezar -> refMixedWeights false",
     progressGoal(stUniform, curl, modeEx, 17.5)!.refMixedWeights === false
   );
+}
+
+// ── P8-5: edycja treningu w Historii przelicza progresje ───────────────────
+{
+  const s = (weight: number, reps: number, done = true): any => ({ weight, reps, done });
+  const session = (id: string, date: string, sets: any[], targetWeight = 17.5, extra: any = {}): any => ({
+    id, dayId: "mon", date, completed: true, mode: "hypertrophy",
+    entries: [{ exerciseId: "curl_bb", targetWeight, sets }],
+    ...extra,
+  });
+  // Baza: cel 17,5 (uginanie bicepsa 3x10-12, increment 1,25).
+  const withEdited = (sets: any[], rest: any[] = []): any => {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, curl_bb: 17.5 };
+    st.sessions = [session("edited", "2026-08-20T09:00:00.000Z", sets), ...rest];
+    return st;
+  };
+
+  // Poprawka "zapomnialem odhaczyc trzecia serie" -> komplet -> cel rosnie.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: domkniety komplet po edycji podnosi cel 17,5 -> 18,75",
+      ch.length === 1 && ch[0].to === 18.75 && ch[0].from === 17.5, ch);
+    check("recompute: cel idzie do targets (zakres w hipertrofii bez zmian)", ch[0].hyper === false);
+  }
+  // Poprawka w dol -> cel NIE rosnie (i wraca do wartosci sprzed sesji).
+  {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, curl_bb: 18.75 }; // cel juz podniesiony przez ten trening
+    st.sessions = [session("edited", "2026-08-20T09:00:00.000Z", [s(17.5, 12), s(17.5, 11), s(17.5, 10)])];
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: poprawka w dol cofa cel 18,75 -> 17,5", ch.length === 1 && ch[0].to === 17.5, ch);
+  }
+  // Nic sie nie zmienilo -> brak zmian (zaden falszywy toast).
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 11), s(17.5, 11)]);
+    check("recompute: edycja bez wplywu na progresje -> brak zmian", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Pozniejszy trening tego cwiczenia wyznaczyl obecny cel - stara poprawka go nie nadpisuje.
+  {
+    const st = withEdited(
+      [s(17.5, 12), s(17.5, 12), s(17.5, 12)],
+      [session("later", "2026-08-25T09:00:00.000Z", [s(18.75, 10), s(18.75, 10), s(18.75, 10)], 18.75)]
+    );
+    check("recompute: nie nadpisuje celu, gdy po edytowanej sesji byl kolejny trening",
+      recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Deload ma cele zamrozone - edycja tez ich nie rusza.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    st.sessions[0].mode = "deload";
+    check("recompute: tydzien deloadu nie rusza celow", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Sesja nieukonczona (porzucony draft) tez nie.
+  {
+    const st = withEdited([s(17.5, 12), s(17.5, 12), s(17.5, 12)]);
+    st.sessions[0].completed = false;
+    check("recompute: sesja nieukonczona nie rusza celow", recomputeTargetsForEditedSession(st, st.sessions[0]).length === 0);
+  }
+  // Cwiczenie z WLASNYM celem hipertrofii (bench_bb 5-8 -> 8-12) zapisuje do hyperTargets.
+  {
+    const st: any = defaultState();
+    st.targets = { ...st.targets, bench_bb: 45 };
+    st.hyperTargets = { bench_bb: 40 };
+    st.sessions = [{
+      id: "edited", dayId: "mon", date: "2026-08-20T09:00:00.000Z", completed: true, mode: "hypertrophy",
+      entries: [{ exerciseId: "bench_bb", targetWeight: 40, sets: [s(40, 12), s(40, 12), s(40, 12)] }],
+    }];
+    const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
+    check("recompute: bench_bb w hipertrofii zapisuje do hyperTargets", ch.length === 1 && ch[0].hyper === true && ch[0].to === 42.5, ch);
+  }
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

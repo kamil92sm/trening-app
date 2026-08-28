@@ -26,9 +26,21 @@ export function HistoryScreen() {
 
   function saveEdit() {
     if (!editing) return;
-    updateSession(editing);
+    // P8-5: edycja przelicza progresję — pokazujemy WPROST, które cele się
+    // przez to zmieniły. Bez tego poprawka wyglądałaby na kosmetyczną, a po
+    // cichu ruszała ciężary na następny trening.
+    const changes = updateSession(editing);
     setEditing(null);
-    toast("Zapisano zmiany w treningu");
+    if (changes.length === 0) {
+      toast("Zapisano zmiany w treningu", "Cele bez zmian.");
+      return;
+    }
+    toast(
+      changes.length === 1 ? "Zapisano — cel przeliczony" : `Zapisano — przeliczono ${changes.length} cele`,
+      changes
+        .map((c) => `${c.exercise.name}: ${fmtKg(c.from)} → ${fmtKg(c.to)}`)
+        .join(" · ")
+    );
   }
 
   const sessions = [...state.sessions].sort((a, b) => b.date.localeCompare(a.date));
