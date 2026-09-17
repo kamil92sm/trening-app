@@ -238,7 +238,13 @@ export function actualWeeklyMuscleVolume(
       // weszły w dolną granicę zakresu (dla trybu tygodnia, w którym zapisano
       // sesję). Seria urwana na 4 powtórzeniach przy zakresie 10-12 nie jest
       // bodźcem hipertroficznym i zawyżała metrykę.
-      const workingRepMin = exerciseForMode(ex, sessionMode).repMin;
+      // P9-3: dla sesji deloadowej zakres powtórzeń zależy od trybu, z którego
+      // wtedy schodził — liczone na moment TAMTEJ sesji, nie „dziś".
+      const workingRepMin = exerciseForMode(
+        ex,
+        sessionMode,
+        sessionMode === "deload" ? modeBeforeDeload(state, session.date) : "strength"
+      ).repMin;
       const workingSets = entry.sets.filter((s) => s.done && s.reps >= workingRepMin);
       const doneSets = workingSets.length;
       if (doneSets === 0) continue;
@@ -1035,17 +1041,34 @@ export function strengthRatios(state: AppState): StrengthRatio[] {
  * `targetSets`/`increment`/`restSeconds` NIGDY nie są zmieniane (objętość i
  * przerwy zostają — patrz uzasadnienie naukowe pkt 3–4 w POMYSLY.md).
  */
-export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
+export function exerciseForMode(
+  ex: Exercise,
+  mode: TrainingMode,
+  baseMode: TrainingMode = "strength"
+): Exercise {
   if (mode === "strength") return ex;
   if (mode === "deload") {
-    // Zakres powtórzeń zostaje bazowy — schodzisz OBJĘTOŚCIĄ (patrz
-    // DELOAD_LOAD_FACTOR / deloadSets), nie powtórzeniami. Przy ~90% ciężaru
-    // te same powtórzenia zostawiają ok. 2 więcej w zapasie, stąd rir + 2.
-    // Sufit 4: wyżej liczba przestaje nieść informację (to już po prostu
-    // "bardzo lekko"), a licznik RIR w loggerze i tak kończy się na "3+".
-    // Czysto wyświetlane — w deloadzie progresja jest wyłączona, więc ta
-    // wartość nie wchodzi do żadnego rachunku.
-    return { ...ex, rir: Math.min(4, ex.rir + 2) };
+    // P9-3 (wariant A): deload jest LŻEJSZĄ WERSJĄ TYGODNIA, KTÓRY REALNIE ROBIŁEŚ,
+    // a nie osobnym trybem liczonym zawsze od planu siłowego.
+    //
+    // Było: zakres powtórzeń zawsze bazowy (siłowy). Dla Kamila, który trenuje
+    // w Hipertrofii, oznaczało to, że tydzień „lżejszy" kazał mu robić
+    // wiosłowanie 2×6–8 na 55 kg po tygodniach 3×8–12 na 57,5 — czyli 96%
+    // ciężaru roboczego w INNYM zakresie powtórzeń. To nie była lżejsza wersja
+    // jego treningu, tylko inny trening (policzone: bench 94%, martwy 93%,
+    // przysiad 92%, OHP 92% realnego ciężaru hipertroficznego).
+    //
+    // Jest: najpierw ćwiczenie przeliczone pod tryb, w którym trenował
+    // (`baseMode`), potem deload na wierzch. Zakres powtórzeń zostaje zakresem
+    // TAMTEGO tygodnia — schodzisz OBJĘTOŚCIĄ (deloadSets) i CIĘŻAREM
+    // (DELOAD_LOAD_FACTOR), nie przeskokiem na inny zakres.
+    //
+    // `rir + 2` liczone od RIR tamtego trybu, więc tydzień jest o dwa kroki
+    // dalej od upadku niż ten, z którego schodzisz. Sufit 4: wyżej liczba
+    // przestaje nieść informację, a licznik RIR w loggerze i tak kończy się
+    // na „3+". Czysto wyświetlane — w deloadzie progresja jest wyłączona.
+    const base = baseMode === "deload" ? ex : exerciseForMode(ex, baseMode);
+    return { ...base, rir: Math.min(4, base.rir + 2) };
   }
   if (ex.isHold) return ex;
   // Hipertrofia = o JEDEN krok bliżej granicy niż baza TEGO ćwiczenia, nie
@@ -1153,8 +1176,19 @@ export function deloadSets(plannedSetCount: number): number {
  * poprzedni tydzień był hipertroficzny — deload jest odpoczynkiem od obu trybów,
  * nie kontynuacją żadnego z nich), zaokrąglone do `increment` ćwiczenia.
  */
-export function deloadTargetFor(state: AppState, ex: Exercise, ladder: number[] = []): number {
-  const strengthTarget = state.targets[ex.id] ?? 0;
+export function deloadTargetFor(
+  state: AppState,
+  ex: Exercise,
+  ladder: number[] = [],
+  baseMode: TrainingMode = "strength"
+): number {
+  // P9-3 (wariant A): baza to cel trybu, W KTÓRYM REALNIE TRENOWAŁ — dla ćwiczeń,
+  // którym hipertrofia zmienia zakres, `targets` (siła) i `hyperTargets` to dwie
+  // różne liczby, a deload liczony od siłowej wypadał na 92–96% ciężaru, na
+  // którym Kamil faktycznie pracował. Dla ćwiczeń z jednym celem (P8-1) obie
+  // ścieżki dają dokładnie to samo.
+  const strengthTarget =
+    baseMode === "hypertrophy" ? hyperTargetFor(state, ex, ladder) : state.targets[ex.id] ?? 0;
   // Ćwiczenia na czas (plank): obciążenie zostaje, deload robi połowa serii.
   // Skok obciążenia jest tu zgrubny (plank: +5 kg przy celu 10 kg), więc każde
   // "obniżenie" oznaczałoby -50% — a to już nie deload, tylko inne ćwiczenie.
@@ -1180,10 +1214,34 @@ export function deloadTargetFor(state: AppState, ex: Exercise, ladder: number[] 
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */
-export function targetForMode(state: AppState, ex: Exercise, mode: TrainingMode, ladder: number[] = []): number {
+export function targetForMode(
+  state: AppState,
+  ex: Exercise,
+  mode: TrainingMode,
+  ladder: number[] = [],
+  baseMode: TrainingMode = "strength"
+): number {
   if (mode === "strength") return state.targets[ex.id] ?? 0;
-  if (mode === "deload") return deloadTargetFor(state, ex, ladder);
+  if (mode === "deload") return deloadTargetFor(state, ex, ladder, baseMode);
   return hyperTargetFor(state, ex, ladder);
+}
+
+/**
+ * P9-3: tryb tygodnia, z którego schodzisz w deload — tryb NAJNOWSZEJ ukończonej
+ * sesji spoza deloadu. Brak historii (albo same deloady) → `"strength"`, czyli
+ * dokładnie zachowanie sprzed tej zmiany.
+ *
+ * Liczone z historii, nie z `settings.trainingMode`: przełącznik trybu pokazuje
+ * tydzień BIEŻĄCY (czyli w tym wypadku „deload"), a pytanie brzmi „co robiłeś
+ * do tej pory". `nowIso` pozwala policzyć to dla konkretnej sesji z przeszłości
+ * (metryki liczone wstecz), a nie zawsze dla „dziś".
+ */
+export function modeBeforeDeload(state: AppState, nowIso?: string): TrainingMode {
+  const now = nowIso ?? new Date().toISOString();
+  const prev = [...state.sessions]
+    .filter((s) => s.completed && s.date < now && (s.mode ?? "strength") !== "deload")
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  return prev?.mode ?? "strength";
 }
 
 /**

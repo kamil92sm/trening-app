@@ -31,6 +31,7 @@ import {
   easyAtRirHigh,
   exerciseForDay,
   exerciseForMode,
+  modeBeforeDeload,
   failedAtRirZero,
   gymForDay,
   hypertrophyKeepsRange,
@@ -197,7 +198,13 @@ export function sessionProgressionSummaries(
     // powtórzeń) ORAZ pod liczbę serii roboczych z planu TEGO dnia
     // (`day.setsOverride` — seria dołożona w loggerze zostaje w planie),
     // ale zapisywana pod ID oryginalnego ćwiczenia.
-    const modeEx = exerciseForDay(exerciseForMode(ex, mode), sessionDay);
+    // P9-3: dla sesji deloadowej zakres powtórzeń liczy się w trybie, z którego
+    // wtedy schodził (wariant A). W deloadzie progresja i tak nie zapisuje celów,
+    // ale `modeEx` steruje też liczbą serii roboczych i treścią komunikatu.
+    const modeEx = exerciseForDay(
+      exerciseForMode(ex, mode, mode === "deload" ? modeBeforeDeload(state, sessionData.date) : "strength"),
+      sessionDay
+    );
     const working = entry.sets.filter((s) => s.done).slice(0, modeEx.targetSets);
     const lastRir = working.length > 0 ? working[working.length - 1].rir : undefined;
     // `null` = serie robocze NIE poszły na jednym ciężarze (niezależnie

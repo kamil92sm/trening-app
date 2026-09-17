@@ -26,6 +26,7 @@ import {
   suggestBonusExercises,
   exerciseForMode,
   targetForMode,
+  modeBeforeDeload,
   gymForDay,
   dumbbellLadder,
   snapLoadUp,
@@ -382,6 +383,11 @@ export function TrainScreen() {
     (p) => p.id === draft?.gymProfileId
   ) ?? null;
   const mode: TrainingMode = state.settings.trainingMode ?? "strength";
+  // P9-3 (wariant A): tryb, z którego schodzisz w deload — deload jest lżejszą
+  // wersją tygodnia, który REALNIE robiłeś, a nie osobnym trybem liczonym zawsze
+  // od planu siłowego. Poza deloadem nie ma znaczenia (wtedy "strength" i tak
+  // nic nie zmienia), więc liczone bezwarunkowo i przekazywane wszędzie.
+  const baseMode: TrainingMode = useMemo(() => modeBeforeDeload(state), [state]);
   // P8-2: przerwa dłuższa niż BREAK_DAYS -> propozycja tygodnia rozruchowego.
   const comeback = useMemo(() => comebackSuggestion(state, mode), [state, mode]);
   // P3-6: uklad loggera - "list" (domyslnie, jak dzis) albo "focus" (jedno cwiczenie na ekran).
@@ -452,8 +458,8 @@ export function TrainScreen() {
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
-        const hEx = exerciseForMode(ex, mode);
-        const target = targetForMode(state, ex, mode, dayLadder);
+        const hEx = exerciseForMode(ex, mode, baseMode);
+        const target = targetForMode(state, ex, mode, dayLadder, baseMode);
         const count = setsForMode(ex, mode, day);
         // Podwójna progresja: po skoku ciężaru prefill wraca na DÓŁ zakresu,
         // przy tym samym ciężarze podpowiada wynik z ostatniego treningu
@@ -675,14 +681,14 @@ export function TrainScreen() {
   function swapExercise(entryIdx: number, newExId: string) {
     const newEx = state.exercises.find((e) => e.id === newExId);
     if (!newEx) return;
-    const hEx = exerciseForMode(newEx, mode);
+    const hEx = exerciseForMode(newEx, mode, baseMode);
     const swapDay = state.days.find((d) => d.id === draft?.dayId);
     // P7-3: siłownia AKTUALNA sesji (mogła zostać przełączona w nagłówku),
     // nie tylko domyślna dnia — zamiana ćwiczenia w trakcie treningu ma
     // celować w hantel, który naprawdę jest na stojaku TERAZ.
     const swapGymProfile = (state.settings.gymProfiles ?? []).find((p) => p.id === draft?.gymProfileId) ?? null;
     const swapLadder = dumbbellLadder(state, swapGymProfile);
-    const target = targetForMode(state, newEx, mode, swapLadder);
+    const target = targetForMode(state, newEx, mode, swapLadder, baseMode);
     const count = setsForMode(newEx, mode, swapDay);
     const reps = prefillRepsForEntry(state, newEx, hEx, target, count); // ta sama reguła co przy starcie dnia
     setDraft((prev) => {
@@ -1162,7 +1168,7 @@ export function TrainScreen() {
     const entry = draft.entries[ei];
     const ex = state.exercises.find((e) => e.id === entry.exerciseId);
     if (!ex) return null;
-    const hEx = exerciseForMode(ex, draft.mode);
+    const hEx = exerciseForMode(ex, draft.mode, baseMode);
           // P7-3: drabinka AKTUALNEJ siłowni sesji — steppery −/+ mają skakać
           // po realnych hantlach, nie po "cel ± krok" (22,5 -> 24,5, którego
           // nie ma na stojaku).

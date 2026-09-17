@@ -31,6 +31,7 @@ import {
   suggestBonusExercises,
   projectHistory,
   exerciseForMode,
+  modeBeforeDeload,
   weightForReps,
   hyperTargetFor,
   comebackSuggestion,
@@ -4159,6 +4160,88 @@ check(
         referenceEntry(st, "curl_bb")!.sets[0].weight === 17.5
     );
   }
+}
+
+// ── P9-3 (wariant A): deload jest lżejszą wersją tygodnia, który robiłeś ───
+{
+  const hyperSt: any = migrateState(null);
+  hyperSt.sessions = hyperSt.sessions.map((x: any) => ({ ...x, mode: "hypertrophy" }));
+  const strengthSt: any = migrateState(null); // historia startowa jest siłowa
+
+  check("P9-3: modeBeforeDeload czyta tryb z historii", modeBeforeDeload(hyperSt) === "hypertrophy");
+  check("P9-3: brak historii -> strength (zachowanie sprzed zmiany)", modeBeforeDeload({ ...hyperSt, sessions: [] }) === "strength");
+  check(
+    "P9-3: same deloady w historii -> strength",
+    modeBeforeDeload({ ...hyperSt, sessions: hyperSt.sessions.map((x: any) => ({ ...x, mode: "deload" })) }) === "strength"
+  );
+  check(
+    "P9-3: nowsza sesja silowa wygrywa ze starsza hipertroficzna",
+    modeBeforeDeload({
+      ...hyperSt,
+      sessions: [
+        { ...hyperSt.sessions[0], date: "2026-01-01T10:00:00.000Z", mode: "hypertrophy" },
+        { ...hyperSt.sessions[0], id: "x", date: "2026-02-01T10:00:00.000Z", mode: "strength" },
+      ],
+    }) === "strength"
+  );
+
+  const row = hyperSt.exercises.find((e: any) => e.id === "row_bb")!;
+  const dl = exerciseForMode(row, "deload", "hypertrophy");
+  const hyp = exerciseForMode(row, "hypertrophy");
+  check(
+    "P9-3: deload po hipertrofii trzyma ZAKRES hipertrofii (8-12, bylo 6-8)",
+    dl.repMin === hyp.repMin && dl.repMax === hyp.repMax && dl.repMin === 8 && dl.repMax === 12,
+    [dl.repMin, dl.repMax]
+  );
+  check(
+    "P9-3: RIR deloadu = RIR tamtego trybu + 2 (sufit 4)",
+    dl.rir === Math.min(4, hyp.rir + 2)
+  );
+  check(
+    "P9-3: bez baseMode WSZYSTKO jak dotad (zakres bazowy 6-8)",
+    exerciseForMode(row, "deload").repMin === row.repMin && exerciseForMode(row, "deload").repMax === row.repMax
+  );
+  check(
+    "P9-3: martwy ciag — wyjatek bezpieczenstwa przenosi sie do deloadu (6-8, nie 5-6)",
+    (() => {
+      const dead = hyperSt.exercises.find((e: any) => e.id === "deadlift")!;
+      const d = exerciseForMode(dead, "deload", "hypertrophy");
+      return d.repMin === 6 && d.repMax === 8;
+    })()
+  );
+
+  const ladder = dumbbellLadder(hyperSt, gymForDay(hyperSt, hyperSt.days.find((d: any) => d.exerciseIds.includes("row_bb"))));
+  const hyperTarget = hyperTargetFor(hyperSt, row, ladder);
+  check(
+    "P9-3: ciezar deloadu <= 90% celu HIPERTROFII (bylo 96% - prawie tydzien roboczy)",
+    deloadTargetFor(hyperSt, row, ladder, "hypertrophy") <= hyperTarget * 0.9 + 1e-9,
+    [deloadTargetFor(hyperSt, row, ladder, "hypertrophy"), hyperTarget]
+  );
+  check(
+    "P9-3: po tygodniach SILOWYCH wynik dokladnie taki jak przed zmiana",
+    deloadTargetFor(strengthSt, row, ladder, "strength") === deloadTargetFor(strengthSt, row, ladder)
+  );
+  check(
+    "P9-3: cwiczenia z JEDNYM celem (P8-1) maja ten sam ciezar w obu sciezkach",
+    ["hipthrust", "curl_bb", "lateral", "crunch"].every((id) => {
+      const ex = hyperSt.exercises.find((e: any) => e.id === id);
+      if (!ex) return true;
+      const L = dumbbellLadder(hyperSt, gymForDay(hyperSt, hyperSt.days.find((d: any) => d.exerciseIds.includes(id))));
+      return deloadTargetFor(hyperSt, ex, L, "hypertrophy") === deloadTargetFor(hyperSt, ex, L, "strength");
+    })
+  );
+  check(
+    "P9-3: deload NIGDY nie jest ciezszy niz tydzien, z ktorego schodzisz (cala baza)",
+    hyperSt.exercises.every((ex: any) => {
+      if (ex.isHold || !hyperSt.targets[ex.id]) return true;
+      const L = dumbbellLadder(hyperSt, gymForDay(hyperSt, hyperSt.days.find((d: any) => d.exerciseIds.includes(ex.id))));
+      return deloadTargetFor(hyperSt, ex, L, "hypertrophy") <= hyperTargetFor(hyperSt, ex, L) + 1e-9;
+    })
+  );
+  check(
+    "P9-3: targetForMode przekazuje baseMode dalej",
+    targetForMode(hyperSt, row, "deload", ladder, "hypertrophy") === deloadTargetFor(hyperSt, row, ladder, "hypertrophy")
+  );
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
