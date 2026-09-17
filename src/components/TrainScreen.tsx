@@ -530,8 +530,13 @@ export function TrainScreen() {
       // P1-8: jednorazowy toast, gdy zaznaczenie serii bije rekord życia.
       // `prevSet` to jeszcze stary stan (przed setDraft powyżej) — merge z
       // patchem daje finalny wiersz (weight/reps + done:true).
+      // P9-4: w tygodniu deloadu apka nie poluje na rekordy. Zgłoszenie Kamila
+      // ("po co rekordy na deloadzie?"): cały sens tego tygodnia to zejść
+      // z obciążenia i objętości, więc świętowanie rekordu jest sprzeczne
+      // z tym, co apka sama każe robić. Karty progresji są tu wyciszone od
+      // P2-8 — aparat rekordów po prostu nigdy nie dostał tego samego gate'a.
       const prevSet = draft?.entries[entryIdx]?.sets[setIdx];
-      if (ex && prevSet) {
+      if (ex && prevSet && draft?.mode !== "deload") {
         const finalSet = { ...prevSet, ...patch };
         const best = personalBestsByExercise.get(ex.id);
         const kind = best ? isSetRecord(ex, finalSet, best) : null;
@@ -709,7 +714,7 @@ export function TrainScreen() {
     // zawiera, bo store.finishSession jeszcze nie dopisał tej sesji do stanu).
     // Jeden wpis na ćwiczenie (najlepsza z serii, które biją rekord).
     const recordHits: RecordHit[] = [];
-    for (const entry of draft.entries) {
+    for (const entry of (draft.mode === "deload" ? [] : draft.entries)) {
       const ex = state.exercises.find((e) => e.id === entry.exerciseId);
       const best = ex ? personalBestsByExercise.get(ex.id) : undefined;
       if (!ex || !best) continue;
@@ -847,6 +852,7 @@ export function TrainScreen() {
               <p className="text-sm font-medium text-amber-300">Deload — cele bez zmian</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Wracasz do swoich ciężarów w przyszłym tygodniu — ten trening nie liczy się do progresji.
+                Apka nie liczyła tu też rekordów ani porównań z ostatnim tygodniem: lżejszy trening to plan, nie regres.
               </p>
             </CardContent>
           </Card>
@@ -937,6 +943,16 @@ export function TrainScreen() {
           <p className="mt-1.5 text-[10px] text-muted-foreground">
             Przełączaj między tygodniami — periodyzacja falująca jest równie skuteczna jak sztywne bloki.
           </p>
+          {/* P9-4/P9-9: dwie rzeczy, których apka dotąd nigdzie nie mówiła wprost,
+              a Kamil pytał o obie: czy po deloadzie wracają ciężary (tak — cele są
+              zamrożone) i po co w takim tygodniu rekordy (po nic — nie są liczone). */}
+          {mode === "deload" && (
+            <p className="mt-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-300">
+              Cele są zamrożone — po tym tygodniu wracasz dokładnie na ciężary, na których
+              skończyłeś. Apka nie liczy tu rekordów ani porównań z ostatnim tygodniem:
+              lżejszy trening to plan, nie regres.
+            </p>
+          )}
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
           <div>
@@ -1477,7 +1493,9 @@ export function TrainScreen() {
               <CardContent className="space-y-1.5">
                 {entry.sets.map((set, si) => {
                   const best = personalBestsByExercise.get(ex.id);
-                  const recordKind = best ? isSetRecord(ex, set, best) : null;
+                  // P9-4: bez plakietki i bez obwódki w deloadzie (patrz updateSet).
+                  const recordKind =
+                    best && draft.mode !== "deload" ? isSetRecord(ex, set, best) : null;
                   // P4-4: pytamy o RIR TYLKO po ostatniej serii ROBOCZEJ (nie po
                   // każdej, nie po dodatkowych seriach z "Dodaj serię") i tylko
                   // gdy progresja w ogóle liczy się w tym trybie (deload - nie).
@@ -1566,7 +1584,16 @@ export function TrainScreen() {
                         obciążeniu nie ma uczciwej wspólnej miary — "incomparable"
                         zostaje neutralne, tak jak dotąd tylko kropkowane. */}
                     {refSets[si] !== undefined && !recordKind && (() => {
-                      const cmp = set.done ? compareSetToReference(hEx, set, refSets[si]) : null;
+                      // P9-4: w deloadzie kratka zostaje BEZ koloru. Punkt odniesienia
+                      // (`referenceEntry`) celowo pomija tygodnie deloadu, więc lekka,
+                      // celowo ścięta seria porównywałaby się z pełnym tygodniem
+                      // roboczym — bursztyn byłby wtedy gwarantowany i nie niósłby
+                      // żadnej informacji. Sama liczba zostaje, bo historia jest
+                      // przydatna; znika tylko ocena "gorzej".
+                      const cmp =
+                        set.done && draft.mode !== "deload"
+                          ? compareSetToReference(hEx, set, refSets[si])
+                          : null;
                       const cmpTitle = hEx.isHold
                         ? `Ostatnio: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} s · dziś: ${fmtKg(set.weight)} × ${set.reps} s`
                         : `Ostatnio w tej serii: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} powt. (e1RM ${fmtKg(Math.round(e1rm(refSets[si].weight, refSets[si].reps) * 10) / 10)}) · dziś ${fmtKg(set.weight)} × ${set.reps} (e1RM ${fmtKg(Math.round(e1rm(set.weight, set.reps) * 10) / 10)})`;
