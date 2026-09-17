@@ -13,6 +13,7 @@ import {
   muscleRangesFor,
   lastEntry,
   lastEntries,
+  referenceEntry,
   fmtLastEntries,
   personalBests,
   isSetRecord,
@@ -4115,6 +4116,49 @@ check(
     "P9-5: nie-hold bez zmian (rozny ciezar, §26.3)",
     fmtLastEntries([e("hypertrophy", [s2(17.5, 12), s2(16.25, 12)])], false) === "17,5×12/16,25×12"
   );
+}
+
+// ── P9-6: oznaczenie tygodnia deloadu w "Ostatnie:" ────────────────────────
+{
+  const mk = (mode: string, w: number, reps: number[]) =>
+    ({ date: "2026-09-01T10:00:00.000Z", mode, sets: reps.map((r) => ({ weight: w, reps: r, done: true })) } as any);
+  const list = [mk("deload", 40, [12, 12]), mk("hypertrophy", 45, [12, 12, 11])];
+
+  check(
+    "P9-6: bez parametru wynik IDENTYCZNY jak dotad",
+    fmtLastEntries(list, false) === "40×12/12 · 45×12/12/11",
+    fmtLastEntries(list, false)
+  );
+  check(
+    "P9-6: z markDeload tylko wpis deloadowy dostaje znacznik",
+    fmtLastEntries(list, false, true) === "40×12/12 ᴰ · 45×12/12/11",
+    fmtLastEntries(list, false, true)
+  );
+  check(
+    "P9-6: brak deloadu w oknie -> zaden znacznik",
+    fmtLastEntries([mk("hypertrophy", 45, [12])], false, true) === "45×12"
+  );
+  check(
+    "P9-6: dziala tez dla isHold",
+    fmtLastEntries([mk("deload", 15, [40, 40])], true, true) === "15×40/40 ᴰ",
+    fmtLastEntries([mk("deload", 15, [40, 40])], true, true)
+  );
+  // Niezmiennik, ktory byl zrodlem nieporozumienia: linia pokazuje deloady,
+  // referenceEntry ich NIE bierze. Oznaczenie jest jedynym, co je godzi.
+  {
+    const st: any = defaultState();
+    st.sessions = [
+      { id: "a", dayId: "mon", date: "2026-09-01T10:00:00.000Z", completed: true, mode: "hypertrophy",
+        entries: [{ exerciseId: "curl_bb", targetWeight: 17.5, sets: [{ weight: 17.5, reps: 12, done: true }] }] },
+      { id: "b", dayId: "mon", date: "2026-09-08T10:00:00.000Z", completed: true, mode: "deload",
+        entries: [{ exerciseId: "curl_bb", targetWeight: 15, sets: [{ weight: 15, reps: 12, done: true }] }] },
+    ];
+    check(
+      "P9-6: lastEntries widzi deload, referenceEntry go pomija (zrodlo rozjazdu)",
+      lastEntries(st, "curl_bb", 3)[0].mode === "deload" &&
+        referenceEntry(st, "curl_bb")!.sets[0].weight === 17.5
+    );
+  }
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

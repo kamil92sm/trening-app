@@ -1348,7 +1348,16 @@ export function TrainScreen() {
                 )}
                 {lastFew.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Ostatnie: {fmtLastEntries(lastFew, hEx.isHold)}
+                    {/* P9-6: wpisy z tygodnia deloadu dostają "ᴰ". Ta linia pokazuje
+                        3 ostatnie sesje ŁĄCZNIE z deloadami, a kratka "ost. N",
+                        prefill i "Do skoku ciężaru" liczą się od `referenceEntry`,
+                        która deloady POMIJA — po lżejszym tygodniu dwie liczby na
+                        jednym ekranie opisywały więc różne treningi i nic tego nie
+                        tłumaczyło. */}
+                    Ostatnie: {fmtLastEntries(lastFew, hEx.isHold, true)}
+                    {lastFew.some((e) => e.mode === "deload") && (
+                      <span className="text-muted-foreground/70"> · ᴰ = tydzień deloadu</span>
+                    )}
                   </p>
                 )}
                 {/* Wprost: ile trzeba dzis zrobic, zeby ciezar wskoczyl, i jak

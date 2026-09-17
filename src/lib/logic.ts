@@ -1896,36 +1896,48 @@ export function fmtKg(x: number): string {
  * Jednolity ciężar w serii formatuje się jak dotąd — wersja per seria włącza
  * się tylko wtedy, gdy naprawdę jest co pokazać.
  */
-export function fmtLastEntries(entries: LastEntry[], isHold: boolean): string {
+export function fmtLastEntries(entries: LastEntry[], isHold: boolean, markDeload = false): string {
+  // P9-6: `markDeload` dokleja "ᴰ" do wpisów z tygodnia deloadu. Bez tego linia
+  // "Ostatnie:" i kratka "ost. N" potrafiły mówić o DWÓCH RÓŻNYCH sesjach bez
+  // żadnego sygnału: `lastEntries` pokazuje 3 ostatnie sesje ŁĄCZNIE z deloadami,
+  // a `referenceEntry` (kratka, prefill, "Do skoku ciężaru") deloady pomija.
+  // Po lżejszym tygodniu pierwszy wpis w linii jest więc z deloadu, a reszta
+  // ekranu liczy się od sesji sprzed niego. Domyślnie wyłączone — wywołania bez
+  // tego argumentu zachowują się dokładnie jak dotąd.
   return entries
     .map((e) => {
-      // P9-5: `isHold` też pokazuje obciążenie. Do tej pory sekcja wycinała je
-      // całkowicie ("Ostatnie: 40/40/40/40" bez ani jednego "kg"), a kratka
-      // "ost. N" przy serii pokazuje same sekundy — więc obciążenie poprzednich
-      // planków nie było widoczne NIGDZIE poza tooltipem, którego na iPhonie nie
-      // da się wywołać. Stąd dwa zgłoszenia Kamila naraz: "powinien być rekord,
-      // jak jest nowa waga i czas" oraz "ostatnio 40, ale przecież waga mniejsza
-      // była" — nie miał jak sprawdzić, czy faktycznie była inna.
-      // Ciężar 0 (plank bez obciążenia) pomijany, żeby nie robić "0×40/40/40".
-      if (isHold) {
-        const firstHold = e.sets[0]?.weight ?? 0;
-        const uniformHold = e.sets.every((s) => Math.abs(s.weight - firstHold) < 1e-9);
-        if (uniformHold) {
-          return firstHold > 0
-            ? `${fmtNumPl(firstHold)}×${e.sets.map((s) => s.reps).join("/")}`
-            : e.sets.map((s) => s.reps).join("/");
-        }
-        return e.sets
-          .map((s) => (s.weight > 0 ? `${fmtNumPl(s.weight)}×${s.reps}` : String(s.reps)))
-          .join("/");
-      }
-      const first = e.sets[0]?.weight ?? 0;
-      const uniform = e.sets.every((s) => Math.abs(s.weight - first) < 1e-9);
-      return uniform
-        ? `${fmtNumPl(first)}×${e.sets.map((s) => s.reps).join("/")}`
-        : e.sets.map((s) => `${fmtNumPl(s.weight)}×${s.reps}`).join("/");
+      const mark = markDeload && e.mode === "deload" ? " ᴰ" : "";
+      return fmtOneEntry(e, isHold) + mark;
     })
     .join(" · ");
+}
+
+/**
+ * Jeden wpis historii ("62,5×8/8/7"). Ciężar pokazany RAZ, gdy wszystkie serie
+ * szły na tym samym; inaczej per seria (§26.3 — bez tego trening
+ * 17,5×12 / 16,25×12 / 16,25×12 wyglądał jak domknięty komplet na jednym
+ * ciężarze i nie dało się z ekranu zrozumieć, czemu apka nie podniosła celu).
+ *
+ * P9-5: `isHold` (plank) formatuje się TĄ SAMĄ regułą. Wcześniej obciążenie było
+ * tu wycinane, więc "Ostatnie: 40/40/40/40" nie zawierało ani jednego "kg" —
+ * a kratka "ost. N" przy serii też pokazuje same sekundy, przez co obciążenie
+ * poprzednich planków nie było widoczne NIGDZIE poza tooltipem (na iPhonie
+ * niedostępnym). Stąd dwa zgłoszenia Kamila naraz: "powinien być rekord, jak
+ * jest nowa waga i czas" oraz "ostatnio 40, ale przecież waga mniejsza była".
+ * Ciężar 0 (plank bez obciążenia) pomijany, żeby nie robić "0×40/40/40".
+ *
+ * Hantle: `weight` jest JUŻ "na rękę" (tak przechowywane w `SetLog`, §4
+ * CLAUDE.md `perHand`) — bez dodatkowego mnożenia.
+ */
+function fmtOneEntry(e: LastEntry, isHold: boolean): string {
+  const first = e.sets[0]?.weight ?? 0;
+  const uniform = e.sets.every((s) => Math.abs(s.weight - first) < 1e-9);
+  const reps = e.sets.map((s) => s.reps).join("/");
+  if (isHold && first === 0 && uniform) return reps;
+  if (uniform) return `${fmtNumPl(first)}×${reps}`;
+  return e.sets
+    .map((s) => (isHold && s.weight === 0 ? String(s.reps) : `${fmtNumPl(s.weight)}×${s.reps}`))
+    .join("/");
 }
 
 /** Tonaż z przejściem na tony powyżej 1000 kg (P1-6/P1-10) — używane zamiast `fmtKg`, gdy liczba może być duża. */
