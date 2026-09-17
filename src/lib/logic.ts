@@ -1675,6 +1675,13 @@ export interface ProgressGoal {
    *  ogłaszało "ostatnio komplet, ale cel się nie zmienił" i odsyłało do Planu,
    *  czyli obwiniało dane za decyzję, którą silnik podjął świadomie. */
   refMixedWeights: boolean;
+  /** P9-7: sesja referencyjna sama jest z tygodnia DELOADU. `referenceEntry`
+   *  normalnie deloady pomija, ale gdy w oknie są SAME deloady, bierze najnowszy
+   *  (żeby nie zostawiać użytkownika bez odniesienia). Wtedy komunikat „ostatnio
+   *  komplet, dziś powinien wskoczyć" jest obietnicą bez pokrycia: deload ma
+   *  progresję WYŁĄCZONĄ (`finishSession` nie zapisuje celów), więc tamten
+   *  komplet nie mógł i nie może podnieść ciężaru. */
+  refIsDeload: boolean;
 }
 
 /**
@@ -1715,6 +1722,7 @@ export function progressGoal(
     refWeight: cmp.refWeight,
     weightVsRef: cmp.relation,
     refMixedWeights: working.length > 1 && working.some((s) => Math.abs(s.weight - firstWeight) > 1e-9),
+    refIsDeload: ref.mode === "deload",
   };
 }
 

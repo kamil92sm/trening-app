@@ -4244,5 +4244,40 @@ check(
   );
 }
 
+// ── P9-7: "dziś powinien wskoczyć" nie obiecuje po tygodniu deloadu ────────
+{
+  const mkPlank = (id: string, date: string, mode: string) => ({
+    id, dayId: "wed", date: `${date}T10:00:00.000Z`, completed: true, mode,
+    entries: [{ exerciseId: "plank", targetWeight: 15, sets: [1, 2, 3, 4].map(() => ({ weight: 15, reps: 40, done: true })) }],
+  });
+  const base: any = defaultState();
+  base.targets["plank"] = 15;
+  const plank = base.exercises.find((e: any) => e.id === "plank")!;
+  const day = base.days.find((d: any) => d.exerciseIds.includes("plank"));
+  const modeEx = exerciseForDay(exerciseForMode(plank, "hypertrophy"), day);
+
+  // Scenariusz ze zgloszenia: w oknie SAME deloady -> referenceEntry bierze
+  // najnowszy (fallback z §23), a on nie mogl ruszyc celu.
+  const allDeload: any = { ...base, sessions: [mkPlank("a", "2026-08-20", "deload"), mkPlank("b", "2026-08-27", "deload"), mkPlank("c", "2026-09-03", "deload")] };
+  const gD = progressGoal(allDeload, plank, modeEx, 15)!;
+  check("P9-7: referenceEntry z samych deloadow -> refIsDeload", gD.refIsDeload === true && gD.missingReps === 0, gD);
+
+  const normal: any = { ...base, sessions: [mkPlank("a", "2026-08-20", "deload"), mkPlank("b", "2026-09-03", "hypertrophy")] };
+  const gN = progressGoal(normal, plank, modeEx, 15)!;
+  check("P9-7: gdy jest sesja spoza deloadu -> refIsDeload false (bez zmian)", gN.refIsDeload === false, gN);
+
+  check(
+    "P9-7: refIsDeload nie zmienia pozostalych pol",
+    gD.repsPerSet === gN.repsPerSet && gD.setCount === gN.setCount && gD.weightVsRef === gN.weightVsRef
+  );
+  check(
+    "P9-7: silnik faktycznie NIE podnosi celu po sesji deloadowej (zrodlo obietnicy)",
+    recomputeTargetsForEditedSession(
+      { ...allDeload, sessions: [allDeload.sessions[0], allDeload.sessions[1]] },
+      allDeload.sessions[2]
+    ).length === 0
+  );
+}
+
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

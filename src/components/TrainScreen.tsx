@@ -1394,6 +1394,18 @@ export function TrainScreen() {
                         {" "}
                         — ostatnio zabrakło {goal.missingReps} {hEx.isHold ? "s" : "powt."}
                       </span>
+                    ) : goal.refIsDeload ? (
+                      /* P9-7: odniesieniem jest sesja z tygodnia DELOADU (w oknie
+                         były same deloady, więc `referenceEntry` wzięła najnowszą,
+                         zamiast zostawić kartę bez historii). Tamten komplet nie
+                         mógł podnieść ciężaru, bo deload ma progresję wyłączoną —
+                         obiecywanie „dziś powinien wskoczyć" byłoby obietnicą bez
+                         pokrycia (zgłoszenie Kamila: plank 4×40, a cel stoi). */
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — ostatnio komplet, ale to był tydzień deloadu (cele zamrożone).
+                        Ciężar wskoczy po pierwszym takim komplecie poza deloadem.
+                      </span>
                     ) : goal.refMixedWeights ? (
                       /* P8-3: komplet powtórzeń zebrany z RÓŻNYCH ciężarów nie
                          domyka podwójnej progresji — apka celowo zostawiła
