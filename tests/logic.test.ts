@@ -3989,5 +3989,53 @@ check(
   );
 }
 
+// ── P9-1: sugestia siłowni nigdy nie proponuje cięższego ───────────────────
+{
+  const mfp: any = { id: "mfp", name: "My Fitness Place", barWeight: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25] };
+  const zgrubna: any = { id: "z", name: "Zgrubna", barWeight: 20, plates: [25, 20, 15, 10, 5] };
+  const curl = SEED_EXERCISES.find((e) => e.id === "curl_bb")!;
+  const bench = SEED_EXERCISES.find((e) => e.id === "bench_bb")!;
+  const db: any = { ...SEED_EXERCISES.find((e) => e.id === "lateral")!, unit: "dumbbell", increment: 1 };
+
+  check(
+    "P9-1: cel lżejszy niż gryf -> BRAK sugestii (było: 20 kg przy celu 15,5)",
+    suggestedWeightForProfile(curl, 15.5, mfp) === null,
+    suggestedWeightForProfile(curl, 15.5, mfp)
+  );
+  check(
+    "P9-1: zaokrąglenie W GÓRĘ o mniej niż increment nadal wolno",
+    suggestedWeightForProfile(bench, 52, mfp) === 52.5,
+    suggestedWeightForProfile(bench, 52, mfp)
+  );
+  check(
+    "P9-1: gdy w górę byłoby za daleko, schodzi do największego osiągalnego",
+    suggestedWeightForProfile(bench, 51, zgrubna) === 50,
+    suggestedWeightForProfile(bench, 51, zgrubna)
+  );
+  check(
+    "P9-1: allowHeavier=false nigdy nie przekracza celu",
+    suggestedWeightForProfile(bench, 51, mfp, false) === 50,
+    suggestedWeightForProfile(bench, 51, mfp, false)
+  );
+  check(
+    "P9-1: hantle/maszyny — krok w górę ponad increment schodzi w dół",
+    suggestedWeightForProfile(db, 11, { ...mfp, weightStep: 5 }) === 10,
+    suggestedWeightForProfile(db, 11, { ...mfp, weightStep: 5 })
+  );
+  check(
+    "P9-1: sugestia równa celowi nadal zwraca null (bez zmian)",
+    suggestedWeightForProfile(bench, 50, mfp) === null
+  );
+  check(
+    "P9-1: ŻADNE ćwiczenie z bazy nie dostaje sugestii wyższej niż cel + increment",
+    SEED_EXERCISES.every((ex) =>
+      [5, 10, 15.5, 22.5, 40, 62.5, 120].every((t) => {
+        const sug = suggestedWeightForProfile(ex, t, { ...mfp, weightStep: 2 });
+        return sug === null || sug <= t + ex.increment + 1e-9;
+      })
+    )
+  );
+}
+
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1788,14 +1788,37 @@ export function snapToStep(target: number, step: number): number {
 export function suggestedWeightForProfile(
   ex: Exercise,
   target: number,
-  profile: GymProfile | null
+  profile: GymProfile | null,
+  allowHeavier = true
 ): number | null {
   if (!profile) return null;
+  // Sugestia to podpowiedź „czym najbliżej zrobisz swój cel na TYM sprzęcie",
+  // więc nie ma prawa kazać podnieść WIĘCEJ, niż wynosi cel, o więcej niż jeden
+  // krok obciążenia. Zgłoszenie Kamila (P9-1): uginanie bicepsa, cel 15,5 kg
+  // w tygodniu DELOADU, a pasek proponował 20 kg — bo `nearestAchievable` wybiera
+  // z listy, która zaczyna się od samego gryfu (My Fitness Place: 20 kg), a Kamil
+  // ugina na krótkim gryfie, którego apka nie modeluje. Ten sam przypadek („cel
+  // lżejszy niż gryf") jest już świadomie wyciszony dla rysunku talerzy (§26.4),
+  // więc jedna karta rozstrzygała go na dwa sposoby naraz.
+  const ceiling = target + (ex.increment > 0 ? ex.increment : 0.5);
   let suggested: number;
   if (ex.unit === "barbell") {
     suggested = nearestAchievable(target, profile.barWeight, profile.plates);
+    if (suggested > ceiling + 1e-9 || !allowHeavier) {
+      // Największy osiągalny NIE WYŻSZY niż cel; gdy takiego nie ma (cel lżejszy
+      // niż sam gryf) — brak sugestii, dokładnie jak przy PlateBar.
+      const below = achievableWeights(profile.barWeight, profile.plates).filter(
+        (w) => w <= target + 1e-9
+      );
+      if (below.length === 0) return null;
+      suggested = below[below.length - 1];
+    }
   } else if (profile.weightStep) {
     suggested = snapToStep(target, profile.weightStep);
+    if (suggested > ceiling + 1e-9 || (!allowHeavier && suggested > target + 1e-9)) {
+      suggested = Math.floor((target + 1e-9) / profile.weightStep) * profile.weightStep;
+      if (suggested <= 0) return null;
+    }
   } else {
     return null;
   }

@@ -1163,7 +1163,14 @@ export function TrainScreen() {
               : progressGoal(state, ex, exerciseForDay(hEx, day), entry.targetWeight);
           // Serie z ostatniego treningu (poza deloadem) - do podpowiedzi "ost." przy wierszu.
           const refSets = referenceEntry(state, ex.id)?.sets ?? [];
-          const gymSuggestion = suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile);
+          // P9-1: w tygodniu deloadu sugestia nie ma prawa iść W GÓRĘ — cały sens
+          // tego tygodnia to zejście z obciążenia.
+          const gymSuggestion = suggestedWeightForProfile(
+            ex,
+            entry.targetWeight,
+            activeGymProfile,
+            draft.mode !== "deload"
+          );
           const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
           // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
           // entry.targetWeight, ktory po korekcie steperem moze juz nie byc prawda);
