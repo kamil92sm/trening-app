@@ -560,9 +560,11 @@ check("lastEntry: brak historii -> null", lastEntry(defaultState(), "bench_bb") 
     ],
   });
   const holdEntries = lastEntries(stHold, "plank", 3);
+  // P9-5: obciążenie WCHODZI do zapisu ćwiczeń na czas — bez tego w całym
+  // loggerze nie było go widać (zgłoszenie Kamila o planku).
   check(
-    "fmtLastEntries: isHold -> same sekundy, bez wagi",
-    fmtLastEntries(holdEntries, true) === "40/38",
+    "fmtLastEntries: isHold -> obciazenie + sekundy (P9-5, bylo: same sekundy)",
+    fmtLastEntries(holdEntries, true) === "10×40/38",
     fmtLastEntries(holdEntries, true)
   );
 
@@ -3780,7 +3782,12 @@ check(
     fmtLastEntries(mixed, false) === "17,5×12/16,25×12/16,25×12",
     fmtLastEntries(mixed, false)
   );
-  check("fmtLastEntries: isHold bez zmian (same sekundy)", fmtLastEntries(mixed, true) === "12/12/12");
+  // P9-5: przy różnych obciążeniach zapis rozwija się per seria także dla isHold.
+  check(
+    "fmtLastEntries: isHold z roznymi ciezarami -> per seria (P9-5)",
+    fmtLastEntries(mixed, true) === "17,5×12/16,25×12/16,25×12",
+    fmtLastEntries(mixed, true)
+  );
 
   // progressGoal.refMixedWeights - UI ma powiedziec prawde zamiast odsylac do Planu.
   const st: any = defaultState();
@@ -4077,6 +4084,36 @@ check(
   check(
     "P9-2: isHold (plank) dalej zostawia obciazenie bez zmian",
     deloadTargetFor(st, st.exercises.find((e: any) => e.id === "plank")!, []) === st.targets["plank"]
+  );
+}
+
+// ── P9-5: obciążenie ćwiczeń na czas widoczne w "Ostatnie:" ────────────────
+{
+  const e = (mode: string, sets: any[]) => ({ date: "2026-09-01T10:00:00.000Z", sets, mode } as any);
+  const s2 = (weight: number, reps: number) => ({ weight, reps, done: true });
+
+  check(
+    "P9-5: plank z jednolitym obciazeniem -> 15x40/40/40",
+    fmtLastEntries([e("hypertrophy", [s2(15, 40), s2(15, 40), s2(15, 40)])], true) === "15×40/40/40",
+    fmtLastEntries([e("hypertrophy", [s2(15, 40), s2(15, 40), s2(15, 40)])], true)
+  );
+  check(
+    "P9-5: plank z roznym obciazeniem -> per seria",
+    fmtLastEntries([e("hypertrophy", [s2(15, 40), s2(10, 40), s2(10, 35)])], true) === "15×40/10×40/10×35",
+    fmtLastEntries([e("hypertrophy", [s2(15, 40), s2(10, 40), s2(10, 35)])], true)
+  );
+  check(
+    "P9-5: plank BEZ obciazenia -> same sekundy (jak dotad)",
+    fmtLastEntries([e("hypertrophy", [s2(0, 40), s2(0, 35)])], true) === "40/35",
+    fmtLastEntries([e("hypertrophy", [s2(0, 40), s2(0, 35)])], true)
+  );
+  check(
+    "P9-5: nie-hold bez zmian (jednolity)",
+    fmtLastEntries([e("hypertrophy", [s2(60, 8), s2(60, 8)])], false) === "60×8/8"
+  );
+  check(
+    "P9-5: nie-hold bez zmian (rozny ciezar, §26.3)",
+    fmtLastEntries([e("hypertrophy", [s2(17.5, 12), s2(16.25, 12)])], false) === "17,5×12/16,25×12"
   );
 }
 

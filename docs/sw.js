@@ -5,7 +5,7 @@
 // uruchomieniu online - na siłowni przy słabym LTE Safari czasem po prostu nie
 // wczyta strony. docs/index.html jest jednym samodzielnym plikiem (JS/CSS
 // wklejone inline), więc "app shell" to dosłownie ten jeden zasób.
-const CACHE_NAME = "trening-shell-30ac8a1bc6";
+const CACHE_NAME = "trening-shell-8ac1f25a37";
 const SHELL_URL = "./index.html";
 
 self.addEventListener("install", (event) => {

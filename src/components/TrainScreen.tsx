@@ -1589,7 +1589,16 @@ export function TrainScreen() {
                           )}
                           title={cmpTitle}
                         >
+                          {/* P9-5: dla ćwiczeń na czas dopisujemy obciążenie, gdy
+                              różni się od dzisiejszego — inaczej "ost. 40" nie
+                              mówi NIC o tym, czy tamta seria szła na cięższym
+                              czy lżejszym planku (zgłoszenie Kamila). Dla reszty
+                              ciężar zostaje poza wierszem: przy trzycyfrowym
+                              obciążeniu wypychał haczyk poza ekran (§23). */}
                           ost. {refSets[si].reps}
+                          {hEx.isHold && Math.abs(refSets[si].weight - set.weight) > 1e-9
+                            ? ` @ ${fmtNumPl(refSets[si].weight)}`
+                            : ""}
                         </span>
                       );
                     })()}

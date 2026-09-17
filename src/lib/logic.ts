@@ -1899,7 +1899,26 @@ export function fmtKg(x: number): string {
 export function fmtLastEntries(entries: LastEntry[], isHold: boolean): string {
   return entries
     .map((e) => {
-      if (isHold) return e.sets.map((s) => s.reps).join("/");
+      // P9-5: `isHold` też pokazuje obciążenie. Do tej pory sekcja wycinała je
+      // całkowicie ("Ostatnie: 40/40/40/40" bez ani jednego "kg"), a kratka
+      // "ost. N" przy serii pokazuje same sekundy — więc obciążenie poprzednich
+      // planków nie było widoczne NIGDZIE poza tooltipem, którego na iPhonie nie
+      // da się wywołać. Stąd dwa zgłoszenia Kamila naraz: "powinien być rekord,
+      // jak jest nowa waga i czas" oraz "ostatnio 40, ale przecież waga mniejsza
+      // była" — nie miał jak sprawdzić, czy faktycznie była inna.
+      // Ciężar 0 (plank bez obciążenia) pomijany, żeby nie robić "0×40/40/40".
+      if (isHold) {
+        const firstHold = e.sets[0]?.weight ?? 0;
+        const uniformHold = e.sets.every((s) => Math.abs(s.weight - firstHold) < 1e-9);
+        if (uniformHold) {
+          return firstHold > 0
+            ? `${fmtNumPl(firstHold)}×${e.sets.map((s) => s.reps).join("/")}`
+            : e.sets.map((s) => s.reps).join("/");
+        }
+        return e.sets
+          .map((s) => (s.weight > 0 ? `${fmtNumPl(s.weight)}×${s.reps}` : String(s.reps)))
+          .join("/");
+      }
       const first = e.sets[0]?.weight ?? 0;
       const uniform = e.sets.every((s) => Math.abs(s.weight - first) < 1e-9);
       return uniform
