@@ -147,6 +147,13 @@ export interface GymProfile {
   /** P7-3: dostępne hantle (ciężar NA RĘKĘ) tej siłowni, rosnąco. Pusto/brak =
    * brak modelu — progresja liczy się jak dawniej (targetWeight + increment). */
   dumbbells?: number[];
+  /** P9-8: „na TEJ siłowni to ćwiczenie robię na X kg" — ręczna korekta ciężaru
+   *  zapamiętana per siłownia. Zgłoszenie Kamila: allahy na wyciągu w My Fitness
+   *  Place mają inne skoki stosu, więc co trening wpisywał 36,25 zamiast celu
+   *  37,5 — i za każdym razem od nowa, bo trening poza siłownią DNIA celowo nie
+   *  rusza `targets` (ochrona z §24.1). Override to informacja o SPRZĘCIE, nie
+   *  o progresji: `targets`/`hyperTargets` zostają nietknięte. */
+  weightOverrides?: Record<string, number>;
 }
 
 export interface Settings {

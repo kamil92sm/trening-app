@@ -395,6 +395,16 @@ export function isDumbbellSnappable(ex: Exercise): boolean {
   return ex.unit === "dumbbell" && !ex.isHold && !LADDER_EXEMPT_IDS.has(ex.id);
 }
 
+/**
+ * P9-8: ręczna korekta ciężaru zapamiętana dla TEJ siłowni (`null`, gdy brak).
+ * Czytane przy starcie treningu i przez pasek sugestii — `targets` nie są tym
+ * dotykane, bo override mówi o dostępnym sprzęcie, a nie o wypracowanej progresji.
+ */
+export function gymWeightOverride(profile: GymProfile | null, exId: string): number | null {
+  const v = profile?.weightOverrides?.[exId];
+  return typeof v === "number" && v > 0 ? v : null;
+}
+
 /** Sprzęt siłowni danego dnia planu: profil z `day.gymProfileId`, albo `null` (domowa). */
 export function gymForDay(state: AppState, day: WorkoutDay | undefined): GymProfile | null {
   if (!day?.gymProfileId) return null;

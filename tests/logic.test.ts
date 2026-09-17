@@ -64,6 +64,7 @@ import {
   snapLoadDownFrom,
   snapLoadNearest,
   gymForDay,
+  gymWeightOverride,
   dumbbellLadder,
   isDumbbellSnappable,
   exerciseHistory,
@@ -81,7 +82,7 @@ import {
   SCHEMA_VERSION,
 } from "../src/lib/seed";
 import type { Session } from "../src/lib/types";
-import { recomputeTargetsForEditedSession } from "../src/lib/store";
+import { recomputeTargetsForEditedSession, applyGymWeightOverrides } from "../src/lib/store";
 import { validateBackup } from "../src/lib/validate";
 import { serializeBackup } from "../src/lib/backup";
 import { niceScale } from "../src/lib/scale";
@@ -4276,6 +4277,73 @@ check(
       { ...allDeload, sessions: [allDeload.sessions[0], allDeload.sessions[1]] },
       allDeload.sessions[2]
     ).length === 0
+  );
+}
+
+// ── P9-8: korekta ciezaru zapamietana per silownia ─────────────────────────
+{
+  const mfp: any = { id: "myfitness", name: "My Fitness Place", barWeight: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25] };
+  check("P9-8: brak override -> null", gymWeightOverride(mfp, "crunch") === null);
+  check("P9-8: brak profilu (silownia domowa) -> null", gymWeightOverride(null, "crunch") === null);
+  check(
+    "P9-8: zapisany override czytany po id cwiczenia",
+    gymWeightOverride({ ...mfp, weightOverrides: { crunch: 36.25 } }, "crunch") === 36.25
+  );
+  check(
+    "P9-8: zero/ujemne traktowane jak brak",
+    gymWeightOverride({ ...mfp, weightOverrides: { crunch: 0 } }, "crunch") === null
+  );
+
+  const mk = (gymId: string | undefined, weight: number, mode = "hypertrophy") => ({
+    dayId: "mon", date: "2026-09-10T10:00:00.000Z", mode, gymProfileId: gymId,
+    entries: [{ exerciseId: "crunch", targetWeight: 37.5, sets: [1, 2, 3].map(() => ({ weight, reps: 12, done: true })) }],
+  });
+
+  // `applyGymWeightOverrides` to ta sama funkcja, którą `store.finishSession`
+  // woła na świeżym drafcie stanu — testujemy ją wprost, bez Reacta.
+  const run = (session: any, seed?: any) => {
+    const st: any = defaultState();
+    st.settings.gymProfiles = [{ ...mfp, ...(seed ? { weightOverrides: seed } : {}) }];
+    st.targets["crunch"] = 37.5;
+    applyGymWeightOverrides(st, session);
+    return st;
+  };
+
+  const afterAway = run(mk("myfitness", 36.25));
+  check(
+    "P9-8: trening w obcej silowni zapisuje override, NIE cel",
+    afterAway.settings.gymProfiles[0].weightOverrides?.crunch === 36.25 && afterAway.targets["crunch"] === 37.5,
+    [afterAway.settings.gymProfiles[0].weightOverrides, afterAway.targets["crunch"]]
+  );
+
+  const afterDeload = run(mk("myfitness", 36.25, "deload"));
+  check(
+    "P9-8: dziala TEZ w deloadzie (jedyny zapis, ktory ten tydzien robi)",
+    afterDeload.settings.gymProfiles[0].weightOverrides?.crunch === 36.25 &&
+      afterDeload.targets["crunch"] === 37.5,
+    afterDeload.settings.gymProfiles[0].weightOverrides
+  );
+
+  const afterHome = run(mk(undefined, 36.25));
+  check(
+    "P9-8: trening w silowni DNIA nie tworzy override (robi to adaptacja §24.1)",
+    afterHome.settings.gymProfiles[0].weightOverrides === undefined,
+    afterHome.settings.gymProfiles[0].weightOverrides
+  );
+
+  const mixed = mk("myfitness", 36.25);
+  mixed.entries[0].sets[1].weight = 35;
+  const afterMixed = run(mixed);
+  check(
+    "P9-8: serie na ROZNYCH ciezarach -> brak zapisu",
+    afterMixed.settings.gymProfiles[0].weightOverrides === undefined
+  );
+
+  const afterBack = run(mk("myfitness", 37.5), { crunch: 36.25 });
+  check(
+    "P9-8: powrot do ciezaru z planu KASUJE override",
+    afterBack.settings.gymProfiles[0].weightOverrides === undefined,
+    afterBack.settings.gymProfiles[0].weightOverrides
   );
 }
 

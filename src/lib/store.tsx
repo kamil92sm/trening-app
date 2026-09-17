@@ -312,6 +312,38 @@ export function recomputeTargetsForEditedSession(state: AppState, session: Sessi
   return changes;
 }
 
+/**
+ * P9-8: zapisuje ręczne korekty ciężaru przy SIŁOWNI, w której odbył się trening —
+ * ale tylko wtedy, gdy była to siłownia INNA niż przypisana do dnia. Gdy się
+ * zgadzają, korektę przejmuje adaptacja celu z §24.1 i override byłby drugą,
+ * rozjeżdżającą się kopią tej samej liczby (dokładnie ten błąd co P8-1).
+ *
+ * Zapisywany jest tylko ciężar serii ROBOCZYCH, gdy wszystkie szły na tym samym
+ * (`loggedWorkingWeight`) — zejście w dół w trakcie ćwiczenia to ratowanie serii,
+ * nie deklaracja „tyle tu jest na stojaku".
+ */
+export function applyGymWeightOverrides(d: AppState, sessionData: Omit<Session, "id" | "completed">): void {
+  const day = d.days.find((x) => x.id === sessionData.dayId);
+  const sessionGymId = sessionData.gymProfileId;
+  if (!sessionGymId || sessionGymId === day?.gymProfileId) return;
+  const profile = (d.settings.gymProfiles ?? []).find((p) => p.id === sessionGymId);
+  if (!profile) return;
+  const mode = sessionData.mode ?? "strength";
+  const baseMode = mode === "deload" ? modeBeforeDeload(d, sessionData.date) : "strength";
+  for (const entry of sessionData.entries) {
+    const ex = d.exercises.find((e) => e.id === entry.exerciseId);
+    if (!ex || ex.isHold) continue;
+    const modeEx = exerciseForDay(exerciseForMode(ex, mode, baseMode), day);
+    const logged = loggedWorkingWeight(entry, modeEx.targetSets);
+    if (logged === null || logged <= 0) continue;
+    const next = { ...(profile.weightOverrides ?? {}) };
+    if (Math.abs(logged - entry.targetWeight) < 1e-9) delete next[ex.id];
+    else next[ex.id] = logged;
+    if (Object.keys(next).length === 0) delete profile.weightOverrides;
+    else profile.weightOverrides = next;
+  }
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(loadState);
 
@@ -392,6 +424,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         mutate((d) => {
           const session: Session = { ...sessionData, id: sessionId, completed: true, finishedAt };
           d.sessions.push(session);
+          // P9-8: trening w siłowni INNEJ niż siłownia dnia. Adaptacja celu
+          // (§24.1) jest tam celowo wyłączona — korekta mówi o TAMTYM sprzęcie,
+          // więc przeniesienie jej do `targets` zepsułoby progresję po powrocie.
+          // Ale dotąd korekta przepadała CAŁKOWICIE: Kamil co trening wpisywał
+          // allahy 36,25 zamiast celu 37,5, bo stos w My Fitness Place ma inne
+          // skoki. Zapisujemy ją więc przy SIŁOWNI, nie przy ćwiczeniu.
+          //
+          // Świadomie PRZED gałęzią deloadu: to nie jest progresja, tylko
+          // informacja o dostępnym sprzęcie — jedyny zapis, który tydzień
+          // deloadu wykonuje.
+          applyGymWeightOverrides(d, sessionData);
           // P2-8: deload NIE zapisuje progresji — cele zamrożone, wracasz do
           // swoich ciężarów w przyszłym tygodniu. `summaries` i tak wracają do
           // TrainScreen (dla ewentualnego info), po prostu nigdy nie są tu stosowane.

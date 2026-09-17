@@ -27,6 +27,7 @@ import {
   exerciseForMode,
   targetForMode,
   modeBeforeDeload,
+  gymWeightOverride,
   gymForDay,
   dumbbellLadder,
   snapLoadUp,
@@ -453,13 +454,18 @@ export function TrainScreen() {
     // P7-3: drabinka hantli siłowni PRZYPISANEJ DO TEGO DNIA — cel hipertrofii/
     // deloadu ma od razu snapować do realnego hantla, nie do wyniku dzielenia.
     const dayLadder = dumbbellLadder(state, gymForDay(state, day));
+    // P9-8: siłownia, w której zacznie się ten trening (domyślnie ta z dnia) —
+    // jej zapamiętane korekty ciężaru wchodzą od razu, bez klikania „Użyj".
+    const startGym = gymForDay(state, day);
     const exerciseIds = overrideExerciseIds ?? day.exerciseIds;
     const entries: ExerciseLog[] = exerciseIds
       .map((exId) => {
         const ex = state.exercises.find((e) => e.id === exId);
         if (!ex || ex.archived) return null;
         const hEx = exerciseForMode(ex, mode, baseMode);
-        const target = targetForMode(state, ex, mode, dayLadder, baseMode);
+        // Override siłowni ma pierwszeństwo nad celem z planu: mówi, ile TU
+        // fizycznie da się założyć. `targets` zostają nietknięte.
+        const target = gymWeightOverride(startGym, ex.id) ?? targetForMode(state, ex, mode, dayLadder, baseMode);
         const count = setsForMode(ex, mode, day);
         // Podwójna progresja: po skoku ciężaru prefill wraca na DÓŁ zakresu,
         // przy tym samym ciężarze podpowiada wynik z ostatniego treningu
@@ -1187,12 +1193,16 @@ export function TrainScreen() {
           const refSets = referenceEntry(state, ex.id)?.sets ?? [];
           // P9-1: w tygodniu deloadu sugestia nie ma prawa iść W GÓRĘ — cały sens
           // tego tygodnia to zejście z obciążenia.
-          const gymSuggestion = suggestedWeightForProfile(
-            ex,
-            entry.targetWeight,
-            activeGymProfile,
-            draft.mode !== "deload"
-          );
+          // P9-8: zapamiętana korekta dla TEJ siłowni wygrywa z wyliczoną
+          // sugestią — to nie jest domysł z talerzy, tylko liczba, którą Kamil
+          // sam wpisał, będąc na miejscu.
+          const gymOverride = gymWeightOverride(activeGymProfile, ex.id);
+          const gymSuggestion =
+            gymOverride !== null
+              ? Math.abs(gymOverride - entry.targetWeight) > 1e-9
+                ? gymOverride
+                : null
+              : suggestedWeightForProfile(ex, entry.targetWeight, activeGymProfile, draft.mode !== "deload");
           const warmupSteps = warmupPlan(ex, entry.targetWeight, activeBar, activePlates);
           // P3-5: cwiczenie sztangowe -> ciezar PIERWSZEJ niezaliczonej serii (a nie
           // entry.targetWeight, ktory po korekcie steperem moze juz nie byc prawda);
@@ -1265,7 +1275,8 @@ export function TrainScreen() {
                 {gymSuggestion !== null && (
                   <div className="flex items-center justify-between gap-2 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-300">
                     <span>
-                      {activeGymProfile!.name}: sugerowany {fmtKg(gymSuggestion)} (zamiast{" "}
+                      {activeGymProfile!.name}:{" "}
+                      {gymOverride !== null ? "zapisane" : "sugerowany"} {fmtKg(gymSuggestion)} (zamiast{" "}
                       {fmtKg(entry.targetWeight)})
                     </span>
                     <button
