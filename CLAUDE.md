@@ -1434,3 +1434,61 @@ wartościach i dokładną odwrotnością; 12 na `effectiveIncrement` i progresj�
 Żaden z 518 istniejących nie wymagał przestrojenia — okazało się, że ani jeden nie
 sprawdzał e1RM powyżej 10 powtórzeń. Poprawiona tylko NAZWA jednego testu i podpis
 wykresu w Progresie (nie obiecuje już konkretnego wzoru).
+
+---
+
+## 28. Sesja 17.09.2026 (II) — CI, smoke test i dwa błędy układu, które znalazł
+
+### 28.1 Bramka jakości (`.github/workflows/ci.yml`)
+Repo nie miało katalogu `.github` w ogóle. Najważniejszy krok workflow to **nie**
+testy, tylko `git diff --exit-code docs/`: apka jedzie na Pages z ZACOMMITOWANEGO
+`docs/index.html`, więc commit z poprawką, po którym ktoś zapomniał `npm run build`,
+oznaczał tydzień chodzenia na starym kodzie bez żadnego sygnału. Kolejność:
+`npm ci` → testy silnika → build → diff `docs/` → instalacja Chromium → smoke test.
+Cały przebieg: **50 s**.
+
+Zweryfikowane na realnym runnerze (`ubuntu-latest`, Node 22), nie założone: krok
+z diffem `docs/` przeszedł, czyli **build na GitHubie daje bajt w bajt to samo, co
+build lokalny** — `package-lock.json` wystarcza do powtarzalności tego pipeline'u.
+
+### 28.2 Smoke test (`tests/smoke.e2e.mjs`, `npm run test:e2e`)
+Testy silnika liczą czystą logikę i z definicji nie złapią rzeczy, które psują apkę
+w praktyce: błędu JS przy renderze, pola gubiącego przecinek, wiersza rozpychającego
+stronę poza ekran iPhone'a. Każda z tych trzech rzeczy realnie się tu zdarzyła.
+
+Test idzie po zbudowanym `docs/index.html` przez **`file://`** — świadomie, bo na
+niezaufanym origin service worker się nie rejestruje, więc kolejne uruchomienia nie
+zależą od cache'u po poprzednim. Sprawdza: render wszystkich 5 zakładek, brak
+poziomego scrolla przy 320/360/390/430 px na każdej, pola liczbowe loggera
+(przecinek/czyszczenie/steppery — regresja z §27.1), pełną ścieżkę treningu aż do
+podsumowania i **zero** `pageerror` oraz `console.error` na całej trasie.
+`CHROMIUM_PATH` podmienia przeglądarkę, gdy Playwright nie ma własnej.
+`npm run verify` = testy + build + smoke.
+
+### 28.3 Dwa błędy układu złapane przy PIERWSZYM uruchomieniu
+Oba niewidoczne dla 542 testów jednostkowych i oba na ekranach telefonu.
+
+**(a) Zakładka „Więcej" miała poziomy scroll:** +89 px przy 320, +49 przy 360,
++19 przy 390. Dwie karty. *Squash*: wiersz `flex gap-2` z min(80) + intensywność(112)
++ data(152, `shrink-0`) + „+" potrzebuje ~410 px, a karta ma 254 px — sąsiednia karta
+„Waga ciała" miała już `flex-wrap`, squash nigdy go nie dostał. *Chmura*: „Backup
+teraz" + „Przywróć z chmury" to `whitespace-nowrap`, więc `flex-1` ich nie ściśnie;
+potrzebują ~335 px i nie mieszczą się obok siebie na ŻADNYM ekranie telefonu — teraz
+stoją jeden pod drugim do breakpointu `sm`.
+
+**(b) Logger po zaliczeniu serii, która pobiła rekord:** plakietka `PR` razem
+z kratką „ost. N" wypychały haczyk poza ekran (+15 px przy 360, +5 przy 320 przy
+samej plakietce). §23 mierzyło szerokości loggera PRZED zaliczeniem serii, więc ten
+wariant nigdy nie był sprawdzony. Teraz `PR` i „ost. N" **nigdy nie stoją w wierszu
+razem** — rozstrzygnięte na korzyść `PR`, bo skoro seria pobiła rekord życia, to
+porównanie z zeszłym tygodniem jest bez znaczenia; poniżej 360 px plakietka znika,
+a rekord sygnalizuje bursztynowa obwódka wiersza.
+
+### 28.4 Sprawdzone przy okazji — JUŻ ZROBIONE, nie dopisywać do backlogu
+Lista „otwartych pomysłów" w §10 jest nieaktualna: **eksport historii do CSV**
+(`sessionsToCsv`, przycisk w Więcej), **druga metryka objętości w tonażu**
+(`volumeMetric` w Progresie) i **edytowalne zakresy `MUSCLE_RANGES`**
+(`settings.muscleRanges`) są wdrożone. Nadal otwarte z tamtej listy: **edycja
+`primaryMuscle`/`secondaryMuscles` w oknie ćwiczenia** (dziś partia wyliczana
+automatycznie z kategorii, a partie wspomagające zostają puste — objętość
+tygodniowa zaniża ćwiczenia dodane ręcznie) i czwarty dzień planu.
