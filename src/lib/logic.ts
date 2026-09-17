@@ -1160,13 +1160,23 @@ export function deloadTargetFor(state: AppState, ex: Exercise, ladder: number[] 
   // "obniżenie" oznaczałoby -50% — a to już nie deload, tylko inne ćwiczenie.
   if (ex.isHold) return strengthTarget;
   const inc = ex.increment > 0 ? ex.increment : 0.5;
-  // W DÓŁ, nie do najbliższego: przy zgrubnym kroku (np. cel 10 kg, krok 2,5)
-  // zaokrąglenie do najbliższego wracało na 100% celu i tydzień deloadu wcale
-  // nie schodził z ciężaru. Teraz wynik nigdy nie przekracza DELOAD_LOAD_FACTOR.
-  const floored = Math.floor((strengthTarget * DELOAD_LOAD_FACTOR) / inc) * inc;
-  // P7-3: snapLoadDown tylko SCHODZI po drabince (nigdy w górę), więc gwarancja
-  // "nigdy powyżej DELOAD_LOAD_FACTOR" (§20.2) zostaje nietknięta.
-  return isDumbbellSnappable(ex) && ladder.length > 0 ? snapLoadDown(floored, ladder) : floored;
+  const raw = strengthTarget * DELOAD_LOAD_FACTOR;
+  // P9-2: przy drabince snapujemy PROSTO z `raw`, nie z wartości podłogowanej
+  // wcześniej do `increment`. Podwójne podłogowanie zjeżdżało o cały szczebel
+  // za nisko: wyciskanie hantli płasko (cel 17,5 · krok 2 · drabinka
+  // …10/12,5/15/17,5…) dawało 0,9×17,5 = 15,75 → podłoga do 2 = 14 →
+  // snapLoadDown = 12,5, czyli 71% celu zamiast ~90%. Przy drabince to ONA jest
+  // zbiorem realnych ciężarów, `increment` nie ma tu nic do rzeczy.
+  if (isDumbbellSnappable(ex) && ladder.length > 0) return snapLoadDown(raw, ladder);
+  // Bez drabinki (sztanga, maszyny, wyciągi) podłoga do `increment`. W DÓŁ, nie do
+  // najbliższego: przy zgrubnym kroku (np. cel 10 kg, krok 2,5) zaokrąglenie do
+  // najbliższego wracało na 100% celu i tydzień deloadu wcale nie schodził
+  // z ciężaru (§20.2). Wynik nigdy nie przekracza DELOAD_LOAD_FACTOR.
+  // Ograniczenie ZNANE i zaakceptowane (§20.5): przy zgrubnym kroku wynik potrafi
+  // wypaść sporo poniżej 90% (wyciąg: cel 7,5, krok 2,5 → 5 = 67%), bo jedyną
+  // alternatywą jest 7,5, czyli 100%, czyli brak deloadu. To granulacja sprzętu,
+  // nie błąd — nie zgłaszać tego jako regresji przy kolejnym audycie.
+  return Math.floor(raw / inc) * inc;
 }
 
 /** Cel dla trybu bieżącego tygodnia — `targets` (siła), `deloadTargetFor` (deload) albo `hyperTargetFor` (hipertrofia). */

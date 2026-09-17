@@ -4037,5 +4037,48 @@ check(
   );
 }
 
+// ── P9-2: deload nie zjeżdża o szczebel za nisko ───────────────────────────
+{
+  const st: any = migrateState(null);
+  const benchDb = st.exercises.find((e: any) => e.id === "bench_db")!;
+  const dayDb = st.days.find((d: any) => d.exerciseIds.includes("bench_db"));
+  const ladderDb = dumbbellLadder(st, gymForDay(st, dayDb));
+
+  check(
+    "P9-2: bench_db cel 17,5 -> deload 15 (bylo 12,5 = 71% przez podwojna podloge)",
+    deloadTargetFor(st, benchDb, ladderDb) === 15,
+    deloadTargetFor(st, benchDb, ladderDb)
+  );
+  check(
+    "P9-2: regresja §20.2 — deload NIGDY powyzej 90% celu (cala baza)",
+    st.exercises.every((ex: any) => {
+      const t = st.targets[ex.id];
+      if (!t || ex.isHold) return true;
+      const day = st.days.find((d: any) => d.exerciseIds.includes(ex.id));
+      return deloadTargetFor(st, ex, dumbbellLadder(st, gymForDay(st, day))) <= t * 0.9 + 1e-9;
+    })
+  );
+  // Dokładny niezmiennik zamiast arbitralnego progu procentowego: przy drabince
+  // wynik to NAJWYŻSZY realny hantel nieprzekraczający 90% celu. Gdy drabinka
+  // jest zgrubna, wypada to nisko (row_db_bent 16 → 12,5 = 78%, bo następny
+  // szczebel 15 to już 94% celu) — i to jest sprzęt, nie błąd.
+  check(
+    "P9-2: przy drabince wynik = najwyzszy szczebel <= 90% celu (nigdy nizszy)",
+    st.exercises.every((ex: any) => {
+      const t = st.targets[ex.id];
+      const day = st.days.find((d: any) => d.exerciseIds.includes(ex.id));
+      const ladder = dumbbellLadder(st, gymForDay(st, day));
+      if (!t || ex.isHold || !isDumbbellSnappable(ex) || ladder.length === 0) return true;
+      const cap = t * 0.9 + 1e-9;
+      const best = ladder.filter((w) => w <= cap).sort((a, b) => a - b).pop();
+      return best === undefined || deloadTargetFor(st, ex, ladder) === best;
+    })
+  );
+  check(
+    "P9-2: isHold (plank) dalej zostawia obciazenie bez zmian",
+    deloadTargetFor(st, st.exercises.find((e: any) => e.id === "plank")!, []) === st.targets["plank"]
+  );
+}
+
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);
 process.exit(failures === 0 ? 0 : 1);
