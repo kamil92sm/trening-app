@@ -1359,3 +1359,78 @@ zbudowanym `docs/index.html`: 320/360/390 px bez poziomego scrolla, zero błęd�
 JS, przycisk rozruchowy przełącza tydzień na deload (18 → 12 serii, cel
 wyciskania 45 → 40 kg), a poprawka 9 → 10 powt. w Historii podnosi cel
 ściągania drążka 50 → 52,5 kg z komunikatem o przeliczeniu.
+
+---
+
+## 27. Sesja 17.09.2026 — przecinek w loggerze, e1RM i procentowy krok progresji
+
+Sesja weryfikacyjna (pięć zgłoszeń ze zrzutów → `ZADANIA-P9.md`, skrypt dla Sonneta,
+NIEWDROŻONY) plus trzy poprawki zrobione od razu.
+
+### 27.1 Przecinek w polach loggera (BUG-2, którego nigdy nie dokończono)
+Pola ciężaru i powtórzeń w `TrainScreen` oraz w edycji sesji w `HistoryScreen` były
+jedynymi, które zostały przy antywzorcu z §12 BUG-2: `type="number"` sterowany liczbą
+z `parseFloat(...) || 0`. Plan i Więcej dostały `NumberField` w lipcu, logger nigdy.
+**Zmierzone w Chromium na buildzie sprzed poprawki: wpisanie `36,25` daje w polu
+`3625`** — przecinek jest po cichu wyrzucany, a do sesji wchodzi ciężar 100× za duży,
+który dalej napędza progresję, tonaż i rekordy. Klawiaturę numeryczną z przecinkiem
+widać na zrzucie Kamila (Allahy w My Fitness Place).
+
+`NumberField` dostał dwa opcjonalne propy, **domyślnie wyłączone** (Plan/Więcej/Progres
+bez zmian): `emptyWhenZero` (zero jako puste pole — ćwiczenia z masą własną) oraz
+`syncExternal` (pole nadąża za zmianą wartości Z ZEWNĄTRZ: steppery −/+,
+`setWeightWithSync`, „Użyj" przy sugestii siłowni, przełączenie sesji w Historii, gdzie
+wiersze są kluczowane indeksem). Synchronizacja nie walczy z pisaniem — gdy wpisany
+tekst parsuje się do tej samej liczby co wartość, surowy tekst zostaje nietknięty, więc
+`36,` w trakcie pisania nie zamienia się w `36`.
+
+### 27.2 e1RM: Epley tylko do 10 powtórzeń (§18.5 domknięte)
+`repFactor(reps)`: do 10 powtórzeń **dokładnie Epley** (`1 + reps/30`), wyżej każde
+kolejne powtórzenie liczy się o **połowę słabiej** (`/60`). Powód: Kamil trenuje
+w Hipertrofii, czyli 8–12, więc zawyżenie dotyczyło WIĘKSZOŚCI jego serii roboczych.
+Mnożnik: 5/8/10 powt. bez zmian, 11 −1,2%, 12 −2,4%, 15 −5,6%, 20 −10%.
+
+Dlaczego nie gotowy wzór: Brzycki i Lander są powyżej 10 powtórzeń **jeszcze bardziej
+agresywne** od Epleya (przy 15 odpowiednio +63,6% i +72%); Lombardi/O'Conner są
+łagodniejsze, ale zrywają ciągłość z Epleyem także w zakresie siłowym, gdzie Epley jest
+wiarygodny. Ta funkcja jest ciągła i monotoniczna, więc ma **dokładną odwrotność** —
+`weightForReps` dzieli przez ten sam `repFactor`, którym mnoży `e1rm`. To warunek
+konieczny: na odwrotności stoi cel hipertrofii (`hyperTargetFor`).
+
+**Bez migracji** — e1RM nigdzie nie jest przechowywane, liczy się w locie z zapisanych
+serii, więc cała historia przelicza się spójnie; zapisane cele to kilogramy, nie e1RM.
+Rekordy na historii startowej: hip thrust 55×12 77,0 → 75,2, allahy 40×15 60,0 → 56,7,
+wspięcia 45×15 67,5 → 63,7; ćwiczenia robione w zakresie siłowym (≤10 powt.) nietknięte.
+Cele hipertrofii po zaokrągleniu do `increment` wychodzą **identyczne** (bench 42,5,
+row 57,5, squat 62,5, OHP 30, martwy 75) — zmiana nie rusza ciężarów roboczych.
+Uwaga przy czytaniu starszych sekcji: przykłady e1RM w §25.3 i §25.6 (`20×12 = 28,0`,
+`62,5×12 = 87,5`) liczone są STARYM wzorem — dziś odpowiednio 27,3 i 85,4.
+
+### 27.3 Procentowy krok progresji (`Exercise.incrementPercent`, opcjonalny)
+Drugi drobiazg z §18.5. Gdy ustawiony, `increment` przestaje być krokiem progresji
+i zostaje **granulacją** (najmniejsze, co da się dołożyć na tym sprzęcie), a krok liczy
+`effectiveIncrement(ex, target)` z procentu ciężaru roboczego — dociągnięty do
+najbliższej wielokrotności granulacji, nigdy poniżej jednej. Zaokrąglenie do
+NAJBLIŻSZEJ, nie w górę. Wpięte w `computeProgression` (zwykły skok, podwójny przy
+RIR 3, bezpiecznik „2 × krok ≤ 15% ciężaru") i w `maxGainPerSession` (opcjonalny drugi
+parametr z celem). `deloadTargetFor`/`hyperTargetFor`/steppery w loggerze celowo dalej
+używają `increment` — tam chodzi o granulację sprzętu, nie o krok progresji.
+Brak wartości = dotychczasowe zachowanie, więc bez migracji.
+
+**Policzone na planie Kamila: przy DZISIEJSZYCH ciężarach procent nie zmienia prawie
+nic** — 3/4/5% daje ten sam krok co dziś dla wszystkich pozycji poza martwym ciągiem
+przy 5% (2,5 → 5 kg). Powód: granulacja sprzętu (2,5 kg na sztandze, 1–2 kg na
+hantlach) jest już grubsza niż 3–5% jego obecnych obciążeń. Funkcja działa więc
+w przód — trzyma tempo, gdy ciężary urosną (przysiad przy 100 kg i 4% → 5 kg, suwnica
+przy 160 kg i 4% → 7,5 kg). **Druga połowa zgłoszenia z §18.5 — „2,5 kg na ławce 45 kg
+to 5,5%, za ostro" — NIE jest rozwiązywalna programowo:** mniej niż 2,5 kg nie da się
+dołożyć do sztangi przy talerzach od 1,25 kg. To sprzęt, nie kod — z talerzami 0,5 kg
+wystarczy ustawić „Przyrost (kg)" na 1 i dopisać 0,5 do listy talerzy.
+
+### 27.4 Stan testów
+518 → **542** (24 nowe: 12 na e1RM łącznie ze zgodnością z Epleyem do 10 powt.,
+ciągłością w punkcie zgięcia, monotonicznością, „nigdy wyżej niż Epley" na 40
+wartościach i dokładną odwrotnością; 12 na `effectiveIncrement` i progresję procentową).
+Żaden z 518 istniejących nie wymagał przestrojenia — okazało się, że ani jeden nie
+sprawdzał e1RM powyżej 10 powtórzeń. Poprawiona tylko NAZWA jednego testu i podpis
+wykresu w Progresie (nie obiecuje już konkretnego wzoru).
