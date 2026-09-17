@@ -1558,7 +1558,7 @@ export function TrainScreen() {
                         powtórzeń (compareSetToReference). Dla isHold przy INNYM
                         obciążeniu nie ma uczciwej wspólnej miary — "incomparable"
                         zostaje neutralne, tak jak dotąd tylko kropkowane. */}
-                    {refSets[si] !== undefined && (() => {
+                    {refSets[si] !== undefined && !recordKind && (() => {
                       const cmp = set.done ? compareSetToReference(hEx, set, refSets[si]) : null;
                       const cmpTitle = hEx.isHold
                         ? `Ostatnio: ${fmtKg(refSets[si].weight)} × ${refSets[si].reps} s · dziś: ${fmtKg(set.weight)} × ${set.reps} s`
@@ -1586,8 +1586,16 @@ export function TrainScreen() {
                         </span>
                       );
                     })()}
+                    {/* Plakietka PR i kratka "ost. N" NIGDY nie stoją w wierszu
+                        razem — zmierzone: obie naraz wypychają haczyk poza ekran
+                        360 px o 15 px (a sama plakietka poza 320 px o 5 px).
+                        Rozstrzygnięte na korzyść PR, bo niesie więcej: skoro
+                        seria pobiła rekord życia, to porównanie z zeszłym
+                        tygodniem jest już bez znaczenia. Poniżej 360 px (ten sam
+                        próg `xs` co kratka, §23) plakietka znika, a rekord
+                        sygnalizuje bursztynowa obwódka całego wiersza. */}
                     {recordKind && (
-                      <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                      <span className="hidden shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300 xs:inline-block">
                         PR
                       </span>
                     )}

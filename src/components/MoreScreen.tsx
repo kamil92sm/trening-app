@@ -317,12 +317,15 @@ export function MoreScreen() {
           <CardDescription>{state.squash.length} sesji zalogowanych</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="flex gap-2">
+          {/* `flex-wrap` jak w karcie "Waga ciala" wyzej: min(80) + intensywnosc(112)
+              + data(152, shrink-0) + "+" to ~410 px, a karta ma 254 px przy ekranie
+              320. Bez zawijania data i przycisk wychodzily poza ekran. */}
+          <div className="flex flex-wrap gap-2">
             <Input
               type="number" inputMode="numeric" placeholder="min"
               value={sqMinutes}
               onChange={(e) => setSqMinutes(e.target.value)}
-              className="w-20"
+              className="w-20 min-w-0"
             />
             <Select value={sqIntensity} onChange={(e) => setSqIntensity(parseInt(e.target.value))} className="w-28">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -649,7 +652,10 @@ export function MoreScreen() {
               onCheckedChange={(v) => store.updateSettings({ autoBackup: v })}
             />
           </div>
-          <div className="flex gap-2">
+          {/* Etykiety sa dlugie i `whitespace-nowrap`, wiec `flex-1` ich nie sciesni:
+              "Backup teraz" + "Przywroc z chmury" potrzebuja ~335 px, a karta ma
+              254-294 px na ekranach 320-390. Na telefonie stoja jeden pod drugim. */}
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               className="flex-1"
               variant="secondary"

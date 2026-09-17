@@ -1,0 +1,47 @@
+# Bramka jakości przed wypuszczeniem apki na telefon.
+#
+# Najważniejszy krok to NIE testy, tylko „docs/ zgadza się ze źródłami": apka
+# jedzie na GitHub Pages z zacommitowanego `docs/index.html`, więc commit
+# z poprawką, po którym ktoś zapomniał `npm run build`, oznacza tydzień
+# chodzenia na starym kodzie bez żadnego sygnału, że coś jest nie tak.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  weryfikacja:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Testy silnika
+        run: npm test
+
+      - name: Build (tsc --noEmit + vite + singlefile)
+        run: npm run build
+
+      - name: docs/ musi być zbudowane z aktualnych źródeł
+        run: |
+          if ! git diff --quiet -- docs/; then
+            echo "::error::Zacommitowane docs/ nie odpowiada źródłom. Uruchom 'npm run build' i dołóż docs/index.html ORAZ docs/sw.js do commita."
+            git diff --stat -- docs/
+            exit 1
+          fi
+          echo "docs/ w synchronizacji ze źródłami."
+
+      - name: Przeglądarka do smoke testu
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test zbudowanej apki
+        run: npm run test:e2e
