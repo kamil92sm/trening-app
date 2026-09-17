@@ -6,7 +6,7 @@ import { fmtDate, fmtKg, sessionVolume, sessionDuration } from "@/lib/logic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
@@ -156,21 +156,26 @@ export function HistoryScreen() {
                     {entry.sets.map((s, si) => (
                       <div key={si} className="flex items-center gap-2">
                         <span className="w-4 text-xs text-muted-foreground">{si + 1}</span>
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          step="0.25"
+                        {/* Ten sam fix co w loggerze (§12 BUG-2): klawiatura iOS
+                            ma przecinek, `type="number"` go nie przyjmuje i pole
+                            wpadało na 0. `syncExternal` — wiersze są kluczowane
+                            indeksem, więc otwarcie innej sesji mogłoby podstawić
+                            stary tekst pod nową serię. */}
+                        <NumberField
+                          decimal
+                          syncExternal
                           className="h-8 w-20 text-center"
                           value={s.weight}
-                          onChange={(e) => setEditSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
+                          fallback={0}
+                          onChange={(n) => setEditSet(ei, si, { weight: n })}
                         />
                         <span className="text-xs text-muted-foreground">kg ×</span>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
+                        <NumberField
+                          syncExternal
                           className="h-8 w-16 text-center"
                           value={s.reps}
-                          onChange={(e) => setEditSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
+                          fallback={0}
+                          onChange={(n) => setEditSet(ei, si, { reps: Math.round(n) })}
                         />
                         <span className="w-8 text-xs text-muted-foreground">{unitLabel}</span>
                         <button

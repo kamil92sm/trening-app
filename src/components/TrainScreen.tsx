@@ -56,6 +56,7 @@ import { guideFor } from "@/lib/guide";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Switch } from "@/components/ui/switch";
 import { RestTimer, MuscleTags, PlateBar } from "@/components/Gym";
 import { cn, normalizeSearch } from "@/lib/utils";
@@ -1500,14 +1501,24 @@ export function TrainScreen() {
                     >
                       <Minus size={14} />
                     </button>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.25"
+                    {/* BUG-2 w loggerze: do tej pory `type="number"` sterowany
+                        liczbą z `parseFloat(...) || 0`. Klawiatura numeryczna iOS
+                        ma PRZECINEK, którego `type="number"` nie przyjmuje —
+                        wpisanie "36,25" oddawało pusty string, a `|| 0` wstawiało
+                        w środku treningu ZERO. Do tego pole pokazywało "36.25"
+                        z kropką, wbrew całej reszcie apki. Ten sam `NumberField`,
+                        którym naprawiono Plan (§12 BUG-2), tylko z synchronizacją
+                        zewnętrzną — tu wartość zmieniają też steppery −/+,
+                        `setWeightWithSync` i "Użyj" przy sugestii siłowni. */}
+                    <NumberField
+                      decimal
+                      emptyWhenZero
+                      syncExternal
                       className="h-9 w-16 px-1 text-center"
-                      value={set.weight === 0 ? "" : set.weight}
+                      value={set.weight}
+                      fallback={0}
                       placeholder="kg"
-                      onChange={(e) => updateSet(ei, si, { weight: parseFloat(e.target.value) || 0 })}
+                      onChange={(n) => updateSet(ei, si, { weight: n })}
                     />
                     <button
                       type="button"
@@ -1527,13 +1538,14 @@ export function TrainScreen() {
                       <Plus size={14} />
                     </button>
                     <span className="shrink-0 text-xs text-muted-foreground">×</span>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
+                    <NumberField
+                      emptyWhenZero
+                      syncExternal
                       className="h-9 w-14 px-1 text-center"
-                      value={set.reps === 0 ? "" : set.reps}
+                      value={set.reps}
+                      fallback={0}
                       placeholder={unitLabel}
-                      onChange={(e) => updateSet(ei, si, { reps: parseInt(e.target.value) || 0 })}
+                      onChange={(n) => updateSet(ei, si, { reps: Math.round(n) })}
                     />
                     {/* Co zrobiłeś w TEJ serii ostatnio — dyskretnie, obok pola.
                         Ciężar dopisany tylko wtedy, gdy różnił się od dzisiejszego
