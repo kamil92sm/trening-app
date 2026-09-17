@@ -1,5 +1,15 @@
 # P9 — zgłoszenia Kamila (sesja 17.09.2026): deload, rekordy, obca siłownia
 
+> ## ✅ WDROŻONE W CAŁOŚCI (17.09.2026)
+> Wszystkie osiem zadań zrobione, każde osobnym commitem, w kolejności z tego
+> skryptu. **P9-3 wdrożony w wariancie (A)** — decyzja Kamila. Podsumowanie,
+> zmierzone liczby i to, czego świadomie NIE ruszono: `CLAUDE.md` §29.
+> Ten plik zostaje jako zapis diagnozy (root cause'y i liczby sprzed poprawek).
+>
+> Jedyna rzecz z tego skryptu, której NIE zrobiono: `weightStep` dla My Fitness
+> Place — wymaga realnego skoku stosu od Kamila, nie zgadywania w seedzie.
+> Formularz profilu (Więcej → Siłownie) ma to pole, więc da się ustawić bez buildu.
+
 Skrypt wykonawczy dla Sonneta. **Wszystkie diagnozy niżej są ZWERYFIKOWANE** na kodzie
 i policzone skryptami na świeżym stanie (`migrateState(null)` — seed + historia startowa,
 9 sesji). Przy każdym zadaniu jest liczba, którą musisz umieć odtworzyć PRZED poprawką.

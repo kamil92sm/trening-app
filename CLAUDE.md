@@ -1364,8 +1364,8 @@ wyciskania 45 → 40 kg), a poprawka 9 → 10 powt. w Historii podnosi cel
 
 ## 27. Sesja 17.09.2026 — przecinek w loggerze, e1RM i procentowy krok progresji
 
-Sesja weryfikacyjna (pięć zgłoszeń ze zrzutów → `ZADANIA-P9.md`, skrypt dla Sonneta,
-NIEWDROŻONY) plus trzy poprawki zrobione od razu.
+Sesja weryfikacyjna (pięć zgłoszeń ze zrzutów → `ZADANIA-P9.md`) plus trzy poprawki
+zrobione od razu. **Sam P9 wdrożony w całości w §29.**
 
 ### 27.1 Przecinek w polach loggera (BUG-2, którego nigdy nie dokończono)
 Pola ciężaru i powtórzeń w `TrainScreen` oraz w edycji sesji w `HistoryScreen` były
@@ -1492,3 +1492,105 @@ Lista „otwartych pomysłów" w §10 jest nieaktualna: **eksport historii do CS
 `primaryMuscle`/`secondaryMuscles` w oknie ćwiczenia** (dziś partia wyliczana
 automatycznie z kategorii, a partie wspomagające zostają puste — objętość
 tygodniowa zaniża ćwiczenia dodane ręcznie) i czwarty dzień planu.
+
+---
+
+## 29. Sesja 17.09.2026 (III) — całe P9 wdrożone, deload w wariancie A
+
+Osiem zadań z `ZADANIA-P9.md`, każde osobnym commitem. **Testy 542 → 589**,
+smoke test zielony, `npm run build` bez błędów.
+
+### 29.1 P9-1 — sugestia siłowni nigdy nie proponuje cięższego niż cel
+`nearestAchievable` wybiera z `achievableWeights`, a ta lista **zaczyna się od
+samego gryfu** — dla celu 15,5 kg przy gryfie 20 kg „najbliższy osiągalny" to pusty
+gryf. Kamil ugina na krótkim gryfie, którego apka nie modeluje, więc każdy cel
+poniżej 20 kg dostawał sugestię +29%, i to w tygodniu deloadu. Ten sam przypadek
+(„cel lżejszy niż gryf") był już wyciszony dla PlateBar (§26.4), więc jedna karta
+rozstrzygała go na dwa sposoby naraz. Teraz sugestia nie przekracza celu o więcej
+niż jeden `increment`; gdy nic osiągalnego nie mieści się poniżej — `null`.
+Opcjonalny 4. parametr `allowHeavier` (deload podaje `false`).
+
+### 29.2 P9-2 — deload schodził do 71% zamiast ~90%
+`deloadTargetFor` podłogowało **dwa razy**: do `increment`, a potem w dół po
+drabince. Wyciskanie hantli płasko: 0,9 × 17,5 = 15,75 → podłoga do 2 = 14 →
+snap = **12,5 (71%)**. Na świeżym stanie 23 ćwiczenia schodziły poniżej 85%.
+Przy drabince snapujemy teraz prosto z `0,9 × cel` (bench_db → 15 = 86%);
+`increment` nie ma tam nic do rzeczy, bo to drabinka jest zbiorem realnych ciężarów.
+Gwarancja §20.2 nietknięta. **Ćwiczenia BEZ drabinki dalej potrafią wypaść nisko**
+(wyciąg: cel 7,5, krok 2,5 → 5 = 67%) — to granulacja sprzętu, jedyna alternatywa
+to 100% czyli brak deloadu. Zapisane w komentarzu, żeby kolejny audyt nie zgłaszał
+tego jako regresji.
+
+### 29.3 P9-3 (wariant A) — deload jest lżejszą wersją tygodnia, który ROBISZ
+Decyzja Kamila. Było: deload zawsze liczony od planu siłowego, więc przy treningu
+w Hipertrofii tydzień „lżejszy" kazał robić wiosłowanie 2×6–8 na 55 kg po tygodniach
+3×8–12 na 57,5 — inny trening, blisko roboczego ciężaru. Zmierzone przed zmianą
+(% realnego ciężaru hipertroficznego): wiosłowanie **96%**, ławka 94%, martwy 93%,
+przysiad 92%, OHP 92%. Po zmianie: 87/88/90/88/83%, w TYM SAMYM zakresie powtórzeń.
+
+`modeBeforeDeload(state, nowIso?)` — tryb najnowszej ukończonej sesji SPOZA deloadu;
+brak historii albo same deloady → `"strength"`, czyli dawne zachowanie. Liczone
+z HISTORII, nie z `settings.trainingMode` (przełącznik pokazuje tydzień bieżący,
+czyli „deload", a pytanie brzmi „co robiłeś do tej pory"). `exerciseForMode`,
+`deloadTargetFor` i `targetForMode` dostały **opcjonalny** `baseMode` — żaden
+z 563 istniejących testów nie wymagał przestrojenia. `rir + 2` liczy się od RIR
+tamtego trybu, wyjątek bezpieczeństwa martwego ciągu (6–8) przenosi się poprawnie.
+Ćwiczenia z jednym celem (P8-1) mają w obu ścieżkach identyczny ciężar.
+
+### 29.4 P9-4 + P9-9 — żadnych rekordów ani ocen „gorzej" w deloadzie
+Cały aparat rekordów nie znał trybu tygodnia, w przeciwieństwie do kart progresji
+(wyciszonych od P2-8): toast „Rekord!", plakietka `PR` z obwódką, karta „Rekordy tej
+sesji" i kolor kratki „ost. N". Kolor był najgorszy — `referenceEntry` celowo pomija
+deloady, więc lekka, świadomie ścięta seria porównywała się z pełnym tygodniem
+roboczym i **bursztyn był gwarantowany** (widać na obu zrzutach). Teraz w deloadzie:
+brak toastu, plakietki, obwódki i karty; kratka bez koloru (sama liczba zostaje).
+`personalBests` NIETKNIĘTE — sesje deloadowe dalej liczą się do rekordu życia; zmienia
+się tylko to, czy apka go w tym tygodniu świętuje. Do tego jedno zdanie wprost
+(P9-9): cele są zamrożone, po tym tygodniu wracasz na swoje ciężary.
+
+### 29.5 P9-5 — obciążenie ćwiczeń na czas widoczne w loggerze
+`fmtLastEntries` dla `isHold` wycinało wagę (`40/40/40/40` bez ani jednego „kg"),
+a kratka „ost. N" pokazuje same sekundy — pełny zapis istniał WYŁĄCZNIE w `title`,
+czyli w tooltipie, którego na iPhonie nie da się wywołać. Stąd oba zgłoszenia
+o planku naraz. Teraz `isHold` formatuje się tą samą regułą co reszta
+(`15×40/40/40`, różne ciężary per seria), a kratka dopisuje obciążenie, gdy różni
+się od dzisiejszego (`ost. 40 @ 10`). Reguła rekordu była poprawna od P7-6 —
+sprawdzone, `40 s @ 15 kg` przy rekordzie `40 s @ 10 kg` zwraca rekord.
+
+### 29.6 P9-6 — „Ostatnie:" oznacza tygodnie deloadu
+`lastEntries` pokazuje 3 ostatnie sesje **łącznie z deloadami**, a `referenceEntry`
+(kratka, prefill, „Do skoku ciężaru") deloady pomija — po lżejszym tygodniu dwie
+liczby na jednym ekranie opisywały różne treningi. `fmtLastEntries` dostało
+opcjonalny `markDeload` (domyślnie wyłączony) dokładający „ᴰ" + legenda w karcie.
+
+### 29.7 P9-7 — „dziś powinien wskoczyć" nie obiecuje po deloadzie
+Skrypt kazał diagnozować to na backupie Kamila, ale wariant **osiągalny w samym
+kodzie** udało się odtworzyć 1:1: `referenceEntry` pomija deloady, ALE gdy w oknie
+są SAME deloady, bierze najnowszy (fallback z §23). Wtedy `progressGoal` widzi
+komplet i ogłasza „dziś powinien wskoczyć", choć tamta sesja z definicji nie mogła
+ruszyć celu — deload ma progresję wyłączoną. `ProgressGoal.refIsDeload` + osobny,
+uczciwy komunikat. **Zastrzeżenie:** jeśli na telefonie Kamila ostatnia sesja planku
+nie była deloadem, przyczyna jest inna i trzeba zajrzeć w backup JSON (pozostałe
+hipotezy w `ZADANIA-P9.md` zostają aktualne).
+
+### 29.8 P9-8 — ręczna korekta ciężaru zapamiętana per siłownia
+Allahy w My Fitness Place: korekta 36,25 przepadała z dwóch niezależnych powodów —
+sesja była w siłowni innej niż siłownia dnia (adaptacja §24.1 celowo wyłączona)
+i tydzień deloadu nie zapisuje niczego. Nowe `GymProfile.weightOverrides`: zapis
+przy SIŁOWNI, nie przy ćwiczeniu, gdy siłownia sesji ≠ siłownia dnia i serie robocze
+poszły na jednym ciężarze. **Świadomie PRZED gałęzią deloadu w `finishSession`** —
+to informacja o sprzęcie, nie progresja; jedyny zapis, który tydzień deloadu robi.
+Powrót do ciężaru z planu KASUJE override. `startDay` podstawia go od razu, pasek
+sugestii pokazuje jako „zapisane" i ma pierwszeństwo nad wyliczoną sugestią.
+`targets`/`hyperTargets` nietknięte, bez migracji (pole startuje puste).
+
+**`weightStep` dla My Fitness Place NIE zgadywany** — wymaga realnego skoku stosu
+od Kamila. Formularz profilu (Więcej → Siłownie) ma to pole, więc da się ustawić
+bez kolejnego builda.
+
+### 29.9 Zweryfikowane w Chromium na zbudowanym `docs/index.html`
+Pełna ścieżka: tydzień Hipertrofii → Trening 1 (ławka 3×8–12 @ 42,5 · RIR 1) →
+zakończenie → przełączenie na Deload → ten sam dzień daje **2×8–12 @ 40 kg · RIR 3**
+(ten sam zakres powtórzeń co tydzień roboczy, połowa serii, 89% celu hipertrofii),
+wiosłowanie 2×8–12 @ 52,5. Zero plakietek PR, zero pokolorowanych kratek, wyjaśnienie
+deloadu widoczne, 320/360/390/430 px bez poziomego scrolla, zero błędów JS.
