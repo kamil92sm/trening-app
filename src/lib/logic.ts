@@ -673,10 +673,46 @@ export function sessionDuration(session: Session): number | null {
   return Math.round(minutes);
 }
 
-/** Epley; 1 powtórzenie = ciężar */
+/**
+ * Granica, do której ufamy Epleyowi bez korekty. Powyżej wszystkie wzory na
+ * 1RM rozjeżdżają się między sobą i systematycznie zawyżają — Epley najmocniej,
+ * bo rośnie liniowo bez końca (przy 20 powtórzeniach obiecuje +67% do ciężaru).
+ */
+const EPLEY_REP_CAP = 10;
+
+/**
+ * Mnożnik ciężaru dla danej liczby powtórzeń. Do 10 powtórzeń dokładnie Epley
+ * (`1 + reps/30`) — czyli dla całego zakresu siłowego NIC się nie zmienia.
+ * Powyżej 10 każde kolejne powtórzenie liczy się o POŁOWĘ słabiej (`/60`).
+ *
+ * Dlaczego w ogóle: CLAUDE.md §18.5 odnotowywało to jako otwarty drobiazg
+ * („Epley zawyża e1RM powyżej ~10 powt."), a Kamil trenuje w Hipertrofii,
+ * czyli w 8–12 — więc zawyżenie dotyczy WIĘKSZOŚCI jego serii roboczych,
+ * nie marginesu. Przy 12 powtórzeniach Epley dokłada +40% do ciężaru, tu +36,7%;
+ * przy 15 Epley +50%, tu +41,7%.
+ *
+ * Dlaczego nie inny gotowy wzór: Brzycki i Lander są POWYŻEJ 10 powtórzeń
+ * jeszcze bardziej agresywne od Epleya (przy 15 odpowiednio +63,6% i +72%),
+ * więc nie rozwiązują problemu. Lombardi/O'Conner są łagodniejsze, ale zrywają
+ * ciągłość z Epleyem w zakresie siłowym, czyli zmieniałyby liczby także tam,
+ * gdzie Epley jest wiarygodny. Ta funkcja jest CIĄGŁA i MONOTONICZNA, więc ma
+ * dokładną odwrotność (`weightForReps`) — a na tym stoi cel hipertrofii.
+ *
+ * Skutek dla danych: e1RM z serii powyżej 10 powtórzeń SPADA (rekordy, wykresy,
+ * standardy siłowe, projekcje). Nic nie wymaga migracji — e1RM nigdzie nie jest
+ * przechowywane, liczy się w locie z zapisanych serii, więc cała historia
+ * przelicza się spójnie. Zapisane cele (`targets`/`hyperTargets`) to kilogramy,
+ * nie e1RM — są nietknięte.
+ */
+export function repFactor(reps: number): number {
+  if (reps <= EPLEY_REP_CAP) return 1 + reps / 30;
+  return 1 + EPLEY_REP_CAP / 30 + (reps - EPLEY_REP_CAP) / 60;
+}
+
+/** Epley do 10 powtórzeń, wyżej z połową nachylenia (`repFactor`); 1 powt. = ciężar */
 export function e1rm(weight: number, reps: number): number {
   if (reps <= 1) return weight;
-  return weight * (1 + reps / 30);
+  return weight * repFactor(reps);
 }
 
 /** Najlepsze e1RM z wpisu (0 gdy brak zaliczonych serii lub hold) */
@@ -1000,9 +1036,14 @@ export function exerciseForMode(ex: Exercise, mode: TrainingMode): Exercise {
   return { ...ex, rir };
 }
 
-/** Odwrócony wzór Epleya — ciężar, przy którym `reps` powtórzeń zostawia ~`rir` w zapasie. */
+/**
+ * Odwrotność `e1rm` — ciężar, przy którym `reps` powtórzeń zostawia ~`rir`
+ * w zapasie. MUSI dzielić przez dokładnie ten sam `repFactor`, którym mnoży
+ * `e1rm`: inaczej cel hipertrofii (`hyperTargetFor`) liczyłby się innym wzorem
+ * niż e1RM, z którego wychodzi, i rozjeżdżałby się przy każdym przeliczeniu.
+ */
 export function weightForReps(e1: number, reps: number, rir: number): number {
-  return e1 / (1 + (reps + rir) / 30);
+  return e1 / repFactor(reps + rir);
 }
 
 /**
@@ -1261,7 +1302,7 @@ export function volumeProgressionSuggestions(
  */
 export function maxGainPerSession(ex: Exercise): number {
   if (ex.isHold) return ex.increment;
-  return ex.increment * (1 + ex.repMax / 30);
+  return ex.increment * repFactor(ex.repMax);
 }
 
 function linearTrendE1rm(history: HistoryPoint[], cap?: number): { slope: number; avgIntervalMs: number } {

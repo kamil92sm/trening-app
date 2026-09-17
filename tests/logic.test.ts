@@ -4,6 +4,7 @@ import {
   computeProgression,
   setVolume,
   e1rm,
+  repFactor,
   platePlan,
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
@@ -716,7 +717,7 @@ check(
 // P7-2: kolor kratki "ost. N" liczony z SILY (e1RM), nie z samych powtorzen -
 // ciezszy hantel przy mniejszej liczbie powtorzen bywa mocniejsza seria.
 check(
-  "compareSetToReference: 22,5x10 (e1RM 30,0) vs 20x12 (e1RM 28,0) -> better (screen 2, wioslowanie)",
+  "compareSetToReference: 22,5x10 (e1RM 30,0) vs 20x12 (e1RM 27,3) -> better (screen 2, wioslowanie)",
   compareSetToReference(bench, { weight: 22.5, reps: 10, done: true }, { weight: 20, reps: 12, done: true }) === "better"
 );
 check(
@@ -3874,6 +3875,54 @@ check(
     const ch = recomputeTargetsForEditedSession(st, st.sessions[0]);
     check("recompute: bench_bb w hipertrofii zapisuje do hyperTargets", ch.length === 1 && ch[0].hyper === true && ch[0].to === 42.5, ch);
   }
+}
+
+// ── e1RM: Epley tylko do 10 powtórzeń (§18.5 domknięte) ────────────────────
+{
+  const epley = (w: number, r: number) => w * (1 + r / 30);
+  const near = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
+
+  check(
+    "e1rm: do 10 powt. DOKŁADNIE Epley (zakres siłowy bez zmian)",
+    [1, 2, 3, 5, 6, 8, 9, 10].every((r) => r <= 1 || near(e1rm(60, r), epley(60, r))),
+    [5, 8, 10].map((r) => [r, e1rm(60, r), epley(60, r)])
+  );
+  check("e1rm: 1 powtórzenie = sam ciężar", e1rm(60, 1) === 60 && e1rm(60, 0) === 60);
+  check("e1rm: 11 powt. już NIŻEJ niż Epley", e1rm(60, 11) < epley(60, 11));
+  check(
+    "e1rm: 12 powt. = 60 × 1,3667 (Epley dawał 1,4)",
+    near(e1rm(60, 12), 60 * (1 + 10 / 30 + 2 / 60)) && e1rm(60, 12) < epley(60, 12)
+  );
+  check("e1rm: 20 powt. = 10% niżej niż Epley", near(e1rm(100, 20), 150) && near(epley(100, 20), 500 / 3));
+  check("e1rm: ciągłość w punkcie zgięcia (10 == 10)", near(repFactor(10), 1 + 10 / 30));
+  check(
+    "e1rm: monotoniczny — więcej powtórzeń na tym samym ciężarze to zawsze wyższe e1RM",
+    Array.from({ length: 29 }, (_, i) => i + 2).every((r) => e1rm(50, r) > e1rm(50, r - 1))
+  );
+  check(
+    "e1rm: NIGDY nie wyższy od Epleya na żadnej liczbie powtórzeń",
+    Array.from({ length: 40 }, (_, i) => i + 1).every((r) => e1rm(50, r) <= epley(50, r) + 1e-9)
+  );
+  check(
+    "weightForReps: dokładna odwrotność e1rm (na tym stoi cel hipertrofii)",
+    ([[60, 12], [45, 8], [20, 15], [100, 20], [37.5, 11]] as const).every(
+      ([w, r]) => near(weightForReps(e1rm(w, r), r, 0), w, 1e-9)
+    )
+  );
+  check(
+    "weightForReps: RIR wchodzi do liczby powtórzeń (ten sam wzór po obu stronach)",
+    near(weightForReps(100, 10, 2), 100 / repFactor(12))
+  );
+  check(
+    "maxGainPerSession: sufit projekcji liczony nowym mnożnikiem",
+    near(maxGainPerSession({ ...bench, isHold: false, increment: 2.5, repMax: 12 } as any), 2.5 * repFactor(12))
+  );
+  // Porównanie serii (P7-2) dalej rozstrzyga po sile, nie po powtórzeniach —
+  // nowy mnożnik nie może tego odwrócić dla zgłoszonego przypadku Kamila.
+  check(
+    "compareSetToReference: 22,5×10 nadal MOCNIEJSZE niż 20×12",
+    compareSetToReference(bench, { weight: 22.5, reps: 10, done: true } as any, { weight: 20, reps: 12, done: true } as any) === "better"
+  );
 }
 
 console.log(failures === 0 ? "\nWSZYSTKIE TESTY OK" : `\n${failures} TESTOW PADLO`);

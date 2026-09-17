@@ -554,7 +554,7 @@ export function ProgressScreen() {
         <CardHeader>
           <CardTitle>Postęp ćwiczenia</CardTitle>
           <CardDescription>
-            {selected?.isHold ? "Najlepszy czas (s) w kolejnych sesjach" : "Szacowany 1RM (Epley) w kolejnych sesjach"}
+            {selected?.isHold ? "Najlepszy czas (s) w kolejnych sesjach" : "Szacowany 1RM w kolejnych sesjach"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
