@@ -150,7 +150,10 @@ export function ProgressScreen() {
   // Sufit projekcji = najszybszy przyrost, jaki podwójna progresja realnie
   // dowozi dla TEGO ćwiczenia (jeden krok obciążenia na trening). Bez niego
   // ekstrapolacja pierwszych tygodni obiecywała +30-40% w trzy treningi.
-  const projectionCap = useMemo(() => (selected ? maxGainPerSession(selected) : undefined), [selected]);
+  const projectionCap = useMemo(
+    () => (selected ? maxGainPerSession(selected, state.targets[selected.id] ?? 0) : undefined),
+    [selected, state.targets]
+  );
   const projection = useMemo(
     () => projectHistory(history, 3, nowIso, projectionCap),
     [history, nowIso, projectionCap]

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowUp, Minus, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Category, Exercise, Unit } from "@/lib/types";
-import { fmtKg, plannedSets } from "@/lib/logic";
+import { fmtKg, fmtNumPl, plannedSets, effectiveIncrement } from "@/lib/logic";
 import { SEED_DAYS } from "@/lib/seed";
 import { MuscleTags } from "@/components/Gym";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -463,6 +463,34 @@ export function PlanScreen() {
                   }
                 />
               </div>
+            </div>
+            {/* Stały krok w kg daje bardzo nierówny skok względny: te same 2,5 kg
+                to 5,5% na ławce 45 kg i 2,1% na suwnicy 120 kg. Po ustawieniu
+                procentu "Przyrost (kg)" przestaje być krokiem, a zostaje
+                GRANULACJĄ — najmniejszym, co da się dołożyć na tym sprzęcie. */}
+            <div>
+              <Label>Skok % (opcjonalnie)</Label>
+              <NumberField
+                decimal
+                emptyWhenZero
+                value={editor.exercise.incrementPercent ?? 0}
+                fallback={0}
+                placeholder="np. 4"
+                onChange={(n) =>
+                  setEditor({
+                    ...editor,
+                    exercise: {
+                      ...editor.exercise,
+                      incrementPercent: n > 0 ? n : undefined,
+                    },
+                  })
+                }
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {editor.exercise.incrementPercent
+                  ? `Krok liczony z ${fmtNumPl(editor.exercise.incrementPercent)}% celu, dociągnięty do wielokrotności ${fmtKg(editor.exercise.increment)}. Przy dzisiejszym celu ${fmtKg(editor.target)} to ${fmtKg(effectiveIncrement(editor.exercise, editor.target))} (${fmtNumPl(Math.round((effectiveIncrement(editor.exercise, editor.target) / Math.max(editor.target, 1)) * 1000) / 10)}%).`
+                  : `Puste = stały krok ${fmtKg(editor.exercise.increment)} (${fmtNumPl(Math.round((editor.exercise.increment / Math.max(editor.target, 1)) * 1000) / 10)}% dzisiejszego celu).`}
+              </p>
             </div>
             <div>
               <Label>Przerwa po serii (s)</Label>

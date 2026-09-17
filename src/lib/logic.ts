@@ -451,6 +451,35 @@ export interface ProgressionResult {
 const round25 = (x: number) => Math.round(x * 100) / 100;
 
 /**
+ * Krok progresji w kg dla ciężaru, na którym ćwiczenie AKTUALNIE stoi.
+ *
+ * Bez `incrementPercent` = po prostu `ex.increment`, czyli dokładnie zachowanie
+ * sprzed tej funkcji. Z nim: `increment` przestaje być krokiem, a zostaje
+ * GRANULACJĄ (najmniejsze, co da się dołożyć na tym sprzęcie), a sam krok
+ * liczy się z procentu ciężaru roboczego i dociąga do najbliższej wielokrotności
+ * tej granulacji — nigdy poniżej jednej (mniej po prostu nie ma jak dołożyć).
+ *
+ * Po co: stały krok w kg daje nierówny skok względny i to w obie strony.
+ * 2,5 kg to 5,5% na ławce 45 kg — za ostro, stąd tygodnie szarpania się
+ * o powtórzenia; te same 2,5 kg to 2,1% na suwnicy 120 kg — za wolno, cel
+ * pełznie, chociaż nogi są gotowe na więcej. Jeden procent na ćwiczenie
+ * skaluje się razem z ciężarem, więc trzyma tempo, gdy ciężar rośnie.
+ *
+ * Zaokrąglenie idzie do NAJBLIŻSZEJ wielokrotności, nie w górę: przy celu
+ * 120 kg, granulacji 2,5 i 3% (3,6 kg) bliżej jest do 2,5 niż do 5, więc krok
+ * zostaje 2,5. Dopiero 4% (4,8 kg) daje 5 kg. Apka nie dokłada na siłę więcej,
+ * niż wynika z ustawionego procentu.
+ */
+export function effectiveIncrement(ex: Exercise, targetWeight: number): number {
+  const granularity = ex.increment > 0 ? ex.increment : 0.5;
+  const pct = ex.incrementPercent ?? 0;
+  if (pct <= 0 || targetWeight <= 0) return ex.increment;
+  const raw = (targetWeight * pct) / 100;
+  const steps = Math.max(1, Math.round(raw / granularity));
+  return round25(steps * granularity);
+}
+
+/**
  * P4-4: czy dana próba (serie) zakończyła się NIEKOMPLETEM powtórzeń z RIR 0
  * na ostatniej serii roboczej — sygnał "blisko upadku, a i tak nie wyszło".
  * Używane zarówno wewnątrz `computeProgression` (bieżąca sesja) jak i przez
@@ -571,19 +600,22 @@ export function computeProgression(
 
   if (allAtTop) {
     const dumbbellSnap = !!ladder && ladder.length > 0 && isDumbbellSnappable(ex);
+    // Krok progresji, nie granulacja sprzętu — patrz `effectiveIncrement`.
+    // Bez `ex.incrementPercent` to dosłownie `ex.increment`, jak dotąd.
+    const step = effectiveIncrement(ex, targetWeight);
     let next = dumbbellSnap
-      ? snapLoadUp(targetWeight + ex.increment, targetWeight, ladder!)
-      : round25(targetWeight + ex.increment);
+      ? snapLoadUp(targetWeight + step, targetWeight, ladder!)
+      : round25(targetWeight + step);
     let message = ex.isHold
       ? `Wszystkie serie po ${ex.repMax} ${unitWord} — dokładasz obciążenie: ${next} kg.`
       : `Wszystkie serie po ${ex.repMax} ${unitWord} — nowy ciężar ${next} kg, wracasz do ${ex.repMin} ${unitWord}`;
 
     if (lastRir !== undefined) {
-      const doubleJumpSafe = ex.id !== "deadlift" && 2 * ex.increment <= 0.15 * targetWeight;
+      const doubleJumpSafe = ex.id !== "deadlift" && 2 * step <= 0.15 * targetWeight;
       if (lastRir >= 3 && doubleJumpSafe) {
         next = dumbbellSnap
-          ? snapLoadUp(targetWeight + 2 * ex.increment, targetWeight, ladder!)
-          : round25(targetWeight + 2 * ex.increment);
+          ? snapLoadUp(targetWeight + 2 * step, targetWeight, ladder!)
+          : round25(targetWeight + 2 * step);
         message = ex.isHold
           ? `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok obciążenia: ${next} kg.`
           : `Wszystkie serie po ${ex.repMax} ${unitWord} — zostały 3+ w zapasie, podwójny skok: nowy ciężar ${next} kg.`;
@@ -1300,9 +1332,12 @@ export function volumeProgressionSuggestions(
  * krok na trening; wykres, który obiecuje i nie dowozi, zniechęca skuteczniej
  * niż brak wykresu. Sufit z samej mechaniki planu, nie z arbitralnego procentu.
  */
-export function maxGainPerSession(ex: Exercise): number {
-  if (ex.isHold) return ex.increment;
-  return ex.increment * repFactor(ex.repMax);
+export function maxGainPerSession(ex: Exercise, targetWeight?: number): number {
+  // `targetWeight` podany = sufit liczony krokiem, który progresja REALNIE
+  // dowiezie przy tym ciężarze (`incrementPercent`). Brak = jak dotąd.
+  const step = targetWeight === undefined ? ex.increment : effectiveIncrement(ex, targetWeight);
+  if (ex.isHold) return step;
+  return step * repFactor(ex.repMax);
 }
 
 function linearTrendE1rm(history: HistoryPoint[], cap?: number): { slope: number; avgIntervalMs: number } {

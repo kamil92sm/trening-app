@@ -39,7 +39,18 @@ export interface Exercise {
   repMin: number;
   repMax: number;
   targetSets: number;
+  /** Granulacja obciążenia — NAJMNIEJSZE, co da się dołożyć do tego ćwiczenia
+   *  (2,5 kg na sztandze z talerzami 1,25; szczebel drabinki dla hantli).
+   *  Domyślnie jest też krokiem progresji — patrz `incrementPercent`. */
   increment: number;
+  /** Docelowy skok progresji w PROCENTACH ciężaru roboczego (opcjonalny).
+   *  Stały krok w kg daje bardzo nierówny skok względny: 2,5 kg to 5,5% na
+   *  ławce 45 kg, ale 2,1% na suwnicy 120 kg — lekkie ćwiczenia skaczą za
+   *  ostro, ciężkie pełzną. Gdy ustawione, `effectiveIncrement()` liczy krok
+   *  z tego procentu i dociąga go do najbliższej wielokrotności `increment`
+   *  (nigdy poniżej jednego `increment` — mniej sprzęt nie pozwala dołożyć).
+   *  Brak = dokładnie dotychczasowe zachowanie (krok == `increment`). */
+  incrementPercent?: number;
   rir: number;
   primaryMuscle?: Muscle;
   secondaryMuscles?: Muscle[];

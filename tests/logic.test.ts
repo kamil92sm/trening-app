@@ -5,6 +5,7 @@ import {
   setVolume,
   e1rm,
   repFactor,
+  effectiveIncrement,
   platePlan,
   weeklyMuscleVolume,
   actualWeeklyMuscleVolume,
@@ -3922,6 +3923,69 @@ check(
   check(
     "compareSetToReference: 22,5×10 nadal MOCNIEJSZE niż 20×12",
     compareSetToReference(bench, { weight: 22.5, reps: 10, done: true } as any, { weight: 20, reps: 12, done: true } as any) === "better"
+  );
+}
+
+// ── Procentowy krok progresji (§18.5 domknięte) ────────────────────────────
+{
+  const full = (reps: number, n: number) =>
+    Array.from({ length: n }, () => ({ weight: 0, reps, done: true })) as any[];
+
+  const legPress = { ...bench, id: "leg_press", increment: 2.5, targetSets: 3, repMin: 8, repMax: 12 } as any;
+
+  check(
+    "effectiveIncrement: bez incrementPercent = dokładnie ex.increment",
+    effectiveIncrement(legPress, 120) === 2.5 && effectiveIncrement(legPress, 20) === 2.5
+  );
+  check(
+    "effectiveIncrement: 4% ze 120 kg (4,8) dociąga do 5 kg",
+    effectiveIncrement({ ...legPress, incrementPercent: 4 }, 120) === 5
+  );
+  check(
+    "effectiveIncrement: 3% ze 120 kg (3,6) zostaje 2,5 — bliżej niż do 5",
+    effectiveIncrement({ ...legPress, incrementPercent: 3 }, 120) === 2.5
+  );
+  check(
+    "effectiveIncrement: nigdy poniżej jednej granulacji (1% z 45 kg = 0,45)",
+    effectiveIncrement({ ...legPress, incrementPercent: 1 }, 45) === 2.5
+  );
+  check(
+    "effectiveIncrement: procent skaluje się razem z ciężarem",
+    effectiveIncrement({ ...legPress, incrementPercent: 4 }, 200) === 7.5 &&
+      effectiveIncrement({ ...legPress, incrementPercent: 4 }, 60) === 2.5
+  );
+  check(
+    "effectiveIncrement: zerowy/ujemny procent i zerowy cel = zachowanie bazowe",
+    effectiveIncrement({ ...legPress, incrementPercent: 0 }, 120) === 2.5 &&
+      effectiveIncrement({ ...legPress, incrementPercent: -5 }, 120) === 2.5 &&
+      effectiveIncrement({ ...legPress, incrementPercent: 4 }, 0) === 2.5
+  );
+
+  const up = computeProgression({ ...legPress, incrementPercent: 4 }, 120, full(12, 3));
+  check("progresja: komplet na 120 kg przy 4% daje 125 kg (nie 122,5)", up.status === "up" && up.nextWeight === 125, up);
+  const upFlat = computeProgression(legPress, 120, full(12, 3));
+  check("progresja: to samo bez procentu dalej daje 122,5 kg", upFlat.status === "up" && upFlat.nextWeight === 122.5, upFlat);
+
+  // Podwójny skok przy RIR 3 liczy się z tego samego kroku, więc bezpiecznik
+  // 15% ciężaru nadal pilnuje sensownej granicy.
+  const dbl = computeProgression({ ...legPress, incrementPercent: 4 }, 120, full(12, 3), 3);
+  check("progresja: podwójny skok przy RIR 3 to 2 × krok procentowy (130 kg)", dbl.nextWeight === 130, dbl);
+  const tooBig = computeProgression({ ...legPress, incrementPercent: 10 }, 40, full(12, 3), 3);
+  check(
+    "progresja: bezpiecznik 15% blokuje podwójny skok, gdy krok procentowy jest duży",
+    tooBig.nextWeight === 45,
+    tooBig
+  );
+
+  check(
+    "maxGainPerSession: z podanym celem liczy sufit krokiem procentowym",
+    Math.abs(
+      maxGainPerSession({ ...legPress, incrementPercent: 4 } as any, 120) - 5 * repFactor(12)
+    ) < 1e-9
+  );
+  check(
+    "maxGainPerSession: bez celu = dotychczasowe zachowanie",
+    Math.abs(maxGainPerSession({ ...legPress, incrementPercent: 4 } as any) - 2.5 * repFactor(12)) < 1e-9
   );
 }
 
